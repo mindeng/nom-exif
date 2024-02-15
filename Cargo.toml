@@ -2,6 +2,13 @@
 name = "nom-exif"
 version = "0.1.0"
 edition = "2021"
+license-file = "LICENSE"
+description = "Exif/metadata parsing library written in pure Rust, both JPEG/HEIF/HEIC images and MOV/MP4 videos are supported."
+homepage = "https://github.com/mindeng/nom-exif"
+repository = "https://github.com/mindeng/nom-exif"
+exclude = [
+    "testdata/*",
+]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
