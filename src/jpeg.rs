@@ -8,8 +8,7 @@ use crate::{
 };
 
 /// Analyze the byte stream in the `reader` as a JPEG file, attempting to
-/// extract any possible Exif information it may contain, and return it in the
-/// form of key-value pairs.
+/// extract Exif data it may contain.
 ///
 /// Please note that the parsing routine itself provides a buffer, so the
 /// `reader` may not need to be wrapped with `BufRead`.

@@ -12,8 +12,11 @@ use crate::{
     exif::check_exif_header,
 };
 
-/// parse a HEIF/HEIC file from `reader`, extract the exif information of the
-/// specified `tags`.
+/// Analyze the byte stream in the `reader` as a HEIF/HEIC file, attempting to
+/// extract Exif data it may contain.
+///
+/// Please note that the parsing routine itself provides a buffer, so the
+/// `reader` may not need to be wrapped with `BufRead`.
 ///
 /// # Usage
 ///

@@ -14,8 +14,10 @@ use serde::{Deserialize, Serialize};
 ///
 /// # Structure of IFD Entry
 ///
+/// ```txt
 /// | 2   | 2           | 4              | 4                      |
 /// | tag | data format | components num | data (value or offset) |
+/// ```
 ///
 /// # Data size
 ///
@@ -28,6 +30,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// # Data format
 ///
+/// ```txt
 /// | Value           |             1 |             2 |              3 |               4 |                 5 |            6 |
 /// |-----------------+---------------+---------------+----------------+-----------------+-------------------+--------------|
 /// | Format          | unsigned byte | ascii strings | unsigned short |   unsigned long | unsigned rational |  signed byte |
@@ -35,6 +38,7 @@ use serde::{Deserialize, Serialize};
 /// | Value           |             7 |             8 |              9 |              10 |                11 |           12 |
 /// | Format          |     undefined |  signed short |    signed long | signed rational |      single float | double float |
 /// | Bytes/component |             1 |             2 |              4 |               8 |                 4 |            8 |
+/// ```
 ///
 /// See: [Exif](https://www.media.mit.edu/pia/Research/deepview/exif.html).
 #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
