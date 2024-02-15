@@ -107,3 +107,8 @@ assert_eq!(
 ("com.apple.quicktime.creationdate", Text("2019-02-12T15:27:12+08:00"))"#
 );
 ```
+
+## Docs
+
+- [docs.rs](https://docs.rs/nom-exif/latest/)
+- [examples](examples/)
