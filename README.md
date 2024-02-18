@@ -31,5 +31,5 @@ Exif/metadata parsing library written in pure Rust with [nom](https://github.com
 
 - [`parse_heif_exif`](https://docs.rs/nom-exif/latest/nom_exif/fn.parse_heif_exif.html)
 - [`parse_jpeg_exif`](https://docs.rs/nom-exif/latest/nom_exif/fn.parse_jpeg_exif.html)
-- [`parse_mov_metadata`](https://docs.rs/nom-exif/latest/nom_exif/fn.parse_mov_metadata.html)
+- [`parse_metadata`](https://docs.rs/nom-exif/latest/nom_exif/fn.parse_metadata.html)
 - [examples](examples/)
