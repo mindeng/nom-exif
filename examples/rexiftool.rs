@@ -167,7 +167,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
         "mov" => {
-            let mut meta = nom_exif::parse_mov_metadata(&mut reader)?;
+            let mut meta = nom_exif::parse_metadata(&mut reader)?;
+            meta.sort_by(|(ref x, _), (ref y, _)| x.cmp(y));
+            meta.iter().for_each(|x| {
+                println!("{:<50}-> {}", x.0, x.1);
+            });
+        }
+        "mp4" => {
+            let mut meta = nom_exif::parse_metadata(&mut reader)?;
             meta.sort_by(|(ref x, _), (ref y, _)| x.cmp(y));
             meta.iter().for_each(|x| {
                 println!("{:<50}-> {}", x.0, x.1);

@@ -62,7 +62,9 @@ pub fn parse_heif_exif<R: Read + Seek>(mut reader: R) -> crate::Result<Option<Ex
         Err("file is empty")?;
     }
 
-    let ftyp = get_ftyp(&buf)?;
+    let Some(ftyp) = get_ftyp(&buf)? else {
+        return Err(format!("unsupported HEIF/HEIC file; ftyp not found").into());
+    };
     if !HEIF_FTYPS.contains(&ftyp) {
         Err(format!("unsupported HEIF/HEIC file; ftyp: {ftyp:?}"))?;
     }

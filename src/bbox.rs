@@ -273,58 +273,26 @@ fn parse_cstr(input: &[u8]) -> IResult<&[u8], String> {
     Ok((&remain[1..], s))
 }
 
-pub fn first_effective_box(input: &[u8]) -> crate::Result<BoxHolder> {
-    let remain = input;
-    let (remain, bbox) =
-        BoxHolder::parse(remain).map_err(|_| "Invalid ISOBMFF file; parse box failed")?;
+pub fn get_ftyp(input: &[u8]) -> crate::Result<Option<&[u8]>> {
+    let (remain, header) = travel_header(input, |h, _| {
+        // MOV files that extracted from HEIC starts with `wide` & `mdat` atoms
+        h.box_type != "ftyp" && h.box_type != "mdat"
+    })?;
 
-    match bbox.box_type() {
-        "ftyp" => {
-            if bbox.body_data().len() < 4 {
-                Err(format!(
-                    "ftyp body should be 4 bytes, got {} bytes",
-                    bbox.body_data().len()
-                )
-                .into())
-            } else {
-                Ok(bbox)
-            }
-        }
+    assert!(header.box_type == "ftyp" || header.box_type == "mdat");
 
-        // consumes `wide` header and continue to parse the next box
-        "wide" => {
-            if bbox.body_data().len() != 0 {
-                Err(format!(
-                    "wide body should be empty, got {} bytes",
-                    bbox.body_data().len()
-                )
-                .into())
-            } else {
-                first_effective_box(remain)
-            }
-        }
-
-        t => Err(format!("Unsupported ISOBMFF file; invalid box type: {t}").into()),
-    }
-}
-
-pub fn get_ftyp(input: &[u8]) -> crate::Result<&[u8]> {
-    let bbox = first_effective_box(input)?;
-    if bbox.box_type() == "ftyp" {
-        if bbox.body_data().len() < 4 {
+    if header.box_type == "ftyp" {
+        if header.body_size() < 4 {
             return Err(format!(
                 "Invalid ftyp box; body size should greater than 4, got {}",
-                bbox.body_data().len()
+                header.body_size()
             )
             .into());
         }
-        Ok(&bbox.body_data()[..4])
+        let (_, ftyp) = streaming::take(4 as usize)(remain)?;
+        Ok(Some(ftyp))
     } else {
-        Err(format!(
-            "Unsupported ISOBMFF file; got box type `{}` instead of `ftyp`.",
-            bbox.box_type()
-        )
-        .into())
+        Ok(None)
     }
 }
 
