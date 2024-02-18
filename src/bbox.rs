@@ -400,6 +400,88 @@ mod tests {
         assert_eq!(boxes, ["hdlr", "keys", "ilst"],);
     }
 
+    #[test_case("meta.mp4")]
+    fn travel_mp4(path: &str) {
+        let mut reader = open_sample(path).unwrap();
+        let mut buf = Vec::new();
+        reader.read_to_end(buf.as_mut()).unwrap();
+        let mut boxes = Vec::new();
+
+        let (remain, bbox) = travel_while(&buf, |bbox| {
+            println!("got {}", bbox.header.box_type);
+            boxes.push((bbox.header.box_type.to_owned(), bbox.to_owned()));
+            bbox.box_type() != "moov"
+        })
+        .unwrap();
+
+        assert_eq!(bbox.header.box_type, "moov");
+        assert_eq!(remain, b"");
+
+        let (types, _): (Vec<_>, Vec<_>) = boxes.iter().cloned().unzip();
+
+        // top level boxes
+        assert_eq!(types, ["ftyp", "mdat", "moov"],);
+
+        let (_, moov) = boxes.pop().unwrap();
+        assert_eq!(moov.box_type(), "moov");
+
+        let mut boxes = Vec::new();
+        let (remain, bbox) = travel_while(moov.body_data(), |bbox| {
+            println!("got {}", bbox.header.box_type);
+            boxes.push((bbox.header.box_type.to_owned(), bbox.to_owned()));
+            bbox.box_type() != "udta"
+        })
+        .unwrap();
+        assert_eq!(bbox.box_type(), "udta");
+        assert_eq!(remain, b"");
+
+        // sub-boxes in moov
+        assert_eq!(
+            boxes.iter().map(|x| x.0.to_owned()).collect::<Vec<_>>(),
+            ["mvhd", "trak", "trak", "udta"],
+        );
+
+        let (_, trak) = boxes.iter().find(|x| x.0 == "trak").unwrap();
+
+        let meta = bbox;
+        let mut boxes = Vec::new();
+        let (remain, _) = travel_while(meta.body_data(), |bbox| {
+            println!("got {}", bbox.header.box_type);
+            boxes.push(bbox.header.box_type.to_owned());
+            bbox.box_type() != "©xyz"
+        })
+        .unwrap();
+        assert_eq!(remain, b"");
+
+        // sub-boxes in udta
+        assert_eq!(boxes, ["©xyz"],);
+
+        let mut boxes = Vec::new();
+        let (remain, bbox) = travel_while(trak.body_data(), |bbox| {
+            println!("got {}", bbox.header.box_type);
+            boxes.push(bbox.header.box_type.to_owned());
+            bbox.box_type() != "mdia"
+        })
+        .unwrap();
+        assert_eq!(remain, b"");
+
+        // sub-boxes in trak
+        assert_eq!(boxes, ["tkhd", "edts", "mdia"],);
+
+        let mdia = bbox;
+        let mut boxes = Vec::new();
+        let (remain, _) = travel_while(mdia.body_data(), |bbox| {
+            println!("got {}", bbox.header.box_type);
+            boxes.push(bbox.header.box_type.to_owned());
+            bbox.box_type() != "minf"
+        })
+        .unwrap();
+        assert_eq!(remain, b"");
+
+        // sub-boxes in mdia
+        assert_eq!(boxes, ["mdhd", "hdlr", "minf"],);
+    }
+
     // For mp4 files, Android phones store GPS info in the `moov/udta/©xyz`
     // atom.
     #[test_case("meta.mp4")]
