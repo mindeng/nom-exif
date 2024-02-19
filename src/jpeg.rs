@@ -259,15 +259,22 @@ mod tests {
             ]
         );
 
+        let mut entries = exif
+            .get_values(&[CreateDate, ModifyDate])
+            .into_iter()
+            .map(|x| (x.0.to_string(), x.1.to_string()))
+            .collect::<Vec<_>>();
+        entries.sort();
+
         assert_eq!(
-            exif.get_values(&[CreateDate, ModifyDate]),
+            entries,
             [
-                (&CreateDate, "2023:07:09 20:36:33"),
-                (&ModifyDate, "2023:07:09 20:36:33"),
+                ("CreateDate(0x9004)", "2023:07:09 20:36:33"),
+                ("ModifyDate(0x0132)", "2023:07:09 20:36:33")
             ]
             .into_iter()
-            .map(|x| (x.0, x.1.into()))
-            .collect::<HashMap<_, _>>()
+            .map(|x| (x.0.to_string(), x.1.to_string()))
+            .collect::<Vec<_>>()
         );
 
         assert_eq!(

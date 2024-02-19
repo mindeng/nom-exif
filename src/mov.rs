@@ -9,7 +9,8 @@ use thiserror::Error;
 
 use crate::{
     bbox::{
-        find_box, get_ftyp, travel_header, travel_while, IlstBox, IlstItemValue, KeysBox, ParseBox,
+        find_box, get_ftyp, parse_video_tkhd_in_moov, travel_header, travel_while, IlstBox,
+        IlstItemValue, KeysBox, MvhdBox, ParseBox,
     },
     file::FileType,
 };
@@ -76,6 +77,35 @@ pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, I
                 ))
             }
         }
+    }
+
+    let (_, bbox) = find_box(&moov_body, "mvhd")?;
+    if let Some(bbox) = bbox {
+        let (_, mvhd) = MvhdBox::parse_box(bbox.data)?;
+
+        entries.push((
+            "duration".to_owned(),
+            IlstItemValue::U32(mvhd.duration_ms()),
+        ));
+
+        if entries
+            .iter()
+            .find(|x| x.0.contains("creationdate"))
+            .is_none()
+        {
+            entries.push((
+                "creationdate".to_owned(),
+                IlstItemValue::Text(
+                    mvhd.creation_time_utc()
+                        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                ),
+            ));
+        }
+    }
+
+    if let Ok(tkhd) = parse_video_tkhd_in_moov(&moov_body) {
+        entries.push(("width".to_owned(), IlstItemValue::U32(tkhd.width)));
+        entries.push(("height".to_owned(), IlstItemValue::U32(tkhd.height)));
     }
 
     Ok(entries)
@@ -302,6 +332,34 @@ fn parse_moov_body(remain: &[u8]) -> IResult<&[u8], Vec<(String, IlstItemValue)>
     Ok((remain, entries))
 }
 
+/// Change timezone format from iso 8601 to rfc3339, e.g.:
+///
+/// - `2023-11-02T19:58:34+08` -> `2023-11-02T19:58:34+08:00`
+/// - `2023-11-02T19:58:34+0800` -> `2023-11-02T19:58:34+08:00`
+fn tz_iso_8601_to_rfc3339(s: String) -> String {
+    use regex::Regex;
+
+    let ss = s.trim();
+    let re = Regex::new(r"([+-][0-9][0-9])([0-9][0-9])?$").unwrap();
+
+    if let Some((offset, tz)) = re.captures(ss).map(|caps| {
+        (
+            caps.get(1).unwrap().start(),
+            format!(
+                "{}:{}",
+                caps.get(1).map_or("00", |m| m.as_str()),
+                caps.get(2).map_or("00", |m| m.as_str())
+            ),
+        )
+    }) {
+        let s1 = &ss.as_bytes()[..offset];
+        let s2 = tz.as_bytes();
+        s1.iter().chain(s2.iter()).map(|x| *x as char).collect()
+    } else {
+        s
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -322,7 +380,10 @@ mod tests {
 (\"com.apple.quicktime.model\", Text(\"iPhone X\"))
 (\"com.apple.quicktime.software\", Text(\"12.1.2\"))
 (\"com.apple.quicktime.location.ISO6709\", Text(\"+27.1281+100.2508+000.000/\"))
-(\"com.apple.quicktime.creationdate\", Text(\"2019-02-12T15:27:12+08:00\"))"
+(\"com.apple.quicktime.creationdate\", Text(\"2019-02-12T15:27:12+08:00\"))
+(\"duration\", U32(500))
+(\"width\", U32(720))
+(\"height\", U32(1280))"
         );
     }
 
@@ -355,7 +416,11 @@ mod tests {
                 .map(|x| format!("{x:?}"))
                 .collect::<Vec<_>>()
                 .join("\n"),
-            "(\"com.apple.quicktime.location.ISO6709\", Text(\"+27.2939+112.6932/\"))"
+            "(\"com.apple.quicktime.location.ISO6709\", Text(\"+27.2939+112.6932/\"))
+(\"duration\", U32(1063))
+(\"creationdate\", Text(\"2024-02-03T07:05:38Z\"))
+(\"width\", U32(1920))
+(\"height\", U32(1080))"
         );
     }
 
@@ -369,7 +434,7 @@ mod tests {
                 .collect::<Vec<_>>()
                 .join("\n"),
             "(\"com.apple.quicktime.location.accuracy.horizontal\", Text(\"14.235563\"))
-(\"com.apple.quicktime.live-photo.auto\", U64(1))
+(\"com.apple.quicktime.live-photo.auto\", U32(1))
 (\"com.apple.quicktime.content.identifier\", Text(\"DA1A7EE8-0925-4C9F-9266-DDA3F0BB80F0\"))
 (\"com.apple.quicktime.live-photo.vitality-score\", F64(0.9388400316238403))
 (\"com.apple.quicktime.live-photo.vitality-scoring-version\", I64(4))
@@ -377,7 +442,28 @@ mod tests {
 (\"com.apple.quicktime.make\", Text(\"Apple\"))
 (\"com.apple.quicktime.model\", Text(\"iPhone 15 Pro\"))
 (\"com.apple.quicktime.software\", Text(\"17.1\"))
-(\"com.apple.quicktime.creationdate\", Text(\"2023-11-02T19:58:34+0800\"))"
+(\"com.apple.quicktime.creationdate\", Text(\"2023-11-02T19:58:34+0800\"))
+(\"duration\", U32(2795))
+(\"width\", U32(1920))
+(\"height\", U32(1440))"
         );
+    }
+
+    #[test]
+    fn test_iso_8601_tz_to_rfc3339() {
+        let s = "2023-11-02T19:58:34+08".to_string();
+        assert_eq!(tz_iso_8601_to_rfc3339(s), "2023-11-02T19:58:34+08:00");
+
+        let s = "2023-11-02T19:58:34+0800".to_string();
+        assert_eq!(tz_iso_8601_to_rfc3339(s), "2023-11-02T19:58:34+08:00");
+
+        let s = "2023-11-02T19:58:34+08:00".to_string();
+        assert_eq!(tz_iso_8601_to_rfc3339(s), "2023-11-02T19:58:34+08:00");
+
+        let s = "2023-11-02T19:58:34Z".to_string();
+        assert_eq!(tz_iso_8601_to_rfc3339(s), "2023-11-02T19:58:34Z");
+
+        let s = "2023-11-02T19:58:34".to_string();
+        assert_eq!(tz_iso_8601_to_rfc3339(s), "2023-11-02T19:58:34");
     }
 }

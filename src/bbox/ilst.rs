@@ -53,7 +53,7 @@ impl IlstItem {
         let (remain, (size, index, data_len, _, type_set, type_code, local)) =
             tuple((be_u32, be_u32, be_u32, tag("data"), u8, be_u24, be_u32))(input)?;
 
-        assert_eq!(size - 24, data_len - 16, "xxx {index}");
+        assert_eq!(size - 24, data_len - 16);
         if data_len < 16 {
             context("invalid ilst item", fail::<_, (), _>)(remain)?;
         }
@@ -82,7 +82,10 @@ pub enum IlstItemValue {
     Text(String),
     F64(f64),
     U64(u64),
+    U32(u32),
+    U16(u16),
     I64(i64),
+    I32(i32),
 }
 
 impl Display for IlstItemValue {
@@ -92,6 +95,9 @@ impl Display for IlstItemValue {
             IlstItemValue::F64(v) => v.fmt(f),
             IlstItemValue::U64(v) => v.fmt(f),
             IlstItemValue::I64(v) => v.fmt(f),
+            IlstItemValue::U32(v) => v.fmt(f),
+            IlstItemValue::I32(v) => v.fmt(f),
+            IlstItemValue::U16(v) => v.fmt(f),
         }
     }
 }
@@ -105,36 +111,30 @@ fn parse_value(type_code: u32, data: &[u8]) -> crate::Result<IlstItemValue> {
             let s = String::from_utf8(data.to_vec())?;
             Text(s)
         }
-        21 => {
-            let v = match data.len() {
-                1 => data[0] as i64,
-                2 => be_i16(data)?.1 as i64,
-                3 => be_i24(data)?.1 as i64,
-                4 => be_i32(data)?.1 as i64,
-                8 => be_i64(data)?.1,
-                x => {
-                    let msg = format!("Invalid ilst item data; data type is BE Signed Integer while data len is : {x}");
-                    eprintln!("{msg}");
-                    return Err(msg.into());
-                }
-            };
-            I64(v)
-        }
-        22 => {
-            let v = match data.len() {
-                1 => data[0] as u64,
-                2 => be_u16(data)?.1 as u64,
-                3 => be_u24(data)?.1 as u64,
-                4 => be_u32(data)?.1 as u64,
-                8 => be_u64(data)?.1,
-                x => {
-                    let msg = format!("Invalid ilst item data; data type is BE Unsigned Integer while data len is : {x}");
-                    eprintln!("{msg}");
-                    return Err(msg.into());
-                }
-            };
-            U64(v)
-        }
+        21 => match data.len() {
+            1 => I32(data[0] as i32),
+            2 => I32(be_i16(data)?.1 as i32),
+            3 => I32(be_i24(data)?.1 as i32),
+            4 => I32(be_i32(data)?.1 as i32),
+            8 => I64(be_i64(data)?.1),
+            x => {
+                let msg = format!("Invalid ilst item data; data type is BE Signed Integer while data len is : {x}");
+                eprintln!("{msg}");
+                return Err(msg.into());
+            }
+        },
+        22 => match data.len() {
+            1 => U32(data[0] as u32),
+            2 => U32(be_u16(data)?.1 as u32),
+            3 => U32(be_u24(data)?.1 as u32),
+            4 => U32(be_u32(data)?.1 as u32),
+            8 => U64(be_u64(data)?.1),
+            x => {
+                let msg = format!("Invalid ilst item data; data type is BE Unsigned Integer while data len is : {x}");
+                eprintln!("{msg}");
+                return Err(msg.into());
+            }
+        },
         23 => {
             let (_, v) = be_f32(data)?;
             F64(v as f64)
@@ -215,7 +215,7 @@ mod tests {
             s,
             "
 IlstItem { size: 33, index: 1, data_len: 25, type_set: 0, type_code: 1, local: 0, value: Text(\"14.235563\") }
-IlstItem { size: 25, index: 2, data_len: 17, type_set: 0, type_code: 22, local: 0, value: U64(1) }
+IlstItem { size: 25, index: 2, data_len: 17, type_set: 0, type_code: 22, local: 0, value: U32(1) }
 IlstItem { size: 60, index: 3, data_len: 52, type_set: 0, type_code: 1, local: 0, value: Text(\"DA1A7EE8-0925-4C9F-9266-DDA3F0BB80F0\") }
 IlstItem { size: 28, index: 4, data_len: 20, type_set: 0, type_code: 23, local: 0, value: F64(0.9388400316238403) }
 IlstItem { size: 32, index: 5, data_len: 24, type_set: 0, type_code: 21, local: 0, value: I64(4) }

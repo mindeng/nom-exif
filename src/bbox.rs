@@ -14,10 +14,13 @@ mod ilst;
 mod keys;
 mod meta;
 mod mvhd;
+mod tkhd;
 pub use ilst::IlstBox;
 pub use ilst::IlstItemValue;
 pub use keys::KeysBox;
 pub use meta::MetaBox;
+pub use mvhd::MvhdBox;
+pub use tkhd::parse_video_tkhd_in_moov;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {

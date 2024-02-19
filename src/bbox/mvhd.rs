@@ -1,3 +1,4 @@
+use chrono::{DateTime, Duration, Local, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use nom::{bytes::complete::take, number::complete::be_u32, sequence::tuple};
 
 use super::{FullBoxHeader, ParseBody};
@@ -10,7 +11,7 @@ use super::{FullBoxHeader, ParseBody};
 ///
 /// [1]: https://developer.apple.com/documentation/quicktime-file-format/movie_header_atom
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct MvhdBox {
+pub struct MvhdBox {
     header: FullBoxHeader,
 
     /// seconds since midnight, January 1, 1904
@@ -31,6 +32,28 @@ struct MvhdBox {
     duration: u32,
     // omit 76 bytes...
     next_track_id: u32,
+}
+
+impl MvhdBox {
+    pub fn duration_ms(&self) -> u32 {
+        (self.duration * 1000) / (self.time_scale)
+    }
+
+    pub fn creation_time(&self) -> NaiveDateTime {
+        NaiveDate::from_ymd_opt(1904, 1, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+            + Duration::seconds(self.creation_time as i64)
+    }
+
+    #[allow(dead_code)]
+    pub fn creation_time_local(&self) -> DateTime<Local> {
+        Local.from_utc_datetime(&self.creation_time())
+    }
+    pub fn creation_time_utc(&self) -> DateTime<Utc> {
+        self.creation_time().and_utc()
+    }
 }
 
 impl ParseBody<MvhdBox> for MvhdBox {
@@ -59,19 +82,19 @@ mod tests {
     use crate::bbox::{travel_while, ParseBox};
 
     use super::*;
-    use chrono::{Duration, FixedOffset, NaiveDate};
+    use chrono::FixedOffset;
     use test_case::test_case;
 
     #[test_case(
         "meta.mov",
         "2024-02-02T08:09:57.000000Z",
-        "2024-02-02T16:09:57.000000+08:00",
+        "2024-02-02T16:09:57+08:00",
         500
     )]
     #[test_case(
         "meta.mp4",
         "2024-02-03T07:05:38.000000Z",
-        "2024-02-03T15:05:38.000000+08:00",
+        "2024-02-03T15:05:38+08:00",
         1063
     )]
     fn mvhd_box(path: &str, time_utc: &str, time_east8: &str, milliseconds: u32) {
@@ -83,16 +106,11 @@ mod tests {
         let (_, bbox) = travel_while(bbox.body_data(), |b| b.box_type() != "mvhd").unwrap();
         let (_, mvhd) = MvhdBox::parse_box(bbox.data).unwrap();
 
-        assert_eq!((mvhd.duration * 1000) / (mvhd.time_scale), milliseconds);
+        assert_eq!(mvhd.duration_ms(), milliseconds);
 
         // time is represented in seconds since midnight, January 1, 1904,
         // preferably using coordinated universal time (UTC).
-        let created = NaiveDate::from_ymd_opt(1904, 1, 1)
-            .unwrap()
-            .and_hms_opt(0, 0, 0)
-            .unwrap()
-            + Duration::seconds(mvhd.creation_time as i64);
-        let created = created.and_utc();
+        let created = mvhd.creation_time_utc();
         assert_eq!(
             created.to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
             time_utc
@@ -100,7 +118,7 @@ mod tests {
         assert_eq!(
             created
                 .with_timezone(&FixedOffset::east_opt(8 * 3600).unwrap())
-                .to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
+                .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
             time_east8
         );
     }

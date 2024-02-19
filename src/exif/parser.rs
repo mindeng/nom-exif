@@ -380,37 +380,41 @@ mod tests {
             {
                 let mut x = entries
                     .into_iter()
-                    .collect::<Vec<(&ExifTag, IfdEntryValue)>>();
+                    .map(|x| (x.0.to_string(), x.1.to_string()))
+                    .collect::<Vec<(String, String)>>();
                 // Sort by alphabetical order of keys.
-                x.sort_by(|a, b| a.0.to_string().cmp(&b.0.to_string()));
+                x.sort_by(|a, b| a.0.cmp(&b.0));
                 x
             },
             [
-                (&CreateDate, "2023:07:09 20:36:33".into()),
-                (&DateTimeOriginal, "2023:07:09 20:36:33".into()),
-                (&ExifImageHeight, 4096.into()),
-                (&ExifImageWidth, 3072.into()),
-                (&ExposureTime, (9997u32, 1000000u32).into()),
-                (&FNumber, (175u32, 100u32).into()),
-                (&GPSAltitude, (0u32, 1u32).into()),
-                (&GPSAltitudeRef, 0u32.into()),
-                (&GPSLatitude, (22, 1).into()),
-                (&GPSLatitudeRef, "N".into()),
-                (&GPSLongitude, (114, 1).into()),
-                (&GPSLongitudeRef, "E".into()),
-                (&ISOSpeedRatings, 454.into()),
-                (&ImageHeight, 4096.into()),
-                (&ImageWidth, 3072.into()),
-                (&Make, "vivo".into()),
-                (&Model, "vivo X90 Pro+".into()),
-                (&ModifyDate, "2023:07:09 20:36:33".into()),
-                (&OffsetTime, "+08:00".into()),
-                (&OffsetTimeOriginal, "+08:00".into()),
-                (&ResolutionUnit, 2u32.into()),
-                (&ShutterSpeedValue, (6644, 1000).into()),
-                (&XResolution, (72u32, 1u32).into()),
-                (&YResolution, (72u32, 1u32).into()),
+                ("CreateDate(0x9004)", "2023:07:09 20:36:33"),
+                ("DateTimeOriginal(0x9003)", "2023:07:09 20:36:33"),
+                ("ExifImageHeight(0xa003)", "4096"),
+                ("ExifImageWidth(0xa002)", "3072"),
+                ("ExposureTime(0x829a)", "9997/1000000 (0.0100)"),
+                ("FNumber(0x829d)", "175/100 (1.7500)"),
+                ("GPSAltitude(0x0006)", "0/1 (0.0000)"),
+                ("GPSAltitudeRef(0x0005)", "0"),
+                ("GPSLatitude(0x0002)", "22/1 (22.0000)"),
+                ("GPSLatitudeRef(0x0001)", "N"),
+                ("GPSLongitude(0x0004)", "114/1 (114.0000)"),
+                ("GPSLongitudeRef(0x0003)", "E"),
+                ("ISOSpeedRatings(0x8827)", "454"),
+                ("ImageHeight(0x0101)", "4096"),
+                ("ImageWidth(0x0100)", "3072"),
+                ("Make(0x010f)", "vivo"),
+                ("Model(0x0110)", "vivo X90 Pro+"),
+                ("ModifyDate(0x0132)", "2023:07:09 20:36:33"),
+                ("OffsetTime(0x9010)", "+08:00"),
+                ("OffsetTimeOriginal(0x9011)", "+08:00"),
+                ("ResolutionUnit(0x0128)", "2"),
+                ("ShutterSpeedValue(0x9201)", "6644/1000 (6.6440)"),
+                ("XResolution(0x011a)", "72/1 (72.0000)"),
+                ("YResolution(0x011b)", "72/1 (72.0000)"),
             ]
+            .iter()
+            .map(|x| (x.0.to_string(), x.1.to_string()))
+            .collect::<Vec<_>>()
         );
     }
 

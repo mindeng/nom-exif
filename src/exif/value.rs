@@ -95,52 +95,8 @@ impl From<(i32, i32)> for IfdEntryValue {
     }
 }
 
-// Enable if parse_values feature is activated, or in test mode.
-#[cfg(any(feature = "parse_values", test))]
 use std::str::FromStr;
 
-// Enable if parse_values feature is activated, or in test mode.
-#[cfg(any(feature = "parse_values", test))]
-impl FromStr for IfdEntryValue {
-    type Err = Box<dyn std::error::Error>;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let s = s.trim();
-        let (prefix, _) = s
-            .find('(')
-            .map(|i| s.split_at(i))
-            .ok_or_else(|| "invalid IfdEntryValue")?;
-
-        let value = match prefix {
-            "URational" => extract_in_parenthesis(s, "URational")
-                .map(|x| x.parse::<URational>().map(|v| IfdEntryValue::URational(v)))??,
-
-            "IRational" => extract_in_parenthesis(s, "IRational")
-                .map(|x| x.parse::<IRational>().map(|v| IfdEntryValue::IRational(v)))??,
-
-            "U32" => extract_in_parenthesis(s, "U32")
-                .map(|x| x.parse::<u32>().map(|v| IfdEntryValue::U32(v)))??,
-
-            "Text" => {
-                let inner = extract_in_parenthesis(s, "Text")?;
-                inner
-                    .trim()
-                    .strip_prefix('\"')
-                    .and_then(|v| v.strip_suffix('\"'))
-                    .map(|v| IfdEntryValue::Text(v.to_string()))
-                    .ok_or_else(|| {
-                        crate::error::ParseFailed("invalid Text value; quotes are missing".into())
-                    })?
-            }
-
-            x => format!("invalid IfdEntryValue type: {x}").into(),
-        };
-
-        Ok(value)
-    }
-}
-
-// Enable if parse_values feature is activated, or in test mode.
-#[cfg(any(feature = "parse_values", test))]
 impl FromStr for URational {
     type Err = Box<dyn std::error::Error>;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -149,7 +105,6 @@ impl FromStr for URational {
     }
 }
 
-#[cfg(any(feature = "parse_values", test))]
 impl FromStr for IRational {
     type Err = Box<dyn std::error::Error>;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -158,7 +113,6 @@ impl FromStr for IRational {
     }
 }
 
-#[cfg(any(feature = "parse_values", test))]
 fn inner_to_vec<T: FromStr + Default + Copy, const N: usize>(
     s: &str,
     token: &str,
@@ -187,7 +141,6 @@ where
     Ok(result)
 }
 
-#[cfg(any(feature = "parse_values", test))]
 fn extract_in_parenthesis(s: &str, token: &str) -> crate::Result<String> {
     use regex::Regex;
 
@@ -460,33 +413,5 @@ fn bytes_to_u16(bs: &[u8], endian: Endianness) -> u16 {
         Endianness::Big => u16::from_be_bytes(bs[0..2].try_into().unwrap()),
         Endianness::Little => u16::from_le_bytes(bs[0..2].try_into().unwrap()),
         Endianness::Native => unimplemented!(),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::{fmt::Debug, str::FromStr};
-
-    use super::*;
-
-    #[test]
-    fn parse_values() {
-        test_parse_t::<URational>(URational(123, 456));
-        test_parse_t::<IRational>(IRational(123, 456));
-
-        test_parse_t::<IfdEntryValue>(IfdEntryValue::URational(URational(123, 456)));
-        test_parse_t::<IfdEntryValue>(IfdEntryValue::IRational(IRational(123, 456)));
-
-        test_parse_t::<IfdEntryValue>(IfdEntryValue::U32(123456));
-        test_parse_t::<IfdEntryValue>(IfdEntryValue::Text("hello, world".into()));
-    }
-
-    fn test_parse_t<T: Debug + FromStr + PartialEq>(v: T)
-    where
-        <T as FromStr>::Err: Debug,
-    {
-        let s = format!("{v:?}");
-        println!("s: {s}");
-        assert_eq!(v, s.parse::<T>().unwrap());
     }
 }
