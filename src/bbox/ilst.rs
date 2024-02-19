@@ -1,5 +1,3 @@
-use std::fmt::Display;
-
 use nom::bytes::complete::{tag, take};
 use nom::combinator::{fail, map_res};
 use nom::error::context;
@@ -8,6 +6,8 @@ use nom::number::complete::{
     be_f32, be_f64, be_i16, be_i24, be_i32, be_i64, be_u16, be_u24, be_u32, be_u64, u8,
 };
 use nom::sequence::tuple;
+
+use crate::EntryValue;
 
 use super::BoxHeader;
 
@@ -45,7 +45,7 @@ pub struct IlstItem {
     type_code: u32, // 24-bits
 
     local: u32,
-    pub value: IlstItemValue, // len: data_len - 16
+    pub value: EntryValue, // len: data_len - 16
 }
 
 impl IlstItem {
@@ -77,46 +77,21 @@ impl IlstItem {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum IlstItemValue {
-    Text(String),
-    F64(f64),
-    U64(u64),
-    U32(u32),
-    U16(u16),
-    I64(i64),
-    I32(i32),
-}
-
-impl Display for IlstItemValue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            IlstItemValue::Text(s) => s.fmt(f),
-            IlstItemValue::F64(v) => v.fmt(f),
-            IlstItemValue::U64(v) => v.fmt(f),
-            IlstItemValue::I64(v) => v.fmt(f),
-            IlstItemValue::U32(v) => v.fmt(f),
-            IlstItemValue::I32(v) => v.fmt(f),
-            IlstItemValue::U16(v) => v.fmt(f),
-        }
-    }
-}
-
 /// Parse ilst item data to value, see [Well-known
 /// types](https://developer.apple.com/documentation/quicktime-file-format/well-known_types)
-fn parse_value(type_code: u32, data: &[u8]) -> crate::Result<IlstItemValue> {
-    use IlstItemValue::*;
+fn parse_value(type_code: u32, data: &[u8]) -> crate::Result<EntryValue> {
+    use EntryValue::*;
     let v = match type_code {
         1 => {
             let s = String::from_utf8(data.to_vec())?;
             Text(s)
         }
         21 => match data.len() {
-            1 => I32(data[0] as i32),
-            2 => I32(be_i16(data)?.1 as i32),
-            3 => I32(be_i24(data)?.1 as i32),
-            4 => I32(be_i32(data)?.1 as i32),
-            8 => I64(be_i64(data)?.1),
+            1 => data[0].into(),
+            2 => be_i16(data)?.1.into(),
+            3 => be_i24(data)?.1.into(),
+            4 => be_i32(data)?.1.into(),
+            8 => be_i64(data)?.1.into(),
             x => {
                 let msg = format!("Invalid ilst item data; data type is BE Signed Integer while data len is : {x}");
                 eprintln!("{msg}");
@@ -124,25 +99,19 @@ fn parse_value(type_code: u32, data: &[u8]) -> crate::Result<IlstItemValue> {
             }
         },
         22 => match data.len() {
-            1 => U32(data[0] as u32),
-            2 => U32(be_u16(data)?.1 as u32),
-            3 => U32(be_u24(data)?.1 as u32),
-            4 => U32(be_u32(data)?.1 as u32),
-            8 => U64(be_u64(data)?.1),
+            1 => data[0].into(),
+            2 => be_u16(data)?.1.into(),
+            3 => be_u24(data)?.1.into(),
+            4 => be_u32(data)?.1.into(),
+            8 => be_u64(data)?.1.into(),
             x => {
                 let msg = format!("Invalid ilst item data; data type is BE Unsigned Integer while data len is : {x}");
                 eprintln!("{msg}");
                 return Err(msg.into());
             }
         },
-        23 => {
-            let (_, v) = be_f32(data)?;
-            F64(v as f64)
-        }
-        24 => {
-            let (_, v) = be_f64(data)?;
-            F64(v)
-        }
+        23 => be_f32(data)?.1.into(),
+        24 => be_f64(data)?.1.into(),
         o => {
             let msg = format!("Unsupported ilst item data type: {o}");
             eprintln!("{msg}");
@@ -213,17 +182,18 @@ mod tests {
 
         assert_eq!(
             s,
-            "
+"
 IlstItem { size: 33, index: 1, data_len: 25, type_set: 0, type_code: 1, local: 0, value: Text(\"14.235563\") }
-IlstItem { size: 25, index: 2, data_len: 17, type_set: 0, type_code: 22, local: 0, value: U32(1) }
+IlstItem { size: 25, index: 2, data_len: 17, type_set: 0, type_code: 22, local: 0, value: U8(1) }
 IlstItem { size: 60, index: 3, data_len: 52, type_set: 0, type_code: 1, local: 0, value: Text(\"DA1A7EE8-0925-4C9F-9266-DDA3F0BB80F0\") }
-IlstItem { size: 28, index: 4, data_len: 20, type_set: 0, type_code: 23, local: 0, value: F64(0.9388400316238403) }
+IlstItem { size: 28, index: 4, data_len: 20, type_set: 0, type_code: 23, local: 0, value: F32(0.93884003) }
 IlstItem { size: 32, index: 5, data_len: 24, type_set: 0, type_code: 21, local: 0, value: I64(4) }
 IlstItem { size: 50, index: 6, data_len: 42, type_set: 0, type_code: 1, local: 0, value: Text(\"+22.5797+113.9380+028.396/\") }
 IlstItem { size: 29, index: 7, data_len: 21, type_set: 0, type_code: 1, local: 0, value: Text(\"Apple\") }
 IlstItem { size: 37, index: 8, data_len: 29, type_set: 0, type_code: 1, local: 0, value: Text(\"iPhone 15 Pro\") }
 IlstItem { size: 28, index: 9, data_len: 20, type_set: 0, type_code: 1, local: 0, value: Text(\"17.1\") }
-IlstItem { size: 48, index: 10, data_len: 40, type_set: 0, type_code: 1, local: 0, value: Text(\"2023-11-02T19:58:34+0800\") }");
+IlstItem { size: 48, index: 10, data_len: 40, type_set: 0, type_code: 1, local: 0, value: Text(\"2023-11-02T19:58:34+0800\") }"
+            );
     }
 
     fn open_sample(path: &str) -> File {

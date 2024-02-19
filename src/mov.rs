@@ -10,9 +10,10 @@ use thiserror::Error;
 use crate::{
     bbox::{
         find_box, get_ftyp, parse_video_tkhd_in_moov, travel_header, travel_while, IlstBox,
-        IlstItemValue, KeysBox, MvhdBox, ParseBox,
+        KeysBox, MvhdBox, ParseBox,
     },
     file::FileType,
+    EntryValue,
 };
 
 /// Analyze the byte stream in the `reader` as a MOV/MP4 file, attempting to
@@ -46,7 +47,7 @@ use crate::{
 /// ("com.apple.quicktime.creationdate", Text("2019-02-12T15:27:12+08:00"))"#
 /// );
 /// ```
-pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, IlstItemValue)>> {
+pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, EntryValue)>> {
     let (ft, moov_body) = extract_moov_body(reader)?;
 
     let (_, mut entries) = match parse_moov_body(&moov_body) {
@@ -71,10 +72,7 @@ pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, I
                     .iter()
                     .map(|b| *b as char)
                     .collect::<String>();
-                entries.push((
-                    LOCATION_KEY.to_owned(),
-                    IlstItemValue::Text(location.to_owned()),
-                ))
+                entries.push((LOCATION_KEY.to_owned(), location.into()))
             }
         }
     }
@@ -83,10 +81,7 @@ pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, I
     if let Some(bbox) = bbox {
         let (_, mvhd) = MvhdBox::parse_box(bbox.data)?;
 
-        entries.push((
-            "duration".to_owned(),
-            IlstItemValue::U32(mvhd.duration_ms()),
-        ));
+        entries.push(("duration".to_owned(), mvhd.duration_ms().into()));
 
         if entries
             .iter()
@@ -95,17 +90,16 @@ pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, I
         {
             entries.push((
                 "creationdate".to_owned(),
-                IlstItemValue::Text(
-                    mvhd.creation_time_utc()
-                        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-                ),
+                mvhd.creation_time_utc()
+                    .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+                    .into(),
             ));
         }
     }
 
     if let Ok(tkhd) = parse_video_tkhd_in_moov(&moov_body) {
-        entries.push(("width".to_owned(), IlstItemValue::U32(tkhd.width)));
-        entries.push(("height".to_owned(), IlstItemValue::U32(tkhd.height)));
+        entries.push(("width".to_owned(), tkhd.width.into()));
+        entries.push(("height".to_owned(), tkhd.height.into()));
     }
 
     Ok(entries)
@@ -142,9 +136,7 @@ pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, I
 /// ("com.apple.quicktime.creationdate", Text("2019-02-12T15:27:12+08:00"))"#
 /// );
 /// ```
-pub fn parse_mov_metadata<R: Read + Seek>(
-    reader: R,
-) -> crate::Result<Vec<(String, IlstItemValue)>> {
+pub fn parse_mov_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, EntryValue)>> {
     parse_metadata(reader)
 }
 
@@ -309,7 +301,7 @@ fn check_ftyp(input: &[u8]) -> crate::Result<FileType> {
     }
 }
 
-fn parse_moov_body(remain: &[u8]) -> IResult<&[u8], Vec<(String, IlstItemValue)>> {
+fn parse_moov_body(remain: &[u8]) -> IResult<&[u8], Vec<(String, EntryValue)>> {
     let (_, meta) = travel_while(remain, |b| b.header.box_type != "meta")?;
     let (_, keys) = travel_while(&meta.data[meta.header_size()..], |b| {
         b.header.box_type != "keys"
@@ -434,9 +426,9 @@ mod tests {
                 .collect::<Vec<_>>()
                 .join("\n"),
             "(\"com.apple.quicktime.location.accuracy.horizontal\", Text(\"14.235563\"))
-(\"com.apple.quicktime.live-photo.auto\", U32(1))
+(\"com.apple.quicktime.live-photo.auto\", U8(1))
 (\"com.apple.quicktime.content.identifier\", Text(\"DA1A7EE8-0925-4C9F-9266-DDA3F0BB80F0\"))
-(\"com.apple.quicktime.live-photo.vitality-score\", F64(0.9388400316238403))
+(\"com.apple.quicktime.live-photo.vitality-score\", F32(0.93884003))
 (\"com.apple.quicktime.live-photo.vitality-scoring-version\", I64(4))
 (\"com.apple.quicktime.location.ISO6709\", Text(\"+22.5797+113.9380+028.396/\"))
 (\"com.apple.quicktime.make\", Text(\"Apple\"))

@@ -16,7 +16,6 @@ mod meta;
 mod mvhd;
 mod tkhd;
 pub use ilst::IlstBox;
-pub use ilst::IlstItemValue;
 pub use keys::KeysBox;
 pub use meta::MetaBox;
 pub use mvhd::MvhdBox;

@@ -11,14 +11,17 @@ pub enum EntryValue {
     URational(URational),
     IRational(IRational),
 
+    U8(u8),
     U16(u16),
     U32(u32),
     U64(u64),
 
+    I8(i8),
     I16(i16),
     I32(i32),
     I64(i64),
 
+    F32(f32),
     F64(f64),
 }
 
@@ -38,11 +41,19 @@ impl Display for EntryValue {
             EntryValue::I16(v) => v.fmt(f),
             EntryValue::I32(v) => v.fmt(f),
             EntryValue::I64(v) => v.fmt(f),
+            EntryValue::F32(v) => v.fmt(f),
             EntryValue::F64(v) => v.fmt(f),
+            EntryValue::U8(v) => v.fmt(f),
+            EntryValue::I8(v) => v.fmt(f),
         }
     }
 }
 
+impl From<u8> for EntryValue {
+    fn from(value: u8) -> Self {
+        EntryValue::U8(value)
+    }
+}
 impl From<u16> for EntryValue {
     fn from(value: u16) -> Self {
         EntryValue::U16(value)
@@ -59,6 +70,11 @@ impl From<u64> for EntryValue {
     }
 }
 
+impl From<i8> for EntryValue {
+    fn from(value: i8) -> Self {
+        EntryValue::I8(value)
+    }
+}
 impl From<i16> for EntryValue {
     fn from(value: i16) -> Self {
         EntryValue::I16(value)
@@ -75,9 +91,26 @@ impl From<i64> for EntryValue {
     }
 }
 
+impl From<f32> for EntryValue {
+    fn from(value: f32) -> Self {
+        EntryValue::F32(value)
+    }
+}
+impl From<f64> for EntryValue {
+    fn from(value: f64) -> Self {
+        EntryValue::F64(value)
+    }
+}
+
 impl From<String> for EntryValue {
     fn from(value: String) -> Self {
         EntryValue::Text(value)
+    }
+}
+
+impl From<&String> for EntryValue {
+    fn from(value: &String) -> Self {
+        EntryValue::Text(value.to_owned())
     }
 }
 
