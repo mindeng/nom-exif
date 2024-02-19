@@ -198,8 +198,6 @@ impl MarkerCode {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use super::*;
     use crate::exif::ExifTag::*;
     use crate::testkit::*;
@@ -277,12 +275,21 @@ mod tests {
             .collect::<Vec<_>>()
         );
 
+        let mut entries = exif
+            .get_values(&[ImageWidth, ImageHeight])
+            .into_iter()
+            .map(|x| (x.0.to_string(), x.1.to_string()))
+            .collect::<Vec<_>>();
+        entries.sort();
         assert_eq!(
-            exif.get_values(&[ImageWidth, ImageHeight]),
-            [(&ImageWidth, 3072), (&ImageHeight, 4096),]
-                .into_iter()
-                .map(|x| (x.0, x.1.into()))
-                .collect::<HashMap<_, _>>()
+            entries,
+            [
+                ("ImageHeight(0x0101)", "4096"),
+                ("ImageWidth(0x0100)", "3072")
+            ]
+            .into_iter()
+            .map(|x| (x.0.to_string(), x.1.to_string()))
+            .collect::<Vec<_>>()
         );
     }
 

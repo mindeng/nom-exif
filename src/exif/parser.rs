@@ -11,9 +11,9 @@ use nom::{
     IResult, Needed,
 };
 
-use crate::{exif::ExifTag, exif::GPSInfo, exif::IfdEntryValue};
+use crate::{exif::ExifTag, exif::GPSInfo, EntryValue};
 
-use super::value::{entry_component_size, get_gps_info};
+use super::ifd::{entry_component_size, get_gps_info, DirectoryEntry, ImageFileDirectory};
 
 /// Parses Exif information from the `input` TIFF data.
 ///
@@ -63,7 +63,7 @@ impl Exif {
     /// Please note that this method will ignore errors encountered during the
     /// search and parsing process, such as missing tags or errors in parsing
     /// values, and handle them silently.
-    pub fn get_values<'b>(&self, tags: &'b [ExifTag]) -> HashMap<&'b ExifTag, IfdEntryValue> {
+    pub fn get_values<'b>(&self, tags: &'b [ExifTag]) -> HashMap<&'b ExifTag, EntryValue> {
         tags.iter()
             .zip(tags.iter())
             .filter_map(|x| {
@@ -76,18 +76,18 @@ impl Exif {
 
     /// Searches for specified `tag` within the parsed Exif structure, and
     /// parses the corresponding value within the found entry.
-    pub fn get_value(&self, tag: &ExifTag) -> crate::Result<Option<IfdEntryValue>> {
+    pub fn get_value(&self, tag: &ExifTag) -> crate::Result<Option<EntryValue>> {
         self.get_value_by_tag_code(*tag as u16)
     }
 
     /// Searches for specified `tag` within the parsed Exif structure, and
     /// parses the corresponding value within the found entry.
-    pub fn get_value_by_tag_code(&self, tag: u16) -> crate::Result<Option<IfdEntryValue>> {
+    pub fn get_value_by_tag_code(&self, tag: u16) -> crate::Result<Option<EntryValue>> {
         self.ifd0
             .as_ref()
             .and_then(|ifd0| {
                 ifd0.find(tag).map(|entry| {
-                    IfdEntryValue::parse(entry, self.endian())
+                    EntryValue::parse(entry, self.endian())
                         .map_err(|_| format!("parse value for exif tag {tag:?} failed").into())
                 })
             })
@@ -223,46 +223,6 @@ impl<'a> Parser<'a> {
     }
 }
 
-/// https://www.media.mit.edu/pia/Research/deepview/exif.html
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ImageFileDirectory {
-    pub(crate) entries: HashMap<u16, DirectoryEntry>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct DirectoryEntry {
-    pub tag: u16,
-    pub data_format: u16,
-    pub components_num: u32,
-    pub data: Vec<u8>,
-    pub value: u32,
-    pub subifd: Option<ImageFileDirectory>,
-}
-
-impl ImageFileDirectory {
-    pub fn find(&self, tag: u16) -> Option<&DirectoryEntry> {
-        self.entries
-            .get(&tag)
-            .and_then(|entry| Some(entry))
-            .or_else(|| self.exif_ifd().and_then(|exif_ifd| exif_ifd.find(tag)))
-            .or_else(|| self.gps_ifd().and_then(|gps_ifd| gps_ifd.find(tag)))
-    }
-
-    /// get exif sub ifd
-    fn exif_ifd(&self) -> Option<&ImageFileDirectory> {
-        self.entries
-            .get(&(ExifTag::ExifOffset as u16))
-            .and_then(|entry| entry.subifd.as_ref())
-    }
-
-    /// get gps sub ifd
-    fn gps_ifd(&self) -> Option<&ImageFileDirectory> {
-        self.entries
-            .get(&(ExifTag::GPSInfo as u16))
-            .and_then(|entry| entry.subifd.as_ref())
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Header {
     pub endian: Endianness,
@@ -309,9 +269,9 @@ mod tests {
 
     use test_case::test_case;
 
-    use crate::exif::value::URational;
     use crate::exif::ExifTag::*;
     use crate::exif::{GPSInfo, LatLng};
+    use crate::values::URational;
 
     use super::*;
 

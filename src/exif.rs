@@ -5,12 +5,10 @@ mod tags;
 use nom::bytes::complete;
 pub use tags::ExifTag;
 
-mod value;
-pub use value::IfdEntryValue;
+mod ifd;
 
 mod parser;
 pub use parser::{parse_exif, Exif};
-use parser::{DirectoryEntry, ImageFileDirectory};
 
 pub(crate) const EXIF_IDENT: &str = "Exif\0\0";
 

@@ -1,4 +1,4 @@
-use super::value::URational;
+use crate::values::URational;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct GPSInfo {

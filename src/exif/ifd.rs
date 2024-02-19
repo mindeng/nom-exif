@@ -1,149 +1,15 @@
-use std::fmt::Display;
+use std::{collections::HashMap, fmt::Display};
 
 use nom::number::Endianness;
 
-use crate::exif::{tags::ExifTag, LatLng};
+use crate::{
+    exif::{tags::ExifTag, LatLng},
+    values::{IRational, URational},
+    EntryValue,
+};
 use std::convert::TryInto;
 
-use super::{DirectoryEntry, GPSInfo, ImageFileDirectory};
-
-#[cfg(feature = "serialize")]
-use serde::{Deserialize, Serialize};
-
-/// Represent a parsed IFD entry value.
-///
-/// # Structure of IFD Entry
-///
-/// ```txt
-/// | 2   | 2           | 4              | 4                      |
-/// | tag | data format | components num | data (value or offset) |
-/// ```
-///
-/// # Data size
-///
-/// `data_size = components_num * bytes_per_component`
-///
-/// `bytes_per_component` is determined by tag & data format.
-///
-/// If data_size > 4, then the data area of entry stores the offset of the
-/// value, not the value itself.
-///
-/// # Data format
-///
-/// ```txt
-/// | Value           |             1 |             2 |              3 |               4 |                 5 |            6 |
-/// |-----------------+---------------+---------------+----------------+-----------------+-------------------+--------------|
-/// | Format          | unsigned byte | ascii strings | unsigned short |   unsigned long | unsigned rational |  signed byte |
-/// | Bytes/component |             1 |             1 |              2 |               4 |                 8 |            1 |
-/// | Value           |             7 |             8 |              9 |              10 |                11 |           12 |
-/// | Format          |     undefined |  signed short |    signed long | signed rational |      single float | double float |
-/// | Bytes/component |             1 |             2 |              4 |               8 |                 4 |            8 |
-/// ```
-///
-/// See: [Exif](https://www.media.mit.edu/pia/Research/deepview/exif.html).
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum IfdEntryValue {
-    Text(String),
-    URational(URational),
-    IRational(IRational),
-    U32(u32),
-}
-
-impl Display for IfdEntryValue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            IfdEntryValue::Text(v) => v.fmt(f),
-            IfdEntryValue::URational(v) => {
-                write!(f, "{}/{} ({:.04})", v.0, v.1, v.0 as f64 / v.1 as f64)
-            }
-            IfdEntryValue::IRational(v) => {
-                write!(f, "{}/{} ({:.04})", v.0, v.1, v.0 as f64 / v.1 as f64)
-            }
-            IfdEntryValue::U32(v) => v.fmt(f),
-        }
-    }
-}
-
-impl From<u32> for IfdEntryValue {
-    fn from(value: u32) -> Self {
-        IfdEntryValue::U32(value)
-    }
-}
-
-impl From<String> for IfdEntryValue {
-    fn from(value: String) -> Self {
-        IfdEntryValue::Text(value)
-    }
-}
-
-impl From<&str> for IfdEntryValue {
-    fn from(value: &str) -> Self {
-        value.to_owned().into()
-    }
-}
-
-impl From<(u32, u32)> for IfdEntryValue {
-    fn from(value: (u32, u32)) -> Self {
-        Self::URational(value.into())
-    }
-}
-
-impl From<(i32, i32)> for IfdEntryValue {
-    fn from(value: (i32, i32)) -> Self {
-        Self::IRational(IRational(value.0, value.1))
-    }
-}
-
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct URational(pub u32, pub u32);
-
-impl Default for URational {
-    fn default() -> Self {
-        URational(0, 0)
-    }
-}
-
-impl URational {
-    pub fn to_float(&self) -> f64 {
-        self.0 as f64 / self.1 as f64
-    }
-}
-
-impl From<(u32, u32)> for URational {
-    fn from(value: (u32, u32)) -> Self {
-        Self(value.0, value.1)
-    }
-}
-
-impl Into<(u32, u32)> for URational {
-    fn into(self) -> (u32, u32) {
-        (self.0, self.1)
-    }
-}
-
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct IRational(pub i32, pub i32);
-
-impl Default for IRational {
-    fn default() -> Self {
-        IRational(0, 0)
-    }
-}
-
-impl From<(i32, i32)> for IRational {
-    fn from(value: (i32, i32)) -> Self {
-        Self(value.0, value.1)
-    }
-}
-
-impl Into<(i32, i32)> for IRational {
-    fn into(self) -> (i32, i32) {
-        (self.0, self.1)
-    }
-}
+use super::GPSInfo;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
@@ -162,11 +28,82 @@ impl Display for Error {
     }
 }
 
-impl IfdEntryValue {
+/// https://www.media.mit.edu/pia/Research/deepview/exif.html
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ImageFileDirectory {
+    pub(crate) entries: HashMap<u16, DirectoryEntry>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct DirectoryEntry {
+    pub tag: u16,
+    pub data_format: u16,
+    pub components_num: u32,
+    pub data: Vec<u8>,
+    pub value: u32,
+    pub subifd: Option<ImageFileDirectory>,
+}
+
+impl ImageFileDirectory {
+    pub fn find(&self, tag: u16) -> Option<&DirectoryEntry> {
+        self.entries
+            .get(&tag)
+            .and_then(|entry| Some(entry))
+            .or_else(|| self.exif_ifd().and_then(|exif_ifd| exif_ifd.find(tag)))
+            .or_else(|| self.gps_ifd().and_then(|gps_ifd| gps_ifd.find(tag)))
+    }
+
+    /// get exif sub ifd
+    pub fn exif_ifd(&self) -> Option<&ImageFileDirectory> {
+        self.entries
+            .get(&(ExifTag::ExifOffset as u16))
+            .and_then(|entry| entry.subifd.as_ref())
+    }
+
+    /// get gps sub ifd
+    pub fn gps_ifd(&self) -> Option<&ImageFileDirectory> {
+        self.entries
+            .get(&(ExifTag::GPSInfo as u16))
+            .and_then(|entry| entry.subifd.as_ref())
+    }
+}
+
+impl EntryValue {
+    /// Parse an IFD entry value.
+    ///
+    /// # Structure of IFD Entry
+    ///
+    /// ```txt
+    /// | 2   | 2           | 4              | 4                      |
+    /// | tag | data format | components num | data (value or offset) |
+    /// ```
+    ///
+    /// # Data size
+    ///
+    /// `data_size = components_num * bytes_per_component`
+    ///
+    /// `bytes_per_component` is determined by tag & data format.
+    ///
+    /// If data_size > 4, then the data area of entry stores the offset of the
+    /// value, not the value itself.
+    ///
+    /// # Data format
+    ///
+    /// ```txt
+    /// | Value           |             1 |             2 |              3 |               4 |                 5 |            6 |
+    /// |-----------------+---------------+---------------+----------------+-----------------+-------------------+--------------|
+    /// | Format          | unsigned byte | ascii strings | unsigned short |   unsigned long | unsigned rational |  signed byte |
+    /// | Bytes/component |             1 |             1 |              2 |               4 |                 8 |            1 |
+    /// | Value           |             7 |             8 |              9 |              10 |                11 |           12 |
+    /// | Format          |     undefined |  signed short |    signed long | signed rational |      single float | double float |
+    /// | Bytes/component |             1 |             2 |              4 |               8 |                 4 |            8 |
+    /// ```
+    ///
+    /// See: [Exif](https://www.media.mit.edu/pia/Research/deepview/exif.html).
     pub(crate) fn parse<'a>(
         entry: &DirectoryEntry,
         endian: Endianness,
-    ) -> Result<IfdEntryValue, Error> {
+    ) -> Result<EntryValue, Error> {
         let tag = entry.tag;
         if tag == ExifTag::ExifOffset as u16 || tag == ExifTag::GPSInfo as u16 {
             // load from offset
@@ -176,7 +113,7 @@ impl IfdEntryValue {
         }
         match entry.data_format {
             // string
-            2 => Ok(IfdEntryValue::Text(
+            2 => Ok(EntryValue::Text(
                 get_cstr(&entry.data).map_err(|e| Error::InvalidData(e.to_string()))?,
             )),
 
