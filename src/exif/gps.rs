@@ -12,6 +12,8 @@ pub struct GPSInfo {
     // degree, minute, second,
     pub longitude: LatLng,
 
+    // 0 = Above Sea Level
+    // 1 = Below Sea Level
     pub altitude_ref: u8,
     pub altitude: URational,
 }
@@ -32,8 +34,6 @@ impl Default for LatLng {
 impl GPSInfo {
     /// Returns an ISO 6709 geographic point location string such as
     /// `+48.8577+002.295/`.
-    ///
-    /// ⚠️ Altitude information is ignored currently.
     pub fn to_iso6709(&self) -> String {
         let latitude = self.latitude.0.to_float()
             + self.latitude.1.to_float() / 60.0
@@ -41,10 +41,19 @@ impl GPSInfo {
         let longitude = self.longitude.0.to_float()
             + self.longitude.1.to_float() / 60.0
             + self.longitude.2.to_float() / 3600.0;
+        let altitude = self.altitude.to_float();
         format!(
-            "{}{latitude:08.5}{}{longitude:09.5}/",
+            "{}{latitude:08.5}{}{longitude:09.5}{}/",
             if self.latitude_ref == 'N' { '+' } else { '-' },
             if self.longitude_ref == 'E' { '+' } else { '-' },
+            if self.altitude.0 == 0 {
+                "".to_string()
+            } else {
+                format!(
+                    "{}{altitude:.3}",
+                    if self.altitude_ref == 0 { "+" } else { "-" }
+                )
+            }
         )
     }
 }
@@ -140,5 +149,25 @@ mod tests {
             altitude: URational(0, 1),
         };
         assert_eq!(liberty.to_iso6709(), "+40.68917-074.04444/");
+
+        let above = GPSInfo {
+            latitude_ref: 'N',
+            latitude: LatLng(URational(40, 1), URational(41, 1), URational(21, 1)),
+            longitude_ref: 'W',
+            longitude: LatLng(URational(74, 1), URational(2, 1), URational(40, 1)),
+            altitude_ref: 0,
+            altitude: URational(123, 1),
+        };
+        assert_eq!(above.to_iso6709(), "+40.68917-074.04444+123.000/");
+
+        let below = GPSInfo {
+            latitude_ref: 'N',
+            latitude: LatLng(URational(40, 1), URational(41, 1), URational(21, 1)),
+            longitude_ref: 'W',
+            longitude: LatLng(URational(74, 1), URational(2, 1), URational(40, 1)),
+            altitude_ref: 1,
+            altitude: URational(123, 1),
+        };
+        assert_eq!(below.to_iso6709(), "+40.68917-074.04444-123.000/");
     }
 }

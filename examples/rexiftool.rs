@@ -136,18 +136,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     };
 
-    let mut reader = File::open(&cli.file)?;
-
     let extension = extension.to_lowercase();
     match extension.as_ref() {
-        "jpg" | "jpeg" => {
+        "jpg" | "jpeg" | "heic" | "heif" => {
             if cli.json && !FEATURE_SERIALIZE_ON {
                 let msg = "-j/--json option requires the feature `serialize`.";
                 eprintln!("{msg}");
                 return Err(msg.into());
             }
 
-            let exif = nom_exif::parse_jpeg_exif(&mut reader)?;
+            let exif = nom_exif::parse_exif(&cli.file)?;
             if let Some(exif) = exif {
                 let values = exif.get_values(TAGS);
 
@@ -166,14 +164,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
             }
         }
-        "mov" => {
-            let mut meta = nom_exif::parse_metadata(&mut reader)?;
-            meta.sort_by(|(ref x, _), (ref y, _)| x.cmp(y));
-            meta.iter().for_each(|x| {
-                println!("{:<50}-> {}", x.0, x.1);
-            });
-        }
-        "mp4" => {
+        "mov" | "mp4" => {
+            let mut reader = File::open(&cli.file)?;
             let mut meta = nom_exif::parse_metadata(&mut reader)?;
             meta.sort_by(|(ref x, _), (ref y, _)| x.cmp(y));
             meta.iter().for_each(|x| {

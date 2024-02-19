@@ -95,65 +95,6 @@ impl From<(i32, i32)> for IfdEntryValue {
     }
 }
 
-use std::str::FromStr;
-
-impl FromStr for URational {
-    type Err = Box<dyn std::error::Error>;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let values = inner_to_vec::<u32, 2>(s, "URational")?;
-        Ok(URational(values[0], values[1]))
-    }
-}
-
-impl FromStr for IRational {
-    type Err = Box<dyn std::error::Error>;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let values = inner_to_vec::<i32, 2>(s, "IRational")?;
-        Ok(IRational(values[0], values[1]))
-    }
-}
-
-fn inner_to_vec<T: FromStr + Default + Copy, const N: usize>(
-    s: &str,
-    token: &str,
-) -> Result<[T; N], Box<dyn std::error::Error>>
-where
-    <T as FromStr>::Err: std::error::Error + 'static,
-{
-    let inner = extract_in_parenthesis(s, token)?;
-    let values = inner
-        .split(',')
-        .into_iter()
-        .map(|x| x.trim())
-        .map(|x| x.parse::<T>());
-    // .collect::<Vec<_>>();
-
-    let mut result = [T::default(); N];
-    let mut last = 0;
-    for (i, v) in values.enumerate() {
-        result[i] = v?;
-        last = i;
-    }
-
-    if last != N - 1 {
-        return Err("parse URational failed; invalid body".into());
-    }
-    Ok(result)
-}
-
-fn extract_in_parenthesis(s: &str, token: &str) -> crate::Result<String> {
-    use regex::Regex;
-
-    let s = s.trim();
-    s.strip_prefix(token)
-        .and_then(|remain| {
-            let re = Regex::new(r"\((?<in_parenthesis>.+)\)").unwrap();
-            re.captures(remain)
-                .map(|caps| caps["in_parenthesis"].to_string())
-        })
-        .ok_or_else(|| "extract text in parenthesis failed".into())
-}
-
 #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct URational(pub u32, pub u32);
