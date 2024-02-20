@@ -1,10 +1,11 @@
 use std::fmt::Display;
 
+use chrono::{DateTime, FixedOffset};
 #[cfg(feature = "serialize")]
 use serde::{Deserialize, Serialize};
 
 /// Represent a parsed entry value.
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+// #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq)]
 pub enum EntryValue {
     Text(String),
@@ -23,6 +24,8 @@ pub enum EntryValue {
 
     F32(f32),
     F64(f64),
+
+    Time(DateTime<FixedOffset>),
 }
 
 impl Display for EntryValue {
@@ -45,6 +48,7 @@ impl Display for EntryValue {
             EntryValue::F64(v) => v.fmt(f),
             EntryValue::U8(v) => v.fmt(f),
             EntryValue::I8(v) => v.fmt(f),
+            EntryValue::Time(v) => v.fmt(f),
         }
     }
 }
@@ -179,5 +183,44 @@ impl From<(i32, i32)> for IRational {
 impl Into<(i32, i32)> for IRational {
     fn into(self) -> (i32, i32) {
         (self.0, self.1)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::{Local, NaiveDateTime, TimeZone};
+
+    use super::*;
+
+    #[test]
+    fn test_parse_time() {
+        let tz = Local::now().format("%:z").to_string();
+
+        let s = format!("2023:07:09 20:36:33 {tz}");
+        let t1 = DateTime::parse_from_str(&s, "%Y:%m:%d %H:%M:%S %z").unwrap();
+
+        let s = "2023:07:09 20:36:33";
+        let t2 = NaiveDateTime::parse_from_str(s, "%Y:%m:%d %H:%M:%S").unwrap();
+        let t2 = Local.from_local_datetime(&t2).unwrap();
+
+        let t3 = t2.with_timezone(t2.offset());
+
+        assert_eq!(t1, t2);
+        assert_eq!(t1, t3);
+    }
+
+    #[test]
+    fn test_iso_8601() {
+        let s = "2023-11-02T19:58:34+0800";
+        let t1 = DateTime::parse_from_str(s, "%+").unwrap();
+
+        let s = "2023-11-02T19:58:34+08:00";
+        let t2 = DateTime::parse_from_str(s, "%+").unwrap();
+
+        let s = "2023-11-02T19:58:34.026490+08:00";
+        let t3 = DateTime::parse_from_str(s, "%+").unwrap();
+
+        assert_eq!(t1, t2);
+        assert!(t3 > t2);
     }
 }

@@ -1,4 +1,4 @@
-use chrono::{DateTime, Duration, Local, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, Duration, FixedOffset, Local, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use nom::{bytes::complete::take, number::complete::be_u32, sequence::tuple};
 
 use super::{FullBoxHeader, ParseBody};
@@ -39,7 +39,7 @@ impl MvhdBox {
         (self.duration * 1000) / (self.time_scale)
     }
 
-    pub fn creation_time(&self) -> NaiveDateTime {
+    fn creation_time_naive(&self) -> NaiveDateTime {
         NaiveDate::from_ymd_opt(1904, 1, 1)
             .unwrap()
             .and_hms_opt(0, 0, 0)
@@ -47,12 +47,17 @@ impl MvhdBox {
             + Duration::seconds(self.creation_time as i64)
     }
 
+    pub fn creation_time(&self) -> DateTime<FixedOffset> {
+        self.creation_time_utc().fixed_offset()
+    }
+
     #[allow(dead_code)]
     pub fn creation_time_local(&self) -> DateTime<Local> {
-        Local.from_utc_datetime(&self.creation_time())
+        Local.from_utc_datetime(&self.creation_time_naive())
     }
+
     pub fn creation_time_utc(&self) -> DateTime<Utc> {
-        self.creation_time().and_utc()
+        self.creation_time_naive().and_utc()
     }
 }
 
@@ -111,6 +116,7 @@ mod tests {
         // time is represented in seconds since midnight, January 1, 1904,
         // preferably using coordinated universal time (UTC).
         let created = mvhd.creation_time_utc();
+        assert_eq!(created, mvhd.creation_time());
         assert_eq!(
             created.to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
             time_utc

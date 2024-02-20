@@ -1,5 +1,6 @@
 use std::{collections::HashMap, fmt::Display};
 
+use chrono::{DateTime, Local, LocalResult, NaiveDateTime, TimeZone};
 use nom::number::Endianness;
 
 use crate::{
@@ -103,14 +104,45 @@ impl EntryValue {
     pub(crate) fn parse<'a>(
         entry: &DirectoryEntry,
         endian: Endianness,
+        tz: &Option<String>,
     ) -> Result<EntryValue, Error> {
         let tag = entry.tag;
-        if tag == ExifTag::ExifOffset as u16 || tag == ExifTag::GPSInfo as u16 {
-            // load from offset
-            return Err(Error::Unsupported(format!(
-                "tag {tag} is a sub ifd, not an entry"
-            )));
+
+        let exif_tag: Result<ExifTag, _> = tag.try_into();
+        if let Ok(tag) = exif_tag {
+            if tag == ExifTag::ExifOffset || tag == ExifTag::GPSInfo {
+                // load from offset
+                return Err(Error::Unsupported(format!(
+                    "tag {tag} is a sub ifd, not an entry"
+                )));
+            }
+
+            if tag == ExifTag::DateTimeOriginal
+                || tag == ExifTag::CreateDate
+                || tag == ExifTag::ModifyDate
+            {
+                assert_eq!(entry.data_format, 2);
+                let s = get_cstr(&entry.data).map_err(|e| Error::InvalidData(e.to_string()))?;
+
+                let t = if let Some(tz) = tz {
+                    let s = format!("{s} {tz}");
+                    DateTime::parse_from_str(&s, "%Y:%m:%d %H:%M:%S %z")?
+                } else {
+                    let t = NaiveDateTime::parse_from_str(&s, "%Y:%m:%d %H:%M:%S")?;
+                    let t = Local.from_local_datetime(&t);
+                    let t = if let LocalResult::Single(t) = t {
+                        Ok(t)
+                    } else {
+                        Err(Error::InvalidData(format!("parse time failed: {s}")))
+                    }?;
+
+                    t.with_timezone(t.offset())
+                };
+
+                return Ok(EntryValue::Time(t));
+            }
         }
+
         match entry.data_format {
             // string
             2 => Ok(EntryValue::Text(
@@ -291,5 +323,11 @@ fn bytes_to_u16(bs: &[u8], endian: Endianness) -> u16 {
         Endianness::Big => u16::from_be_bytes(bs[0..2].try_into().unwrap()),
         Endianness::Little => u16::from_le_bytes(bs[0..2].try_into().unwrap()),
         Endianness::Native => unimplemented!(),
+    }
+}
+
+impl From<chrono::ParseError> for Error {
+    fn from(value: chrono::ParseError) -> Self {
+        Error::InvalidData(format!("parse time failed: {value}"))
     }
 }

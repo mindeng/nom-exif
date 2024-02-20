@@ -4,6 +4,7 @@ use std::{
     ops::Range,
 };
 
+use chrono::DateTime;
 use nom::{bytes::streaming, IResult};
 use thiserror::Error;
 
@@ -44,7 +45,10 @@ use crate::{
 /// ("com.apple.quicktime.model", Text("iPhone X"))
 /// ("com.apple.quicktime.software", Text("12.1.2"))
 /// ("com.apple.quicktime.location.ISO6709", Text("+27.1281+100.2508+000.000/"))
-/// ("com.apple.quicktime.creationdate", Text("2019-02-12T15:27:12+08:00"))"#
+/// ("com.apple.quicktime.creationdate", Time(2019-02-12T15:27:12+08:00))
+/// ("duration", U32(500))
+/// ("width", U32(720))
+/// ("height", U32(1280))"#,
 /// );
 /// ```
 pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, EntryValue)>> {
@@ -77,22 +81,28 @@ pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, E
         }
     }
 
+    const CREATIONDATE_KEY: &str = "com.apple.quicktime.creationdate";
+    if let Some(pos) = entries.iter().position(|x| x.0 == CREATIONDATE_KEY) {
+        if let EntryValue::Text(ref s) = entries[pos].1 {
+            if let Ok(t) = DateTime::parse_from_str(s, "%+") {
+                let _ = std::mem::replace(
+                    &mut entries[pos],
+                    (CREATIONDATE_KEY.to_string(), EntryValue::Time(t)),
+                );
+            }
+        }
+    }
+
     let (_, bbox) = find_box(&moov_body, "mvhd")?;
     if let Some(bbox) = bbox {
         let (_, mvhd) = MvhdBox::parse_box(bbox.data)?;
 
         entries.push(("duration".to_owned(), mvhd.duration_ms().into()));
 
-        if entries
-            .iter()
-            .find(|x| x.0.contains("creationdate"))
-            .is_none()
-        {
+        if entries.iter().find(|x| x.0 == CREATIONDATE_KEY).is_none() {
             entries.push((
-                "creationdate".to_owned(),
-                mvhd.creation_time_utc()
-                    .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
-                    .into(),
+                "com.apple.quicktime.creationdate".to_owned(),
+                EntryValue::Time(mvhd.creation_time()),
             ));
         }
     }
@@ -133,7 +143,10 @@ pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, E
 /// ("com.apple.quicktime.model", Text("iPhone X"))
 /// ("com.apple.quicktime.software", Text("12.1.2"))
 /// ("com.apple.quicktime.location.ISO6709", Text("+27.1281+100.2508+000.000/"))
-/// ("com.apple.quicktime.creationdate", Text("2019-02-12T15:27:12+08:00"))"#
+/// ("com.apple.quicktime.creationdate", Time(2019-02-12T15:27:12+08:00))
+/// ("duration", U32(500))
+/// ("width", U32(720))
+/// ("height", U32(1280))"#,
 /// );
 /// ```
 pub fn parse_mov_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, EntryValue)>> {
@@ -328,6 +341,7 @@ fn parse_moov_body(remain: &[u8]) -> IResult<&[u8], Vec<(String, EntryValue)>> {
 ///
 /// - `2023-11-02T19:58:34+08` -> `2023-11-02T19:58:34+08:00`
 /// - `2023-11-02T19:58:34+0800` -> `2023-11-02T19:58:34+08:00`
+#[allow(dead_code)]
 fn tz_iso_8601_to_rfc3339(s: String) -> String {
     use regex::Regex;
 
@@ -372,7 +386,7 @@ mod tests {
 (\"com.apple.quicktime.model\", Text(\"iPhone X\"))
 (\"com.apple.quicktime.software\", Text(\"12.1.2\"))
 (\"com.apple.quicktime.location.ISO6709\", Text(\"+27.1281+100.2508+000.000/\"))
-(\"com.apple.quicktime.creationdate\", Text(\"2019-02-12T15:27:12+08:00\"))
+(\"com.apple.quicktime.creationdate\", Time(2019-02-12T15:27:12+08:00))
 (\"duration\", U32(500))
 (\"width\", U32(720))
 (\"height\", U32(1280))"
@@ -410,14 +424,14 @@ mod tests {
                 .join("\n"),
             "(\"com.apple.quicktime.location.ISO6709\", Text(\"+27.2939+112.6932/\"))
 (\"duration\", U32(1063))
-(\"creationdate\", Text(\"2024-02-03T07:05:38Z\"))
+(\"com.apple.quicktime.creationdate\", Time(2024-02-03T07:05:38+00:00))
 (\"width\", U32(1920))
 (\"height\", U32(1080))"
         );
     }
 
     #[test_case("embedded-in-heic.mov")]
-    fn mov_extract_embedded(path: &str) {
+    fn parse_embedded_mov(path: &str) {
         let entries = parse_mov_metadata(open_sample(path).unwrap()).unwrap();
         assert_eq!(
             entries
@@ -434,7 +448,7 @@ mod tests {
 (\"com.apple.quicktime.make\", Text(\"Apple\"))
 (\"com.apple.quicktime.model\", Text(\"iPhone 15 Pro\"))
 (\"com.apple.quicktime.software\", Text(\"17.1\"))
-(\"com.apple.quicktime.creationdate\", Text(\"2023-11-02T19:58:34+0800\"))
+(\"com.apple.quicktime.creationdate\", Time(2023-11-02T19:58:34+08:00))
 (\"duration\", U32(2795))
 (\"width\", U32(1920))
 (\"height\", U32(1440))"

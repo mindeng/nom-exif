@@ -38,7 +38,15 @@ pub fn parse_exif<'a>(input: &'a [u8]) -> crate::Result<Exif> {
     // parse ifd0
     let (_, ifd0) = parser.parse_ifd(input.len() - remain.len())?;
 
-    Ok(Exif { header, ifd0 })
+    let exif = Exif {
+        header,
+        ifd0,
+        tz: None,
+    };
+
+    let tz = exif.get_tz_offset();
+
+    Ok(Exif { tz, ..exif })
 }
 
 /// Represents Exif information in a JPEG/HEIF file.
@@ -53,6 +61,7 @@ pub fn parse_exif<'a>(input: &'a [u8]) -> crate::Result<Exif> {
 pub struct Exif {
     header: Header,
     ifd0: Option<ImageFileDirectory>,
+    tz: Option<String>,
 }
 
 impl Exif {
@@ -63,7 +72,7 @@ impl Exif {
     /// Please note that this method will ignore errors encountered during the
     /// search and parsing process, such as missing tags or errors in parsing
     /// values, and handle them silently.
-    pub fn get_values<'b>(&self, tags: &'b [ExifTag]) -> HashMap<&'b ExifTag, EntryValue> {
+    pub fn get_values<'b>(&self, tags: &'b [ExifTag]) -> Vec<(&'b ExifTag, EntryValue)> {
         tags.iter()
             .zip(tags.iter())
             .filter_map(|x| {
@@ -71,7 +80,7 @@ impl Exif {
                     .map(|v| v.map(|v| (x.0, v)))
                     .unwrap_or(None)
             })
-            .collect::<HashMap<_, _>>()
+            .collect::<Vec<_>>()
     }
 
     /// Searches for specified `tag` within the parsed Exif structure, and
@@ -87,11 +96,22 @@ impl Exif {
             .as_ref()
             .and_then(|ifd0| {
                 ifd0.find(tag).map(|entry| {
-                    EntryValue::parse(entry, self.endian())
+                    EntryValue::parse(entry, self.endian(), &self.tz)
                         .map_err(|_| format!("parse value for exif tag {tag:?} failed").into())
                 })
             })
             .transpose()
+    }
+
+    pub fn get_tz_offset(&self) -> Option<String> {
+        let values = self.get_values(&[ExifTag::OffsetTimeOriginal, ExifTag::OffsetTime]);
+        values.into_iter().find_map(|x| {
+            if let EntryValue::Text(s) = x.1 {
+                Some(s)
+            } else {
+                None
+            }
+        })
     }
 
     /// Searches and parses the found GPS information within the parsed Exif
@@ -347,8 +367,8 @@ mod tests {
                 x
             },
             [
-                ("CreateDate(0x9004)", "2023:07:09 20:36:33"),
-                ("DateTimeOriginal(0x9003)", "2023:07:09 20:36:33"),
+                ("CreateDate(0x9004)", "2023-07-09 20:36:33 +08:00"),
+                ("DateTimeOriginal(0x9003)", "2023-07-09 20:36:33 +08:00"),
                 ("ExifImageHeight(0xa003)", "4096"),
                 ("ExifImageWidth(0xa002)", "3072"),
                 ("ExposureTime(0x829a)", "9997/1000000 (0.0100)"),
@@ -364,13 +384,13 @@ mod tests {
                 ("ImageWidth(0x0100)", "3072"),
                 ("Make(0x010f)", "vivo"),
                 ("Model(0x0110)", "vivo X90 Pro+"),
-                ("ModifyDate(0x0132)", "2023:07:09 20:36:33"),
+                ("ModifyDate(0x0132)", "2023-07-09 20:36:33 +08:00"),
                 ("OffsetTime(0x9010)", "+08:00"),
                 ("OffsetTimeOriginal(0x9011)", "+08:00"),
                 ("ResolutionUnit(0x0128)", "2"),
                 ("ShutterSpeedValue(0x9201)", "6644/1000 (6.6440)"),
                 ("XResolution(0x011a)", "72/1 (72.0000)"),
-                ("YResolution(0x011b)", "72/1 (72.0000)"),
+                ("YResolution(0x011b)", "72/1 (72.0000)")
             ]
             .iter()
             .map(|x| (x.0.to_string(), x.1.to_string()))

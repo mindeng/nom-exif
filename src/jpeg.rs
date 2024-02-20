@@ -26,20 +26,21 @@ use crate::{
 /// let f = File::open(Path::new("./testdata/exif.jpg")).unwrap();
 /// let exif = parse_jpeg_exif(f).unwrap().unwrap();
 ///
-/// assert_eq!(
-///     exif.get_value(&ImageWidth).unwrap(),
-///     Some(IfdEntryValue::U32(3072)));
+/// assert_eq!(exif.get_value(&Make).unwrap().unwrap().to_string(), "vivo");
 ///
 /// assert_eq!(
-///     exif.get_values(&[CreateDate, ModifyDate, DateTimeOriginal]),
+///     exif.get_values(&[DateTimeOriginal, CreateDate, ModifyDate])
+///         .into_iter()
+///         .map(|x| (x.0.to_string(), x.1.to_string()))
+///         .collect::<Vec<_>>(),
 ///     [
-///         (&CreateDate, "2023:07:09 20:36:33"),
-///         (&ModifyDate, "2023:07:09 20:36:33"),
-///         (&DateTimeOriginal, "2023:07:09 20:36:33"),
+///         ("DateTimeOriginal(0x9003)", "2023-07-09 20:36:33 +08:00"),
+///         ("CreateDate(0x9004)", "2023-07-09 20:36:33 +08:00"),
+///         ("ModifyDate(0x0132)", "2023-07-09 20:36:33 +08:00")
 ///     ]
 ///     .into_iter()
-///     .map(|x| (x.0, x.1.into()))
-///     .collect::<HashMap<_, _>>()
+///     .map(|x| (x.0.to_string(), x.1.to_string()))
+///     .collect::<Vec<_>>()
 /// );
 /// ```
 pub fn parse_jpeg_exif<R: Read>(mut reader: R) -> crate::Result<Option<Exif>> {
@@ -214,8 +215,8 @@ mod tests {
                 "ApertureValue(0x9202) » 161/100 (1.6100)",
                 "BrightnessValue(0x9203) » 70/100 (0.7000)",
                 "ColorSpace(0xa001) » 1",
-                "CreateDate(0x9004) » 2023:07:09 20:36:33",
-                "DateTimeOriginal(0x9003) » 2023:07:09 20:36:33",
+                "CreateDate(0x9004) » 2023-07-09 20:36:33 +08:00",
+                "DateTimeOriginal(0x9003) » 2023-07-09 20:36:33 +08:00",
                 "DigitalZoomRatio(0xa404) » 1/1 (1.0000)",
                 "ExifImageHeight(0xa003) » 4096",
                 "ExifImageWidth(0xa002) » 3072",
@@ -243,7 +244,7 @@ mod tests {
                 "MaxApertureValue(0x9205) » 161/100 (1.6100)",
                 "MeteringMode(0x9207) » 1",
                 "Model(0x0110) » vivo X90 Pro+",
-                "ModifyDate(0x0132) » 2023:07:09 20:36:33",
+                "ModifyDate(0x0132) » 2023-07-09 20:36:33 +08:00",
                 "OffsetTime(0x9010) » +08:00",
                 "OffsetTimeOriginal(0x9011) » +08:00",
                 "ResolutionUnit(0x0128) » 2",
@@ -257,18 +258,17 @@ mod tests {
             ]
         );
 
-        let mut entries = exif
-            .get_values(&[CreateDate, ModifyDate])
-            .into_iter()
-            .map(|x| (x.0.to_string(), x.1.to_string()))
-            .collect::<Vec<_>>();
-        entries.sort();
+        assert_eq!(exif.get_value(&Make).unwrap().unwrap().to_string(), "vivo");
 
         assert_eq!(
-            entries,
+            exif.get_values(&[DateTimeOriginal, CreateDate, ModifyDate])
+                .into_iter()
+                .map(|x| (x.0.to_string(), x.1.to_string()))
+                .collect::<Vec<_>>(),
             [
-                ("CreateDate(0x9004)", "2023:07:09 20:36:33"),
-                ("ModifyDate(0x0132)", "2023:07:09 20:36:33")
+                ("DateTimeOriginal(0x9003)", "2023-07-09 20:36:33 +08:00"),
+                ("CreateDate(0x9004)", "2023-07-09 20:36:33 +08:00"),
+                ("ModifyDate(0x0132)", "2023-07-09 20:36:33 +08:00")
             ]
             .into_iter()
             .map(|x| (x.0.to_string(), x.1.to_string()))

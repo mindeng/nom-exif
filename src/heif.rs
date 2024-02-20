@@ -31,20 +31,21 @@ use crate::{
 /// let f = File::open(Path::new("./testdata/exif.heic")).unwrap();
 /// let exif = parse_heif_exif(f).unwrap().unwrap();
 ///
-/// assert_eq!(
-///     exif.get_value(&ExifImageWidth).unwrap(),
-///     Some(IfdEntryValue::U32(4032)));
+/// assert_eq!(exif.get_value(&Make).unwrap().unwrap().to_string(), "Apple");
 ///
 /// assert_eq!(
-///     exif.get_values(&[CreateDate, ModifyDate, DateTimeOriginal]),
+///     exif.get_values(&[DateTimeOriginal, CreateDate, ModifyDate])
+///         .into_iter()
+///         .map(|x| (x.0.to_string(), x.1.to_string()))
+///         .collect::<Vec<_>>(),
 ///     [
-///         (&CreateDate, "2022:07:22 21:26:32"),
-///         (&ModifyDate, "2022:07:22 21:26:32"),
-///         (&DateTimeOriginal, "2022:07:22 21:26:32"),
+///         ("DateTimeOriginal(0x9003)", "2022-07-22 21:26:32 +08:00"),
+///         ("CreateDate(0x9004)", "2022-07-22 21:26:32 +08:00"),
+///         ("ModifyDate(0x0132)", "2022-07-22 21:26:32 +08:00")
 ///     ]
 ///     .into_iter()
-///     .map(|x| (x.0, x.1.into()))
-///     .collect::<HashMap<_, _>>()
+///     .map(|x| (x.0.to_string(), x.1.to_string()))
+///     .collect::<Vec<_>>()
 /// );
 /// ```
 pub fn parse_heif_exif<R: Read + Seek>(mut reader: R) -> crate::Result<Option<Exif>> {
@@ -150,8 +151,8 @@ mod tests {
                 "ApertureValue(0x9202) » 14447/10653 (1.3561)",
                 "BrightnessValue(0x9203) » 97777/16376 (5.9707)",
                 "ColorSpace(0xa001) » 65535",
-                "CreateDate(0x9004) » 2022:07:22 21:26:32",
-                "DateTimeOriginal(0x9003) » 2022:07:22 21:26:32",
+                "CreateDate(0x9004) » 2022-07-22 21:26:32 +08:00",
+                "DateTimeOriginal(0x9003) » 2022-07-22 21:26:32 +08:00",
                 "ExifImageHeight(0xa003) » 3024",
                 "ExifImageWidth(0xa002) » 4032",
                 "ExposureBiasValue(0x9204) » 0/1 (0.0000)",
@@ -182,7 +183,7 @@ mod tests {
                 "Make(0x010f) » Apple",
                 "MeteringMode(0x9207) » 5",
                 "Model(0x0110) » iPhone 12 Pro",
-                "ModifyDate(0x0132) » 2022:07:22 21:26:32",
+                "ModifyDate(0x0132) » 2022-07-22 21:26:32 +08:00",
                 "OffsetTime(0x9010) » +08:00",
                 "OffsetTimeOriginal(0x9011) » +08:00",
                 "Orientation(0x0112) » 6",
