@@ -1,11 +1,11 @@
 use std::fmt::Display;
 
 use chrono::{DateTime, FixedOffset};
+
 #[cfg(feature = "serialize")]
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
 
 /// Represent a parsed entry value.
-// #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq)]
 pub enum EntryValue {
     Text(String),
@@ -28,6 +28,16 @@ pub enum EntryValue {
     Time(DateTime<FixedOffset>),
 }
 
+#[cfg(feature = "serialize")]
+impl Serialize for EntryValue {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
 impl Display for EntryValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -48,7 +58,7 @@ impl Display for EntryValue {
             EntryValue::F64(v) => v.fmt(f),
             EntryValue::U8(v) => v.fmt(f),
             EntryValue::I8(v) => v.fmt(f),
-            EntryValue::Time(v) => v.fmt(f),
+            EntryValue::Time(v) => v.to_rfc3339().fmt(f),
         }
     }
 }

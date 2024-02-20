@@ -367,8 +367,8 @@ mod tests {
                 x
             },
             [
-                ("CreateDate(0x9004)", "2023-07-09 20:36:33 +08:00"),
-                ("DateTimeOriginal(0x9003)", "2023-07-09 20:36:33 +08:00"),
+                ("CreateDate(0x9004)", "2023-07-09T20:36:33+08:00"),
+                ("DateTimeOriginal(0x9003)", "2023-07-09T20:36:33+08:00"),
                 ("ExifImageHeight(0xa003)", "4096"),
                 ("ExifImageWidth(0xa002)", "3072"),
                 ("ExposureTime(0x829a)", "9997/1000000 (0.0100)"),
@@ -384,7 +384,7 @@ mod tests {
                 ("ImageWidth(0x0100)", "3072"),
                 ("Make(0x010f)", "vivo"),
                 ("Model(0x0110)", "vivo X90 Pro+"),
-                ("ModifyDate(0x0132)", "2023-07-09 20:36:33 +08:00"),
+                ("ModifyDate(0x0132)", "2023-07-09T20:36:33+08:00"),
                 ("OffsetTime(0x9010)", "+08:00"),
                 ("OffsetTimeOriginal(0x9011)", "+08:00"),
                 ("ResolutionUnit(0x0128)", "2"),
