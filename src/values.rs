@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use chrono::{DateTime, FixedOffset};
 
-#[cfg(feature = "serialize")]
+#[cfg(feature = "json_dump")]
 use serde::{Deserialize, Serialize, Serializer};
 
 /// Represent a parsed entry value.
@@ -28,7 +28,7 @@ pub enum EntryValue {
     Time(DateTime<FixedOffset>),
 }
 
-#[cfg(feature = "serialize")]
+#[cfg(feature = "json_dump")]
 impl Serialize for EntryValue {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -146,7 +146,7 @@ impl From<(i32, i32)> for EntryValue {
     }
 }
 
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "json_dump", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct URational(pub u32, pub u32);
 
@@ -174,7 +174,7 @@ impl Into<(u32, u32)> for URational {
     }
 }
 
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "json_dump", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct IRational(pub i32, pub i32);
 

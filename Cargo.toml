@@ -20,7 +20,7 @@ regex = { version = "1.10" }
 chrono = "0.4"
 
 [features]
-serialize = ["serde"]
+json_dump = ["serde"]
 
 [dev-dependencies]
 test-case = "3"
@@ -32,4 +32,4 @@ clap = { version = "4.4", features = ["derive"] }
 
 [[example]]
 name = "rexiftool"
-# required-features = ["serialize"]
+# required-features = ["json_dump"]

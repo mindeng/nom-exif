@@ -3,11 +3,11 @@
 
 use std::fmt::Display;
 
-#[cfg(feature = "serialize")]
+#[cfg(feature = "json_dump")]
 use serde::{Deserialize, Serialize};
 
 #[allow(unused)]
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "json_dump", derive(Serialize, Deserialize))]
 #[derive(Debug, Eq, PartialEq, Hash, Clone, Copy)]
 pub enum ExifTag {
     Unknown = 0x0000_ffff,

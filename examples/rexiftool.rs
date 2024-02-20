@@ -7,6 +7,9 @@ use nom_exif::ExifTag::{self, *};
 #[command(author, version, about, long_about = None)]
 struct Cli {
     file: String,
+
+    #[arg(short, long)]
+    json: bool,
 }
 
 const TAGS: &[ExifTag] = &[
@@ -121,6 +124,11 @@ const TAGS: &[ExifTag] = &[
     GPSDifferential,
 ];
 
+#[cfg(feature = "json_dump")]
+const FEATURE_JSON_DUMP_ON: bool = true;
+#[cfg(not(feature = "json_dump"))]
+const FEATURE_JSON_DUMP_ON: bool = false;
+
 fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
 
@@ -128,34 +136,65 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     };
 
-    let extension = extension.to_lowercase();
-    match extension.as_ref() {
-        "jpg" | "jpeg" | "heic" | "heif" => {
-            let exif = nom_exif::parse_exif(&cli.file)?;
-            if let Some(exif) = exif {
-                let values = exif.get_values(TAGS);
+    if cli.json && !FEATURE_JSON_DUMP_ON {
+        let msg = "-j/--json option requires the feature `json_dump`.";
+        eprintln!("{msg}");
+        return Err(msg.into());
+    }
 
-                let mut entries = values
-                    .into_iter()
-                    .map(|x| format!("{:<32}=> {}", x.0.to_string(), x.1))
-                    .collect::<Vec<_>>();
-                entries.sort();
-                entries.iter().for_each(|x| {
-                    println!("{x}");
-                });
-            }
+    let extension = extension.to_lowercase();
+    let mut reader = File::open(&cli.file)?;
+    let values = match extension.as_ref() {
+        "jpg" | "jpeg" => {
+            let exif = nom_exif::parse_jpeg_exif(&mut reader)?;
+            let Some(exif) = exif else {
+                return Ok(());
+            };
+            exif.get_values(TAGS)
+                .into_iter()
+                .map(|x| (x.0.to_string(), x.1))
+                .collect::<Vec<_>>()
+        }
+        "heic" | "heif" => {
+            let exif = nom_exif::parse_heif_exif(&mut reader)?;
+            let Some(exif) = exif else {
+                return Ok(());
+            };
+            exif.get_values(TAGS)
+                .into_iter()
+                .map(|x| (x.0.to_string(), x.1))
+                .collect::<Vec<_>>()
         }
         "mov" | "mp4" => {
-            let mut reader = File::open(&cli.file)?;
-            let mut meta = nom_exif::parse_metadata(&mut reader)?;
-            meta.sort_by(|(ref x, _), (ref y, _)| x.cmp(y));
-            meta.iter().for_each(|x| {
-                println!("{:<50}=> {}", x.0, x.1);
-            });
+            let meta = nom_exif::parse_metadata(&mut reader)?;
+            meta.into_iter()
+                .map(|x| (x.0.to_string(), x.1))
+                .collect::<Vec<_>>()
         }
         other => {
-            println!("Unsupported filetype: {other}")
+            println!("Unsupported filetype: {other}");
+            return Err("Unsupported filetype".into());
         }
+    };
+
+    if cli.json {
+        #[cfg(feature = "json_dump")]
+        use std::collections::HashMap;
+
+        #[cfg(feature = "json_dump")]
+        println!(
+            "{}",
+            serde_json::to_string_pretty(
+                &values
+                    .into_iter()
+                    .map(|x| (x.0.to_string(), x.1))
+                    .collect::<HashMap<_, _>>()
+            )?
+        );
+    } else {
+        values.iter().for_each(|x| {
+            println!("{:<40}=> {}", x.0, x.1);
+        });
     }
 
     Ok(())

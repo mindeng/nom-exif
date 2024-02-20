@@ -21,7 +21,6 @@ use crate::{
 ///
 /// use std::fs::File;
 /// use std::path::Path;
-/// use std::collections::HashMap;
 ///
 /// let f = File::open(Path::new("./testdata/exif.jpg")).unwrap();
 /// let exif = parse_jpeg_exif(f).unwrap().unwrap();
@@ -141,6 +140,7 @@ where
     }
 }
 
+/// len of input should be >= 2
 pub fn check_jpeg(input: &[u8]) -> crate::Result<()> {
     // check SOI marker [0XFF, 0XD8]
     let (_, (_, code)) = tuple((streaming::tag([0xFF]), number::complete::u8))(input)?;

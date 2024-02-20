@@ -29,7 +29,43 @@ Exif/metadata parsing library written in pure Rust with [nom](https://github.com
 
 ## Usage
 
-- [`parse_heif_exif`](https://docs.rs/nom-exif/latest/nom_exif/fn.parse_heif_exif.html)
-- [`parse_jpeg_exif`](https://docs.rs/nom-exif/latest/nom_exif/fn.parse_jpeg_exif.html)
-- [`parse_metadata`](https://docs.rs/nom-exif/latest/nom_exif/fn.parse_metadata.html)
+- Images
+    - [`parse_heif_exif`](https://docs.rs/nom-exif/latest/nom_exif/fn.parse_heif_exif.html)
+    - [`parse_jpeg_exif`](https://docs.rs/nom-exif/latest/nom_exif/fn.parse_jpeg_exif.html)
+- Videos
+    - [`parse_metadata`](https://docs.rs/nom-exif/latest/nom_exif/fn.parse_metadata.html)
 - [examples](examples/)
+
+## CLI Tool `rexiftool`
+
+### Normal output
+
+`cargo run --example rexiftool testdata/meta.mov`:
+
+``` text
+com.apple.quicktime.make                => Apple
+com.apple.quicktime.model               => iPhone X
+com.apple.quicktime.software            => 12.1.2
+com.apple.quicktime.location.ISO6709    => +27.1281+100.2508+000.000/
+com.apple.quicktime.creationdate        => 2019-02-12T15:27:12+08:00
+duration                                => 500
+width                                   => 720
+height                                  => 1280
+```
+
+### Json dump
+
+`cargo run --features json_dump --example rexiftool -- -j testdata/meta.mov`:
+
+``` text
+{
+  "height": "1280",
+  "duration": "500",
+  "width": "720",
+  "com.apple.quicktime.creationdate": "2019-02-12T15:27:12+08:00",
+  "com.apple.quicktime.make": "Apple",
+  "com.apple.quicktime.model": "iPhone X",
+  "com.apple.quicktime.software": "12.1.2",
+  "com.apple.quicktime.location.ISO6709": "+27.1281+100.2508+000.000/"
+}
+```

@@ -33,7 +33,7 @@ use crate::{
 /// use std::path::Path;
 ///
 /// let f = File::open(Path::new("./testdata/meta.mov")).unwrap();
-/// let entries = parse_mov_metadata(f).unwrap();
+/// let entries = parse_metadata(f).unwrap();
 ///
 /// assert_eq!(
 ///     entries

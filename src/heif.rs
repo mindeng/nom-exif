@@ -26,7 +26,6 @@ use crate::{
 ///
 /// use std::fs::File;
 /// use std::path::Path;
-/// use std::collections::HashMap;
 ///
 /// let f = File::open(Path::new("./testdata/exif.heic")).unwrap();
 /// let exif = parse_heif_exif(f).unwrap().unwrap();
