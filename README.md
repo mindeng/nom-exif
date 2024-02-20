@@ -20,12 +20,12 @@ Exif/metadata parsing library written in pure Rust with [nom](https://github.com
 
 -   **Zero-copy when appropriate:** Use borrowing and slicing instead of copying
     whenever possible.
--   **Minimize I/O operations:** When metadata is stored at the end of a larger file
-    (such as a MOV file), `Seek` rather than `Read` to quickly locate the location of
-    the metadata.
--   **Pay as you go:** When extracting Exif data, only the information corresponding
-    to the specified Exif tags are parsed to reduce the overhead when processing a
-    large number of files.
+-   **Minimize I/O operations:** When metadata is stored at the end/middle of a
+    large file (such as a MOV/HEIC file does), `Seek` rather than `Read` to
+    quickly locate the location of the metadata.
+-   **Pay as you go:** When extracting Exif data, only the information
+    corresponding to the specified Exif tags are parsed to reduce the overhead
+    when processing a large number of files.
 
 ## Usage
 
