@@ -1,4 +1,7 @@
-use std::{cmp, io::Read};
+use std::{
+    cmp,
+    io::{Read, Seek},
+};
 
 use nom::{bytes::streaming, number, sequence::tuple, IResult, Needed};
 
@@ -179,16 +182,70 @@ fn parse_segment<'a>(marker_code: u8, input: &'a [u8]) -> IResult<&'a [u8], Segm
     }
 }
 
+/// Read all image data after the first SOS marker & before EOI marker.
+///
+/// The returned data might include several other SOS markers if the image is a
+/// progressive JPEG.
+fn read_image_data<T: Read + Seek>(mut reader: T) -> crate::Result<Vec<u8>> {
+    let mut header = [0u8; 2];
+    loop {
+        reader.read_exact(&mut header)?;
+        let (tag, marker) = (header[0], header[1]);
+        if tag != 0xFF {
+            return Err("".into());
+        }
+
+        if marker == MarkerCode::SOI.code() {
+            // SOI has no body
+            continue;
+        }
+        if marker == MarkerCode::EOI.code() {
+            return Err(crate::Error::NotFound);
+        }
+
+        if marker == MarkerCode::SOS.code() {
+            // found it
+            let mut data = Vec::new();
+            reader.read_to_end(&mut data)?;
+
+            // remove tail data
+            loop {
+                let Some(tail) = data.pop() else {
+                    // empty
+                    break;
+                };
+                if tail == MarkerCode::EOI.code() {
+                    if let Some(tail) = data.pop() {
+                        if tail == 0xFF {
+                            // EOI marker has been popped
+                            break;
+                        }
+                    }
+                }
+            }
+            return Ok(data);
+        } else {
+            // skip other markers
+            reader.read_exact(&mut header)?;
+            let len = u16::from_be_bytes([header[0], header[1]]);
+            reader.seek(std::io::SeekFrom::Current(len as i64 - 2))?;
+        }
+    }
+}
+
 /// A marker code is a byte following 0xFF that indicates the kind of marker.
 enum MarkerCode {
-    // Start Of Image
+    // Start of Image
     SOI = 0xD8,
 
     // APP1 marker
     APP1 = 0xE1,
 
-    // Start Of Scan
+    // Start of Scan
     SOS = 0xDA,
+
+    // End of Image
+    EOI = 0xD9,
 }
 
 impl MarkerCode {
@@ -317,5 +374,18 @@ mod tests {
         } else {
             assert_eq!(exif.unwrap().len(), exif_size);
         }
+    }
+
+    #[test_case("no-exif.jpg", 4089704, 0x000c0301, 0xb3b3e43f)]
+    #[test_case("exif.jpg", 3564768, 0x000c0301, 0x84a297a9)]
+    fn jpeg_image_data(path: &str, len: usize, start: u32, end: u32) {
+        let f = open_sample(path).unwrap();
+        let data = read_image_data(f).unwrap();
+        assert_eq!(data.len(), len);
+        assert_eq!(u32::from_be_bytes(data[..4].try_into().unwrap()), start);
+        assert_eq!(
+            u32::from_be_bytes(data[data.len() - 4..].try_into().unwrap()),
+            end
+        );
     }
 }
