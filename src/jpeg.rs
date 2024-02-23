@@ -186,6 +186,7 @@ fn parse_segment<'a>(marker_code: u8, input: &'a [u8]) -> IResult<&'a [u8], Segm
 ///
 /// The returned data might include several other SOS markers if the image is a
 /// progressive JPEG.
+#[allow(dead_code)]
 fn read_image_data<T: Read + Seek>(mut reader: T) -> crate::Result<Vec<u8>> {
     let mut header = [0u8; 2];
     loop {

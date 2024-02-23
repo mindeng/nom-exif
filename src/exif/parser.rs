@@ -36,7 +36,9 @@ pub fn parse_exif<'a>(input: &'a [u8]) -> crate::Result<Exif> {
     };
 
     // parse ifd0
-    let (_, ifd0) = parser.parse_ifd(input.len() - remain.len())?;
+    let (_, ifd0) = parser
+        .parse_ifd(input.len() - remain.len())
+        .map_err(|e| format!("Parse exif failed; {e}"))?;
 
     let exif = Exif {
         header,
