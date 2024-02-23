@@ -105,7 +105,7 @@ impl Exif {
             .transpose()
     }
 
-    pub fn get_tz_offset(&self) -> Option<String> {
+    fn get_tz_offset(&self) -> Option<String> {
         let values = self.get_values(&[ExifTag::OffsetTimeOriginal, ExifTag::OffsetTime]);
         values.into_iter().find_map(|x| {
             if let EntryValue::Text(s) = x.1 {
