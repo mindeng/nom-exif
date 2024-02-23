@@ -62,7 +62,8 @@ pub fn parse_heif_exif<R: Read + Seek>(mut reader: R) -> crate::Result<Option<Ex
         Err("file is empty")?;
     }
 
-    let Some(ftyp) = get_ftyp(&buf)? else {
+    let Some(ftyp) = get_ftyp(&buf).map_err(|e| format!("unsupported HEIF/HEIC file; {}", e))?
+    else {
         return Err(format!("unsupported HEIF/HEIC file; ftyp not found").into());
     };
     if !HEIF_FTYPS.contains(&ftyp) {
@@ -196,6 +197,12 @@ mod tests {
                 "YResolution(0x011b) » 72/1 (72.0000)"
             ]
         );
+    }
+
+    #[test_case("ramdisk.img")]
+    fn invalid_heic(path: &str) {
+        let reader = open_sample(path).unwrap();
+        parse_heif_exif(reader).expect_err("should be ParseFailed error");
     }
 
     #[test_case("no-exif.heic", 0x24-10)]

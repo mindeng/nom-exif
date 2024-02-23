@@ -4,7 +4,7 @@ use nom::{
     bytes::{complete, streaming},
     combinator::{fail, map_res},
     error::context,
-    number, AsChar, IResult,
+    number, AsChar, IResult, Needed,
 };
 
 mod idat;
@@ -188,8 +188,14 @@ where
             break Ok((rem, header));
         }
 
+        if remain.len() < header.body_size() as usize {
+            return Err(nom::Err::Incomplete(Needed::new(
+                header.body_size() as usize - remain.len(),
+            )));
+        }
+
         // skip box body
-        remain = &remain[(header.box_size - header.header_size as u64) as usize..];
+        remain = &remain[header.body_size() as usize..];
     }
 }
 
@@ -276,25 +282,23 @@ fn parse_cstr(input: &[u8]) -> IResult<&[u8], String> {
 }
 
 pub fn get_ftyp(input: &[u8]) -> crate::Result<Option<&[u8]>> {
-    let (remain, header) = travel_header(input, |h, _| {
-        // MOV files that extracted from HEIC starts with `wide` & `mdat` atoms
-        h.box_type != "ftyp" && h.box_type != "mdat"
-    })?;
+    let (_, bbox) = BoxHolder::parse(input).map_err(|_| "parse ftyp failed")?;
 
-    assert!(header.box_type == "ftyp" || header.box_type == "mdat");
-
-    if header.box_type == "ftyp" {
-        if header.body_size() < 4 {
+    if bbox.box_type() == "ftyp" {
+        if bbox.body_data().len() < 4 {
             return Err(format!(
-                "Invalid ftyp box; body size should greater than 4, got {}",
-                header.body_size()
+                "parse ftyp failed; body size should greater than 4, got {}",
+                bbox.body_data().len()
             )
             .into());
         }
-        let (_, ftyp) = streaming::take(4 as usize)(remain)?;
+        let (_, ftyp) = complete::take(4 as usize)(bbox.body_data())?;
         Ok(Some(ftyp))
-    } else {
+    } else if bbox.box_type() == "wide" {
+        // MOV files that extracted from HEIC starts with `wide` & `mdat` atoms
         Ok(None)
+    } else {
+        Err(format!("parse ftyp failed; first box type is: {}", bbox.box_type()).into())
     }
 }
 
