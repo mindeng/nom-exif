@@ -94,7 +94,7 @@ fn parse_value(type_code: u32, data: &[u8]) -> crate::Result<EntryValue> {
             8 => be_i64(data)?.1.into(),
             x => {
                 let msg = format!("Invalid ilst item data; data type is BE Signed Integer while data len is : {x}");
-                eprintln!("{msg}");
+                // eprintln!("{msg}");
                 return Err(msg.into());
             }
         },
@@ -106,7 +106,7 @@ fn parse_value(type_code: u32, data: &[u8]) -> crate::Result<EntryValue> {
             8 => be_u64(data)?.1.into(),
             x => {
                 let msg = format!("Invalid ilst item data; data type is BE Unsigned Integer while data len is : {x}");
-                eprintln!("{msg}");
+                // eprintln!("{msg}");
                 return Err(msg.into());
             }
         },
@@ -114,7 +114,7 @@ fn parse_value(type_code: u32, data: &[u8]) -> crate::Result<EntryValue> {
         24 => be_f64(data)?.1.into(),
         o => {
             let msg = format!("Unsupported ilst item data type: {o}");
-            eprintln!("{msg}");
+            // eprintln!("{msg}");
             return Err(msg.into());
         }
     };
