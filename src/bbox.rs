@@ -339,7 +339,7 @@ mod tests {
 
         let mut boxes = Vec::new();
         let (remain, bbox) = travel_while(&meta.body_data()[4..], |bbox| {
-            println!("got {}", bbox.header.box_type);
+            // println!("got {}", bbox.header.box_type);
             boxes.push(bbox.header.box_type.to_owned());
             bbox.box_type() != "iloc"
         })
@@ -362,7 +362,7 @@ mod tests {
         let mut boxes = Vec::new();
 
         let (remain, bbox) = travel_while(&buf, |bbox| {
-            println!("got {}", bbox.header.box_type);
+            // println!("got {}", bbox.header.box_type);
             boxes.push((bbox.header.box_type.to_owned(), bbox.to_owned()));
             bbox.box_type() != "moov"
         })
@@ -381,7 +381,7 @@ mod tests {
 
         let mut boxes = Vec::new();
         let (remain, bbox) = travel_while(moov.body_data(), |bbox| {
-            println!("got {}", bbox.header.box_type);
+            // println!("got {}", bbox.header.box_type);
             boxes.push(bbox.header.box_type.to_owned());
             bbox.box_type() != "meta"
         })
@@ -395,7 +395,7 @@ mod tests {
         let meta = bbox;
         let mut boxes = Vec::new();
         let (remain, _) = travel_while(meta.body_data(), |bbox| {
-            println!("got {}", bbox.header.box_type);
+            // println!("got {}", bbox.header.box_type);
             boxes.push(bbox.header.box_type.to_owned());
             bbox.box_type() != "ilst"
         })
@@ -414,7 +414,7 @@ mod tests {
         let mut boxes = Vec::new();
 
         let (remain, bbox) = travel_while(&buf, |bbox| {
-            println!("got {}", bbox.header.box_type);
+            // println!("got {}", bbox.header.box_type);
             boxes.push((bbox.header.box_type.to_owned(), bbox.to_owned()));
             bbox.box_type() != "moov"
         })
@@ -433,7 +433,7 @@ mod tests {
 
         let mut boxes = Vec::new();
         let (remain, bbox) = travel_while(moov.body_data(), |bbox| {
-            println!("got {}", bbox.header.box_type);
+            // println!("got {}", bbox.header.box_type);
             boxes.push((bbox.header.box_type.to_owned(), bbox.to_owned()));
             bbox.box_type() != "udta"
         })
@@ -452,7 +452,7 @@ mod tests {
         let meta = bbox;
         let mut boxes = Vec::new();
         let (remain, _) = travel_while(meta.body_data(), |bbox| {
-            println!("got {}", bbox.header.box_type);
+            // println!("got {}", bbox.header.box_type);
             boxes.push(bbox.header.box_type.to_owned());
             bbox.box_type() != "©xyz"
         })
@@ -464,7 +464,7 @@ mod tests {
 
         let mut boxes = Vec::new();
         let (remain, bbox) = travel_while(trak.body_data(), |bbox| {
-            println!("got {}", bbox.header.box_type);
+            // println!("got {}", bbox.header.box_type);
             boxes.push(bbox.header.box_type.to_owned());
             bbox.box_type() != "mdia"
         })
@@ -477,7 +477,7 @@ mod tests {
         let mdia = bbox;
         let mut boxes = Vec::new();
         let (remain, _) = travel_while(mdia.body_data(), |bbox| {
-            println!("got {}", bbox.header.box_type);
+            // println!("got {}", bbox.header.box_type);
             boxes.push(bbox.header.box_type.to_owned());
             bbox.box_type() != "minf"
         })
@@ -504,7 +504,7 @@ mod tests {
 
         let (_, bbox) = find_box(&buf, "moov/udta/©xyz").unwrap();
         let bbox = bbox.unwrap();
-        println!("bbox: {:?}", bbox.header);
+        // println!("bbox: {:?}", bbox.header);
 
         // gps info
         assert_eq!(

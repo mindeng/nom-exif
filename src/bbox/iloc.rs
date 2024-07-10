@@ -59,7 +59,7 @@ impl ParseBody<IlocBox> for IlocBox {
 
             let (remain, extent_count) = be_u16(remain)?;
             if extent_count > MAX_ILOC_EXTENTS_PER_ITEM {
-                eprintln!("extent_count: {extent_count}");
+                // eprintln!("extent_count: {extent_count}");
                 context("extent_count > 32", fail::<_, (), _>)(remain)?;
             }
 
