@@ -21,6 +21,8 @@ pub use meta::MetaBox;
 pub use mvhd::MvhdBox;
 pub use tkhd::parse_video_tkhd_in_moov;
 
+const MAX_BODY_LEN: usize = 100 * 1024 * 1024;
+
 #[derive(Debug, PartialEq)]
 pub enum Error {
     UnsupportedConstructionMethod(u8),
@@ -71,6 +73,11 @@ impl BoxHeader {
         assert!(header_size == 8 || header_size == 16);
 
         if box_size < header_size as u64 {
+            return fail(remain);
+        }
+
+        if box_size > (MAX_BODY_LEN + header_size) as u64 {
+            eprintln!("box size of box '{}' is too big: {}", box_type, box_size);
             return fail(remain);
         }
 
