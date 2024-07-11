@@ -70,6 +70,10 @@ impl BoxHeader {
         let header_size = input.len() - remain.len();
         assert!(header_size == 8 || header_size == 16);
 
+        if box_size < header_size as u64 {
+            return fail(remain);
+        }
+
         Ok((
             remain,
             BoxHeader {
@@ -105,6 +109,10 @@ impl FullBoxHeader {
 
         let header_size = input.len() - remain.len();
         assert!(header_size == 12 || header_size == 20);
+
+        if header.box_size < header_size as u64 {
+            return fail(remain);
+        }
 
         Ok((
             remain,
@@ -252,9 +260,15 @@ impl<O, T: ParseBody<O>> ParseBox<O> for T {
     fn parse_box<'a>(input: &'a [u8]) -> IResult<&'a [u8], O> {
         let (remain, header) = FullBoxHeader::parse(input)?;
         assert_eq!(input.len(), header.header_size as usize + remain.len());
+        assert!(
+            header.box_size >= header.header_size as u64,
+            "box_size = {}, header_size = {}",
+            header.box_size,
+            header.header_size
+        );
 
         // limit parsing size
-        let body_len = header.box_size as usize - header.header_size;
+        let body_len = (header.box_size - header.header_size as u64) as usize;
         let (remain, data) = complete::take(body_len)(remain)?;
         assert_eq!(
             input.len(),
