@@ -104,13 +104,18 @@ pub fn parse_video_tkhd_in_moov<'a>(input: &'a [u8]) -> crate::Result<TkhdBox> {
     Ok(tkhd)
 }
 
-fn find_video_track<'a>(input: &'a [u8]) -> crate::Result<BoxHolder<'a>> {
+fn find_video_track(input: &[u8]) -> crate::Result<BoxHolder> {
     let (_, bbox) = travel_while(input, |b| {
         // find video track
         if b.box_type() != "trak" {
             true
         } else {
-            let Some(hdlr) = find_box(b.body_data(), "mdia/hdlr").unwrap().1 else {
+            let found = find_box(b.body_data(), "mdia/hdlr");
+
+            let Ok(bbox) = found else {
+                return true;
+            };
+            let Some(hdlr) = bbox.1 else {
                 return true;
             };
 
@@ -125,6 +130,7 @@ fn find_video_track<'a>(input: &'a [u8]) -> crate::Result<BoxHolder<'a>> {
         }
     })
     .map_err(|e| format!("find vide trak failed: {e:?}"))?;
+
     Ok(bbox)
 }
 
