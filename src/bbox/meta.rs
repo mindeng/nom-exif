@@ -18,13 +18,18 @@ pub struct MetaBox {
 impl ParseBody<MetaBox> for MetaBox {
     fn parse_body<'a>(remain: &'a [u8], header: FullBoxHeader) -> IResult<&'a [u8], MetaBox> {
         let (remain, boxes) = many0(|remain: &'a [u8]| {
-            if remain.len() == 0 {
+            if remain.is_empty() {
                 // stop many0 parsing to prevent Incomplete error
                 fail::<_, (), _>(remain)?;
             }
             let (remain, bbox) = BoxHolder::parse(remain)?;
             Ok((remain, bbox))
         })(remain)?;
+
+        if !remain.is_empty() {
+            // body is invalid
+            return fail(remain);
+        }
 
         let boxes = boxes
             .into_iter()

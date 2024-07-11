@@ -262,7 +262,12 @@ impl<O, T: ParseBody<O>> ParseBox<O> for T {
         );
 
         let (rem, bbox) = Self::parse_body(data, header)?;
-        assert_eq!(rem.len(), 0);
+        // assert_eq!(rem.len(), 0);
+
+        if !rem.is_empty() {
+            // body is invalid
+            return fail(rem);
+        }
 
         Ok((remain, bbox))
     }
