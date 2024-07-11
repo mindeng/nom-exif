@@ -3,10 +3,12 @@ use std::collections::HashMap;
 use nom::{
     branch::alt,
     bytes::complete::{tag, take},
-    combinator::{map, map_res, verify},
-    error::ErrorKind,
+    combinator::{fail, map, map_res, verify},
     multi::many_m_n,
-    number::{complete::u16, complete::u32, Endianness},
+    number::{
+        complete::{u16, u32},
+        Endianness,
+    },
     sequence::tuple,
     IResult, Needed,
 };
@@ -134,6 +136,7 @@ impl Exif {
 }
 
 const ENTRY_SIZE: usize = 12;
+const MAX_IFD_DEPTH: usize = 20;
 
 struct Parser<'a> {
     data: &'a [u8],
@@ -142,6 +145,21 @@ struct Parser<'a> {
 
 impl<'a> Parser<'a> {
     fn parse_ifd(&'a self, pos: usize) -> IResult<&'a [u8], Option<ImageFileDirectory>> {
+        self.parse_ifd_recursively(pos, 1)
+    }
+
+    fn parse_ifd_recursively(
+        &'a self,
+        pos: usize,
+        depth: usize,
+    ) -> IResult<&'a [u8], Option<ImageFileDirectory>> {
+        // Prevent stack overflow caused by infinite recursion, which will
+        // occur when running fuzzing tests.
+        if depth > MAX_IFD_DEPTH {
+            eprintln!("too many nested IFDs, parsing aborted at depth {}", depth);
+            return fail(&self.data[pos..]);
+        }
+
         let input = self.data;
         let endian = self.endian;
 
@@ -159,7 +177,7 @@ impl<'a> Parser<'a> {
         let mut pos = input.len() - remain.len();
         let (remain, entries) =
             many_m_n(entry_num as usize, entry_num as usize, |_: &'a [u8]| {
-                let (rem, entry) = self.parse_ifd_entry(pos)?;
+                let (rem, entry) = self.parse_ifd_entry(pos, depth)?;
                 pos = input.len() - rem.len();
                 Ok((rem, entry))
             })(input)?;
@@ -172,7 +190,7 @@ impl<'a> Parser<'a> {
         Ok((remain, Some(ImageFileDirectory { entries })))
     }
 
-    fn parse_ifd_entry(&self, pos: usize) -> IResult<&'a [u8], DirectoryEntry> {
+    fn parse_ifd_entry(&self, pos: usize, depth: usize) -> IResult<&[u8], DirectoryEntry> {
         let input = self.data;
         let endian = self.endian;
 
@@ -183,14 +201,14 @@ impl<'a> Parser<'a> {
         }
         let entry_data = &input[pos..pos + ENTRY_SIZE];
 
-        let (_, entry) = map_res(
+        let (_, (_, entry)) = map_res(
             tuple((u16(endian), u16(endian), u32(endian), u32(endian))),
-            |(tag, data_format, components_num, value_or_offset)| {
+            |(tag, data_format, components_num, value_or_offset)| -> IResult<&[u8], DirectoryEntry> {
                 // get component_size according to data format
-                let component_size = entry_component_size(data_format).map_err(|e| {
-                    eprintln!("parse exif entry failed; {e}");
-                    nom::Err::Failure(nom::error::make_error(entry_data, ErrorKind::Fail))
-                })?;
+                let Ok(component_size) = entry_component_size(data_format) else {
+                    // eprintln!("parse exif entry failed; {e}");
+                    return fail(input);
+                };
 
                 // get entry data
                 let size = components_num as usize * component_size;
@@ -202,21 +220,27 @@ impl<'a> Parser<'a> {
                     if end > input.len() {
                         return Err(nom::Err::Incomplete(Needed::new(end - input.len())));
                     }
+
+                    // Is `start` should be greater than or equal to `pos + ENTRY_SIZE` ?
+                    // if start < pos + ENTRY_SIZE {
+                    //     return fail(input);
+                    // }
+
                     &input[start..end]
                 };
 
                 let data = Vec::from(data);
 
-                let subifd = self.parse_subifd(tag, value_or_offset as usize)?;
+                let subifd = self.parse_subifd(tag, value_or_offset as usize, depth)?;
 
-                Ok::<_, nom::Err<nom::error::Error<_>>>(DirectoryEntry {
+                Ok((&input[pos+ENTRY_SIZE..], DirectoryEntry {
                     tag,
                     data_format,
                     components_num,
                     data,
                     value: value_or_offset,
                     subifd,
-                })
+                }))
             },
         )(entry_data)?;
 
@@ -227,6 +251,7 @@ impl<'a> Parser<'a> {
         &self,
         tag: u16,
         offset: usize,
+        depth: usize,
     ) -> Result<Option<ImageFileDirectory>, nom::Err<nom::error::Error<&[u8]>>> {
         let input = self.data;
         let subifd = if tag == ExifTag::ExifOffset as u16 || tag == ExifTag::GPSInfo as u16 {
@@ -236,7 +261,7 @@ impl<'a> Parser<'a> {
             }
 
             // load from offset
-            let (_, ifd) = self.parse_ifd(offset)?;
+            let (_, ifd) = self.parse_ifd_recursively(offset, depth + 1)?;
             ifd
         } else {
             None
