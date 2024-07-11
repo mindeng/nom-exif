@@ -3,7 +3,7 @@ use std::{
     io::{Read, Seek},
 };
 
-use nom::{bytes::streaming, number, sequence::tuple, IResult, Needed};
+use nom::{bytes::streaming, combinator::fail, number, sequence::tuple, IResult, Needed};
 
 use crate::{
     error::convert_parse_error,
@@ -170,6 +170,9 @@ fn parse_segment<'a>(marker_code: u8, input: &'a [u8]) -> IResult<&'a [u8], Segm
         ))
     } else {
         let (remain, size) = number::streaming::be_u16(remain)?;
+        if size < 2 {
+            return fail(remain);
+        }
         // size contains the two bytes of `size` itself
         let (remain, data) = streaming::take(size - 2)(remain)?;
         Ok((
