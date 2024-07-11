@@ -53,8 +53,12 @@ impl IlstItem {
         let (remain, (size, index, data_len, _, type_set, type_code, local)) =
             tuple((be_u32, be_u32, be_u32, tag("data"), u8, be_u24, be_u32))(input)?;
 
-        assert_eq!(size - 24, data_len - 16);
-        if data_len < 16 {
+        if size < 24 || data_len < 16 {
+            context("invalid ilst item", fail::<_, (), _>)(remain)?;
+        }
+
+        // assert_eq!(size - 24, data_len - 16);
+        if size - 24 != data_len - 16 {
             context("invalid ilst item", fail::<_, (), _>)(remain)?;
         }
 
