@@ -4,7 +4,6 @@ use nom::{
     bytes::{complete, streaming},
     combinator::{fail, map_res},
     error::context,
-    multi::many0,
     number, AsChar, IResult, Needed,
 };
 
@@ -299,36 +298,6 @@ fn parse_cstr(input: &[u8]) -> IResult<&[u8], String> {
 
     // consumes the zero byte
     Ok((&remain[1..], s)) // Safe-slice
-}
-
-pub fn get_ftyp_and_major_brand(input: &[u8]) -> crate::Result<(BoxHolder, Option<&[u8]>)> {
-    let (_, bbox) = BoxHolder::parse(input).map_err(|_| "parse ftyp failed")?;
-
-    if bbox.box_type() == "ftyp" {
-        if bbox.body_data().len() < 4 {
-            return Err(format!(
-                "parse ftyp failed; body size should greater than 4, got {}",
-                bbox.body_data().len()
-            )
-            .into());
-        }
-        let (_, ftyp) = complete::take(4_usize)(bbox.body_data())?;
-        Ok((bbox, Some(ftyp)))
-    } else if bbox.box_type() == "wide" {
-        // MOV files that extracted from HEIC starts with `wide` & `mdat` atoms
-        Ok((bbox, None))
-    } else {
-        Err(format!("parse ftyp failed; first box type is: {}", bbox.box_type()).into())
-    }
-}
-
-pub fn get_compatible_brands(body: &[u8]) -> crate::Result<Vec<&[u8]>> {
-    let Ok((_, brands)) = many0(complete::take::<usize, &[u8], nom::error::Error<&[u8]>>(
-        4_usize,
-    ))(body) else {
-        return Err("get compatible brands failed".into());
-    };
-    Ok(brands)
 }
 
 #[cfg(test)]

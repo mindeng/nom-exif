@@ -5,8 +5,8 @@ use nom::combinator::fail;
 use nom::Needed;
 use nom::{number::complete::be_u32, IResult};
 
-use crate::bbox::{get_compatible_brands, get_ftyp_and_major_brand};
 use crate::exif::{parse_exif, Exif};
+use crate::file::check_heif;
 use crate::{
     bbox::{travel_while, BoxHolder, MetaBox, ParseBox},
     exif::check_exif_header,
@@ -62,19 +62,7 @@ pub fn parse_heif_exif<R: Read + Seek>(mut reader: R) -> crate::Result<Option<Ex
         Err("file is empty")?;
     }
 
-    let (ftyp, Some(major_brand)) =
-        get_ftyp_and_major_brand(&buf).map_err(|e| format!("unsupported HEIF/HEIC file; {}", e))?
-    else {
-        return Err("unsupported HEIF/HEIC file; ftyp not found".into());
-    };
-
-    if !HEIF_FTYPS.contains(&major_brand) {
-        // Check compatible brands
-        let compatible_brands = get_compatible_brands(ftyp.body_data())?;
-        if !HEIF_FTYPS.iter().any(|x| compatible_brands.contains(x)) {
-            return Err(format!("unsupported HEIF/HEIC file; major brand: {major_brand:?}").into());
-        }
-    }
+    check_heif(&buf)?;
 
     let (_, exif_data) = loop {
         to_read = match extract_exif_data(&buf) {
@@ -104,16 +92,6 @@ pub fn parse_heif_exif<R: Read + Seek>(mut reader: R) -> crate::Result<Option<Ex
     exif_data.map(parse_exif).transpose()
 }
 
-const HEIF_FTYPS: [&[u8]; 7] = [
-    b"heic", // the usual HEIF images
-    b"heix", // 10bit images, or anything that uses h265 with range extension
-    b"hevc", // 'hevx': brands for image sequences
-    b"heim", // multiview
-    b"heis", // scalable
-    b"hevm", // multiview sequence
-    b"hevs", // scalable sequence
-];
-
 /// Extract Exif TIFF data from the bytes of a HEIF/HEIC file.
 fn extract_exif_data(input: &[u8]) -> IResult<&[u8], Option<&[u8]>> {
     let remain = input;
@@ -141,7 +119,7 @@ fn extract_exif_data(input: &[u8]) -> IResult<&[u8], Option<&[u8]>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testkit::*;
+    use crate::{file::FileType, testkit::*};
     use test_case::test_case;
 
     #[test_case("exif.heic")]
@@ -207,6 +185,18 @@ mod tests {
     fn invalid_heic(path: &str) {
         let reader = open_sample(path).unwrap();
         parse_heif_exif(reader).expect_err("should be ParseFailed error");
+    }
+
+    #[test_case("compatible-brands.heic", Some(FileType::Heif))]
+    #[test_case("compatible-brands-fail.heic", None)]
+    fn heic_compatible_brands(path: &str, ft: Option<FileType>) {
+        let buf = read_sample(path).unwrap();
+        let got = check_heif(&buf);
+        if let Some(ft) = ft {
+            assert_eq!(ft, got.unwrap());
+        } else {
+            got.unwrap_err();
+        }
     }
 
     #[test_case("no-exif.heic", 0x24-10)]

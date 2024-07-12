@@ -29,8 +29,8 @@ Exif/metadata parsing library written in pure Rust with [nom](https://github.com
 -   **Robustness and stability**: Through long-term [Fuzz
     testing](https://github.com/rust-fuzz/afl.rs), and tons of crash issues
     discovered during testing have been fixed. Thanks to
-    [@sigaloid](https://github.com/sigaloid) for [raising this
-    question](https://github.com/mindeng/nom-exif/pull/5).
+    [@sigaloid](https://github.com/sigaloid) for [pointing this
+    out](https://github.com/mindeng/nom-exif/pull/5)!
 
 
 ## Usage

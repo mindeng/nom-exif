@@ -5,23 +5,17 @@ use std::{
 };
 
 use chrono::DateTime;
-use nom::{bytes::streaming, AsChar, IResult};
+use nom::{bytes::streaming, IResult};
 use thiserror::Error;
 
 use crate::{
     bbox::{
-        find_box, get_compatible_brands, get_ftyp_and_major_brand, parse_video_tkhd_in_moov,
-        travel_header, travel_while, IlstBox, KeysBox, MvhdBox, ParseBox,
+        find_box, parse_video_tkhd_in_moov, travel_header, travel_while, IlstBox, KeysBox, MvhdBox,
+        ParseBox,
     },
-    file::FileType,
+    file::{check_qt_mp4, FileType},
     EntryValue,
 };
-
-const MP4_BRAND_NAMES: &[&str] = &[
-    "3g2a", "3gp4", "3gp5", "3gp6", "mp41", "mp42", "iso2", "isom", "vfj1",
-];
-
-const QT_BRAND_NAMES: &[&str] = &["qt  ", "CAEP"];
 
 /// Analyze the byte stream in the `reader` as a MOV/MP4 file, attempting to
 /// extract any possible metadata it may contain, and return it in the form of
@@ -176,7 +170,7 @@ fn extract_moov_body<R: Read + Seek>(mut reader: R) -> Result<(FileType, Vec<u8>
         Err("file is empty")?;
     }
 
-    let ft = check_ftyp(&buf)?;
+    let ft = check_qt_mp4(&buf)?;
 
     let mut offset = 0;
     let moov_body_range = loop {
@@ -306,46 +300,6 @@ fn extract_moov_body_from_buf(input: &[u8]) -> Result<Range<usize>, Error> {
     Ok(skipped..skipped + body.len())
 }
 
-fn check_ftyp(input: &[u8]) -> crate::Result<FileType> {
-    let (bbox, Some(major_brand)) = get_ftyp_and_major_brand(input)? else {
-        // ftyp is None, assume it's a MOV file extracted from HEIC
-        return Ok(FileType::QuickTime);
-    };
-
-    // Check if it is a QuickTime file
-    if QT_BRAND_NAMES.iter().any(|v| v.as_bytes() == major_brand) {
-        return Ok(FileType::QuickTime);
-    }
-
-    // Check if it is a MP4 file
-    if MP4_BRAND_NAMES.iter().any(|v| v.as_bytes() == major_brand) {
-        return Ok(FileType::MP4);
-    }
-
-    // Check compatible brands
-    let compatible_brands = get_compatible_brands(bbox.body_data())?;
-
-    if QT_BRAND_NAMES
-        .iter()
-        .any(|v| compatible_brands.iter().any(|x| v.as_bytes() == *x))
-    {
-        return Ok(FileType::QuickTime);
-    }
-
-    if MP4_BRAND_NAMES
-        .iter()
-        .any(|v| compatible_brands.iter().any(|x| v.as_bytes() == *x))
-    {
-        return Ok(FileType::MP4);
-    }
-
-    Err(format!(
-        "unsupported video file; major brand: '{}'",
-        major_brand.iter().map(|b| b.as_char()).collect::<String>()
-    )
-    .into())
-}
-
 fn parse_moov_body(remain: &[u8]) -> IResult<&[u8], Vec<(String, EntryValue)>> {
     let (_, meta) = travel_while(remain, |b| b.header.box_type != "meta")?;
     let (_, keys) = travel_while(meta.body_data(), |b| b.header.box_type != "keys")?;
@@ -447,7 +401,7 @@ mod tests {
     fn mov_compatible_brands(path: &str) {
         let buf = read_sample(path).unwrap();
         println!("file size: {}", buf.len());
-        let ft = check_ftyp(&buf).unwrap();
+        let ft = check_qt_mp4(&buf).unwrap();
         assert_eq!(ft, FileType::QuickTime);
     }
 
@@ -455,7 +409,7 @@ mod tests {
     fn mov_compatible_brands_fail(path: &str) {
         let buf = read_sample(path).unwrap();
         println!("file size: {}", buf.len());
-        check_ftyp(&buf).unwrap_err();
+        check_qt_mp4(&buf).unwrap_err();
     }
 
     #[test_case("meta.mp4")]

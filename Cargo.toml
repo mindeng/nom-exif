@@ -1,6 +1,6 @@
 [package]
 name = "nom-exif"
-version = "1.2.3"
+version = "1.2.4"
 edition = "2021"
 license-file = "LICENSE"
 description = "Exif/metadata parsing library written in pure Rust, both JPEG/HEIF/HEIC images and MOV/MP4 videos are supported."

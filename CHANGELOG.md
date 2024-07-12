@@ -1,8 +1,17 @@
 # Changelog
 
+## nom-exif v1.2.4
+
+[8c00f1b..HEAD](https://github.com/mindeng/nom-exif/compare/8c00f1b..HEAD)
+
+### Improved
+
+- **Compatibility** has been greatly improved: compatible brands in ftyp box
+  has been checked, and now it can support various compatible MP4/MOV files.
+
 ## nom-exif v1.2.3
 
-[2861cbc..HEAD](https://github.com/mindeng/nom-exif/compare/2861cbc..HEAD)
+[2861cbc..8c00f1b](https://github.com/mindeng/nom-exif/compare/2861cbc..8c00f1b)
 
 ### Fixed
 
