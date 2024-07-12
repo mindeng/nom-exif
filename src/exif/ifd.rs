@@ -95,17 +95,25 @@ impl EntryValue {
     /// |-----------------+---------------+---------------+----------------+-----------------+-------------------+--------------|
     /// | Format          | unsigned byte | ascii strings | unsigned short |   unsigned long | unsigned rational |  signed byte |
     /// | Bytes/component |             1 |             1 |              2 |               4 |                 8 |            1 |
+    ///
     /// | Value           |             7 |             8 |              9 |              10 |                11 |           12 |
+    /// |-----------------+---------------+---------------+----------------+-----------------+-------------------+--------------|
     /// | Format          |     undefined |  signed short |    signed long | signed rational |      single float | double float |
     /// | Bytes/component |             1 |             2 |              4 |               8 |                 4 |            8 |
     /// ```
     ///
     /// See: [Exif](https://www.media.mit.edu/pia/Research/deepview/exif.html).
-    pub(crate) fn parse<'a>(
+    pub(crate) fn parse(
         entry: &DirectoryEntry,
         endian: Endianness,
         tz: &Option<String>,
     ) -> Result<EntryValue, Error> {
+        if entry.data.is_empty() {
+            return Err(Error::Unsupported(
+                "invalid DirectoryEntry: entry data is empty".into(),
+            ));
+        }
+
         let tag = entry.tag;
 
         let exif_tag: Result<ExifTag, _> = tag.try_into();
@@ -121,7 +129,12 @@ impl EntryValue {
                 || tag == ExifTag::CreateDate
                 || tag == ExifTag::ModifyDate
             {
-                assert_eq!(entry.data_format, 2);
+                // assert_eq!(entry.data_format, 2);
+                if entry.data_format != 2 {
+                    return Err(Error::InvalidData(
+                        "invalid DirectoryEntry: date format is invalid".into(),
+                    ));
+                }
                 let s = get_cstr(&entry.data).map_err(|e| Error::InvalidData(e.to_string()))?;
 
                 let t = if let Some(tz) = tz {
@@ -160,22 +173,41 @@ impl EntryValue {
                 ))),
             },
             // u16
-            3 => Ok(Self::U32(bytes_to_u16(&entry.data[..2], endian) as u32)),
+            3 => {
+                if entry.data.len() < 2 {
+                    return Err(Error::InvalidData("invalid DirectoryEntry".into()));
+                }
+                Ok(Self::U32(bytes_to_u16(&entry.data[..2], endian) as u32))
+            }
             // u32
-            4 => Ok(Self::U32(bytes_to_u32(&entry.data[..4], endian))),
+            4 => {
+                if entry.data.len() < 4 {
+                    return Err(Error::InvalidData("invalid DirectoryEntry".into()));
+                }
+
+                Ok(Self::U32(bytes_to_u32(&entry.data[..4], endian)))
+            }
 
             // unsigned rational
             5 => {
+                if entry.data.len() < 8 {
+                    return Err(Error::InvalidData("invalid DirectoryEntry".into()));
+                }
+
                 let numerator = bytes_to_u32(&entry.data[..4], endian);
-                let denominator = bytes_to_u32(&entry.data[4..], endian);
+                let denominator = bytes_to_u32(&entry.data[4..8], endian);
 
                 Ok(Self::URational(URational(numerator, denominator)))
             }
 
             // signed rational
             0xa => {
+                if entry.data.len() < 8 {
+                    return Err(Error::InvalidData("invalid DirectoryEntry".into()));
+                }
+
                 let numerator = bytes_to_i32(&entry.data[..4], endian);
-                let denominator = bytes_to_i32(&entry.data[4..], endian);
+                let denominator = bytes_to_i32(&entry.data[4..8], endian);
 
                 Ok(Self::IRational(IRational(numerator, denominator)))
             }
