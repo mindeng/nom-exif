@@ -5,17 +5,23 @@ use std::{
 };
 
 use chrono::DateTime;
-use nom::{bytes::streaming, IResult};
+use nom::{bytes::streaming, AsChar, IResult};
 use thiserror::Error;
 
 use crate::{
     bbox::{
-        find_box, get_ftyp, parse_video_tkhd_in_moov, travel_header, travel_while, IlstBox,
-        KeysBox, MvhdBox, ParseBox,
+        find_box, get_compatible_brands, get_ftyp_and_major_brand, parse_video_tkhd_in_moov,
+        travel_header, travel_while, IlstBox, KeysBox, MvhdBox, ParseBox,
     },
     file::FileType,
     EntryValue,
 };
+
+const MP4_BRAND_NAMES: &[&str] = &[
+    "3g2a", "3gp4", "3gp5", "3gp6", "mp41", "mp42", "iso2", "isom", "vfj1",
+];
+
+const QT_BRAND_NAMES: &[&str] = &["qt  ", "CAEP"];
 
 /// Analyze the byte stream in the `reader` as a MOV/MP4 file, attempting to
 /// extract any possible metadata it may contain, and return it in the form of
@@ -301,18 +307,43 @@ fn extract_moov_body_from_buf(input: &[u8]) -> Result<Range<usize>, Error> {
 }
 
 fn check_ftyp(input: &[u8]) -> crate::Result<FileType> {
-    let Some(ftyp) = get_ftyp(input)? else {
+    let (bbox, Some(major_brand)) = get_ftyp_and_major_brand(input)? else {
         // ftyp is None, assume it's a MOV file extracted from HEIC
         return Ok(FileType::QuickTime);
     };
 
-    match ftyp {
-        b"qt  " => Ok(FileType::QuickTime),
-        b"mp41" => Ok(FileType::MP4),
-        b"mp42" => Ok(FileType::MP4),
-
-        o => Err(format!("unsupported MOV file; ftyp: {o:?}").into()),
+    // Check if it is a QuickTime file
+    if QT_BRAND_NAMES.iter().any(|v| v.as_bytes() == major_brand) {
+        return Ok(FileType::QuickTime);
     }
+
+    // Check if it is a MP4 file
+    if MP4_BRAND_NAMES.iter().any(|v| v.as_bytes() == major_brand) {
+        return Ok(FileType::MP4);
+    }
+
+    // Check compatible brands
+    let compatible_brands = get_compatible_brands(bbox.body_data())?;
+
+    if QT_BRAND_NAMES
+        .iter()
+        .any(|v| compatible_brands.iter().any(|x| v.as_bytes() == *x))
+    {
+        return Ok(FileType::QuickTime);
+    }
+
+    if MP4_BRAND_NAMES
+        .iter()
+        .any(|v| compatible_brands.iter().any(|x| v.as_bytes() == *x))
+    {
+        return Ok(FileType::MP4);
+    }
+
+    Err(format!(
+        "unsupported video file; major brand: '{}'",
+        major_brand.iter().map(|b| b.as_char()).collect::<String>()
+    )
+    .into())
 }
 
 fn parse_moov_body(remain: &[u8]) -> IResult<&[u8], Vec<(String, EntryValue)>> {
@@ -410,6 +441,21 @@ mod tests {
 (\"com.apple.quicktime.location.ISO6709\", Text(\"+27.1281+100.2508+000.000/\"))
 (\"com.apple.quicktime.creationdate\", Text(\"2019-02-12T15:27:12+08:00\"))"
         );
+    }
+
+    #[test_case("compatible-brands.mov")]
+    fn mov_compatible_brands(path: &str) {
+        let buf = read_sample(path).unwrap();
+        println!("file size: {}", buf.len());
+        let ft = check_ftyp(&buf).unwrap();
+        assert_eq!(ft, FileType::QuickTime);
+    }
+
+    #[test_case("compatible-brands-fail.mov")]
+    fn mov_compatible_brands_fail(path: &str) {
+        let buf = read_sample(path).unwrap();
+        println!("file size: {}", buf.len());
+        check_ftyp(&buf).unwrap_err();
     }
 
     #[test_case("meta.mp4")]

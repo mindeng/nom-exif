@@ -5,7 +5,7 @@ use nom::combinator::fail;
 use nom::Needed;
 use nom::{number::complete::be_u32, IResult};
 
-use crate::bbox::get_ftyp;
+use crate::bbox::get_ftyp_and_major_brand;
 use crate::exif::{parse_exif, Exif};
 use crate::{
     bbox::{travel_while, BoxHolder, MetaBox, ParseBox},
@@ -62,7 +62,8 @@ pub fn parse_heif_exif<R: Read + Seek>(mut reader: R) -> crate::Result<Option<Ex
         Err("file is empty")?;
     }
 
-    let Some(ftyp) = get_ftyp(&buf).map_err(|e| format!("unsupported HEIF/HEIC file; {}", e))?
+    let (_, Some(ftyp)) =
+        get_ftyp_and_major_brand(&buf).map_err(|e| format!("unsupported HEIF/HEIC file; {}", e))?
     else {
         return Err("unsupported HEIF/HEIC file; ftyp not found".into());
     };
