@@ -18,14 +18,20 @@ Exif/metadata parsing library written in pure Rust with [nom](https://github.com
 
 ## Features
 
--   **Zero-copy when appropriate:** Use borrowing and slicing instead of copying
+-   **Zero-copy when appropriate**: Use borrowing and slicing instead of copying
     whenever possible.
--   **Minimize I/O operations:** When metadata is stored at the end/middle of a
+-   **Minimize I/O operations**: When metadata is stored at the end/middle of a
     large file (such as a MOV/HEIC file does), `Seek` rather than `Read` to
     quickly locate the location of the metadata.
--   **Pay as you go:** When extracting Exif data, only the information
+-   **Pay as you go**: When extracting Exif data, only the information
     corresponding to the specified Exif tags are parsed to reduce the overhead
     when processing a large number of files.
+-   **Robustness and stability**: Through long-term [Fuzz
+    testing](https://github.com/rust-fuzz/afl.rs), and tons of crash issues
+    discovered during testing have been fixed. Thanks to
+    [@sigaloid](https://github.com/sigaloid) for [raising this
+    question](https://github.com/mindeng/nom-exif/pull/5).
+
 
 ## Usage
 
