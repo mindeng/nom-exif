@@ -2,7 +2,7 @@
 
 ## nom-exif v1.2.4
 
-[8c00f1b..HEAD](https://github.com/mindeng/nom-exif/compare/8c00f1b..HEAD)
+[8c00f1b..v1.2.4](https://github.com/mindeng/nom-exif/compare/8c00f1b..v1.2.4)
 
 ### Improved
 
