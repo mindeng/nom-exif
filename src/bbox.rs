@@ -182,7 +182,7 @@ where
         assert!(rem.len() < remain.len());
         remain = rem;
 
-        if predicate(&bbox) == false {
+        if !predicate(&bbox) {
             break Ok((rem, bbox));
         }
     }

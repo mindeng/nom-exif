@@ -110,8 +110,9 @@ fn find_video_track(input: &[u8]) -> crate::Result<BoxHolder> {
         if b.box_type() != "trak" {
             true
         } else {
-            let found = find_box(b.body_data(), "mdia/hdlr");
+            // got a 'trak', to check if it's a 'vide' trak
 
+            let found = find_box(b.body_data(), "mdia/hdlr");
             let Ok(bbox) = found else {
                 return true;
             };
@@ -120,6 +121,9 @@ fn find_video_track(input: &[u8]) -> crate::Result<BoxHolder> {
             };
 
             // component subtype
+            if hdlr.body_data().len() < 4 {
+                return true;
+            }
             let subtype = &hdlr.body_data()[8..12];
             if subtype == b"vide" {
                 // found it!
