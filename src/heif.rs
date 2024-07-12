@@ -5,7 +5,7 @@ use nom::combinator::fail;
 use nom::Needed;
 use nom::{number::complete::be_u32, IResult};
 
-use crate::bbox::get_ftyp_and_major_brand;
+use crate::bbox::{get_compatible_brands, get_ftyp_and_major_brand};
 use crate::exif::{parse_exif, Exif};
 use crate::{
     bbox::{travel_while, BoxHolder, MetaBox, ParseBox},
@@ -62,13 +62,18 @@ pub fn parse_heif_exif<R: Read + Seek>(mut reader: R) -> crate::Result<Option<Ex
         Err("file is empty")?;
     }
 
-    let (_, Some(ftyp)) =
+    let (ftyp, Some(major_brand)) =
         get_ftyp_and_major_brand(&buf).map_err(|e| format!("unsupported HEIF/HEIC file; {}", e))?
     else {
         return Err("unsupported HEIF/HEIC file; ftyp not found".into());
     };
-    if !HEIF_FTYPS.contains(&ftyp) {
-        Err(format!("unsupported HEIF/HEIC file; ftyp: {ftyp:?}"))?;
+
+    if !HEIF_FTYPS.contains(&major_brand) {
+        // Check compatible brands
+        let compatible_brands = get_compatible_brands(ftyp.body_data())?;
+        if !HEIF_FTYPS.iter().any(|x| compatible_brands.contains(x)) {
+            return Err(format!("unsupported HEIF/HEIC file; major brand: {major_brand:?}").into());
+        }
     }
 
     let (_, exif_data) = loop {
