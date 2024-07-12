@@ -147,14 +147,8 @@ impl From<(i32, i32)> for EntryValue {
 }
 
 #[cfg_attr(feature = "json_dump", derive(Serialize, Deserialize))]
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 pub struct URational(pub u32, pub u32);
-
-impl Default for URational {
-    fn default() -> Self {
-        URational(0, 0)
-    }
-}
 
 impl URational {
     pub fn to_float(&self) -> f64 {
@@ -168,21 +162,15 @@ impl From<(u32, u32)> for URational {
     }
 }
 
-impl Into<(u32, u32)> for URational {
-    fn into(self) -> (u32, u32) {
-        (self.0, self.1)
+impl From<URational> for (u32, u32) {
+    fn from(val: URational) -> Self {
+        (val.0, val.1)
     }
 }
 
 #[cfg_attr(feature = "json_dump", derive(Serialize, Deserialize))]
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 pub struct IRational(pub i32, pub i32);
-
-impl Default for IRational {
-    fn default() -> Self {
-        IRational(0, 0)
-    }
-}
 
 impl From<(i32, i32)> for IRational {
     fn from(value: (i32, i32)) -> Self {
@@ -190,9 +178,9 @@ impl From<(i32, i32)> for IRational {
     }
 }
 
-impl Into<(i32, i32)> for IRational {
-    fn into(self) -> (i32, i32) {
-        (self.0, self.1)
+impl From<IRational> for (i32, i32) {
+    fn from(val: IRational) -> Self {
+        (val.0, val.1)
     }
 }
 

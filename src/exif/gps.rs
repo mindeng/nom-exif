@@ -18,18 +18,8 @@ pub struct GPSInfo {
     pub altitude: URational,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 pub struct LatLng(pub URational, pub URational, pub URational);
-
-impl Default for LatLng {
-    fn default() -> Self {
-        LatLng(
-            URational::default(),
-            URational::default(),
-            URational::default(),
-        )
-    }
-}
 
 impl GPSInfo {
     /// Returns an ISO 6709 geographic point location string such as

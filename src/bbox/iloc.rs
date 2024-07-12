@@ -25,7 +25,7 @@ pub struct IlocBox {
 const MAX_ILOC_EXTENTS_PER_ITEM: u16 = 32;
 
 impl ParseBody<IlocBox> for IlocBox {
-    fn parse_body<'a>(remain: &'a [u8], header: FullBoxHeader) -> IResult<&'a [u8], IlocBox> {
+    fn parse_body(remain: &[u8], header: FullBoxHeader) -> IResult<&[u8], IlocBox> {
         let version = header.version;
 
         let (remain, (offset_size, length_size)) =

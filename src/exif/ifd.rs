@@ -49,7 +49,6 @@ impl ImageFileDirectory {
     pub fn find(&self, tag: u16) -> Option<&DirectoryEntry> {
         self.entries
             .get(&tag)
-            .and_then(|entry| Some(entry))
             .or_else(|| self.exif_ifd().and_then(|exif_ifd| exif_ifd.find(tag)))
             .or_else(|| self.gps_ifd().and_then(|gps_ifd| gps_ifd.find(tag)))
     }
@@ -226,10 +225,7 @@ fn get_cstr(data: &[u8]) -> std::result::Result<String, FromUtf8Error> {
     )
 }
 
-pub fn get_gps_info<'a>(
-    gps_ifd: &ImageFileDirectory,
-    endian: Endianness,
-) -> crate::Result<GPSInfo> {
+pub fn get_gps_info(gps_ifd: &ImageFileDirectory, endian: Endianness) -> crate::Result<GPSInfo> {
     fn get_ref(gps_ifd: &ImageFileDirectory, tag: ExifTag) -> crate::Result<char> {
         gps_ifd
             .find(tag as u16)
@@ -257,7 +253,7 @@ pub fn get_gps_info<'a>(
 
     let altitude_ref = gps_ifd
         .find(ExifTag::GPSAltitudeRef as u16)
-        .and_then(|entry| Some(entry.data[0]))
+        .map(|entry| entry.data[0])
         .unwrap_or(0);
 
     let altitude = if let Some(entry) = gps_ifd.find(ExifTag::GPSAltitude as u16) {

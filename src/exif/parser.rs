@@ -129,7 +129,7 @@ impl Exif {
             .as_ref()
             .and_then(|ifd0| {
                 ifd0.gps_ifd()
-                    .and_then(|gps_ifd| Some(get_gps_info(gps_ifd, self.endian())))
+                    .map(|gps_ifd| get_gps_info(gps_ifd, self.endian()))
             })
             .transpose()
     }

@@ -20,7 +20,7 @@ pub struct KeysBox {
 }
 
 impl ParseBody<KeysBox> for KeysBox {
-    fn parse_body<'a>(body: &'a [u8], header: FullBoxHeader) -> nom::IResult<&'a [u8], KeysBox> {
+    fn parse_body(body: &[u8], header: FullBoxHeader) -> nom::IResult<&[u8], KeysBox> {
         let (remain, entry_count) = be_u32(body)?;
         let (remain, entries) =
             many_m_n(entry_count as usize, entry_count as usize, KeyEntry::parse)(remain)?;

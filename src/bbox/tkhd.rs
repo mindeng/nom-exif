@@ -38,7 +38,7 @@ pub struct TkhdBox {
 }
 
 impl ParseBody<TkhdBox> for TkhdBox {
-    fn parse_body<'a>(body: &'a [u8], header: FullBoxHeader) -> nom::IResult<&'a [u8], TkhdBox> {
+    fn parse_body(body: &[u8], header: FullBoxHeader) -> nom::IResult<&[u8], TkhdBox> {
         let (
             remain,
             (
@@ -95,7 +95,7 @@ impl ParseBody<TkhdBox> for TkhdBox {
 }
 
 /// Try to find a video track's tkhd in moov body. atom-path: "moov/trak/tkhd".
-pub fn parse_video_tkhd_in_moov<'a>(input: &'a [u8]) -> crate::Result<TkhdBox> {
+pub fn parse_video_tkhd_in_moov(input: &[u8]) -> crate::Result<TkhdBox> {
     let bbox = find_video_track(input)?;
     let (_, bbox) = travel_while(bbox.body_data(), |b| b.box_type() != "tkhd")
         .map_err(|e| format!("find tkhd failed: {e:?}"))?;

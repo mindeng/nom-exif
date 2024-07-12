@@ -20,7 +20,7 @@ pub struct IinfBox {
 }
 
 impl ParseBody<IinfBox> for IinfBox {
-    fn parse_body<'a>(remain: &'a [u8], header: FullBoxHeader) -> IResult<&'a [u8], IinfBox> {
+    fn parse_body(remain: &[u8], header: FullBoxHeader) -> IResult<&[u8], IinfBox> {
         let version = header.version;
 
         let (remain, item_count) = if version > 0 {
@@ -74,7 +74,7 @@ impl ParseBody<InfeBox> for InfeBox {
 
         let (remain, item_type) = cond(
             version >= 2,
-            map_res(streaming::take(4 as usize), |res: &'a [u8]| {
+            map_res(streaming::take(4_usize), |res: &'a [u8]| {
                 String::from_utf8(res.to_vec())
             }),
         )(remain)?;
@@ -95,7 +95,7 @@ impl ParseBody<InfeBox> for InfeBox {
         let (remain, content_type, content_encoding) =
             if version <= 1 || (version >= 2 && item_type.as_ref().unwrap() == "mime") {
                 let (remain, content_type) = parse_cstr(remain)?;
-                let (remain, content_encoding) = cond(remain.len() > 0, parse_cstr)(remain)?;
+                let (remain, content_encoding) = cond(!remain.is_empty(), parse_cstr)(remain)?;
                 (remain, Some(content_type), content_encoding)
             } else {
                 (remain, None, None)
@@ -126,9 +126,6 @@ impl ParseBody<InfeBox> for InfeBox {
 
 impl InfeBox {
     fn key(&self) -> &String {
-        self.item_type
-            .as_ref()
-            .or_else(|| Some(&self.item_name))
-            .unwrap()
+        self.item_type.as_ref().unwrap_or(&self.item_name)
     }
 }

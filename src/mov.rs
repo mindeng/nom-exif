@@ -102,7 +102,7 @@ pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, E
 
         entries.push(("duration".to_owned(), mvhd.duration_ms().into()));
 
-        if entries.iter().find(|x| x.0 == CREATIONDATE_KEY).is_none() {
+        if !entries.iter().any(|x| x.0 == CREATIONDATE_KEY) {
             entries.push((
                 "com.apple.quicktime.creationdate".to_owned(),
                 EntryValue::Time(mvhd.creation_time()),
@@ -258,7 +258,7 @@ pub enum Error {
 /// moov atom it may contain.
 ///
 /// Regarding error handling, please refer to [Error] for more information.
-fn extract_moov_body_from_buf<'a>(input: &'a [u8]) -> Result<Range<usize>, Error> {
+fn extract_moov_body_from_buf(input: &[u8]) -> Result<Range<usize>, Error> {
     // parse metadata from moov/meta/keys & moov/meta/ilst
     let remain = input;
 
@@ -279,15 +279,13 @@ fn extract_moov_body_from_buf<'a>(input: &'a [u8]) -> Result<Range<usize>, Error
             // stop travelling
             skipped += h.header_size;
             false
+        } else if (remain.len() as u64) < h.body_size() {
+            // stop travelling & skip unused box data
+            to_skip = h.body_size() - remain.len() as u64;
+            false
         } else {
-            if (remain.len() as u64) < h.body_size() {
-                // stop travelling & skip unused box data
-                to_skip = h.body_size() - remain.len() as u64;
-                false
-            } else {
-                skipped += h.box_size as usize;
-                true
-            }
+            skipped += h.box_size as usize;
+            true
         }
     })
     .map_err(|e| convert_error(e, "search atom moov failed"))?;

@@ -108,13 +108,13 @@ impl<'a> Segment<'a> {
     }
 }
 
-fn find_exif_segment<'a>(input: &'a [u8]) -> IResult<&'a [u8], Option<Segment<'a>>> {
+fn find_exif_segment(input: &[u8]) -> IResult<&[u8], Option<Segment<'_>>> {
     let (remain, segment) = travel_until(input, |s| {
         (s.marker_code == MarkerCode::APP1.code() && check_exif_header(s.payload))
-            || s.marker_code == MarkerCode::SOS.code() // searching stop at SOS
+            || s.marker_code == MarkerCode::Sos.code() // searching stop at SOS
     })?;
 
-    if segment.marker_code != MarkerCode::SOS.code() {
+    if segment.marker_code != MarkerCode::Sos.code() {
         Ok((remain, Some(segment)))
     } else {
         Ok((remain, None))
@@ -147,18 +147,18 @@ pub fn check_jpeg(input: &[u8]) -> crate::Result<()> {
     let (_, (_, code)) = tuple((streaming::tag([0xFF]), number::complete::u8))(input)?;
 
     // SOI has no payload
-    if code != MarkerCode::SOI.code() {
+    if code != MarkerCode::Soi.code() {
         Err("invalid JPEG file; SOI marker not found".into())
     } else {
         Ok(())
     }
 }
 
-fn parse_segment<'a>(marker_code: u8, input: &'a [u8]) -> IResult<&'a [u8], Segment<'a>> {
+fn parse_segment(marker_code: u8, input: &[u8]) -> IResult<&[u8], Segment<'_>> {
     let remain = input;
 
     // SOI has no payload
-    if marker_code == MarkerCode::SOI.code() {
+    if marker_code == MarkerCode::Soi.code() {
         Ok((
             remain,
             Segment {
@@ -197,15 +197,15 @@ fn read_image_data<T: Read + Seek>(mut reader: T) -> crate::Result<Vec<u8>> {
             return Err("".into());
         }
 
-        if marker == MarkerCode::SOI.code() {
+        if marker == MarkerCode::Soi.code() {
             // SOI has no body
             continue;
         }
-        if marker == MarkerCode::EOI.code() {
+        if marker == MarkerCode::Eoi.code() {
             return Err(crate::Error::NotFound);
         }
 
-        if marker == MarkerCode::SOS.code() {
+        if marker == MarkerCode::Sos.code() {
             // found it
             let mut data = Vec::new();
             reader.read_to_end(&mut data)?;
@@ -216,7 +216,7 @@ fn read_image_data<T: Read + Seek>(mut reader: T) -> crate::Result<Vec<u8>> {
                     // empty
                     break;
                 };
-                if tail == MarkerCode::EOI.code() {
+                if tail == MarkerCode::Eoi.code() {
                     if let Some(tail) = data.pop() {
                         if tail == 0xFF {
                             // EOI marker has been popped
@@ -238,16 +238,16 @@ fn read_image_data<T: Read + Seek>(mut reader: T) -> crate::Result<Vec<u8>> {
 /// A marker code is a byte following 0xFF that indicates the kind of marker.
 enum MarkerCode {
     // Start of Image
-    SOI = 0xD8,
+    Soi = 0xD8,
 
     // APP1 marker
     APP1 = 0xE1,
 
     // Start of Scan
-    SOS = 0xDA,
+    Sos = 0xDA,
 
     // End of Image
-    EOI = 0xD9,
+    Eoi = 0xD9,
 }
 
 impl MarkerCode {

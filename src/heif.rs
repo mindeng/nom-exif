@@ -64,7 +64,7 @@ pub fn parse_heif_exif<R: Read + Seek>(mut reader: R) -> crate::Result<Option<Ex
 
     let Some(ftyp) = get_ftyp(&buf).map_err(|e| format!("unsupported HEIF/HEIC file; {}", e))?
     else {
-        return Err(format!("unsupported HEIF/HEIC file; ftyp not found").into());
+        return Err("unsupported HEIF/HEIC file; ftyp not found".into());
     };
     if !HEIF_FTYPS.contains(&ftyp) {
         Err(format!("unsupported HEIF/HEIC file; ftyp: {ftyp:?}"))?;
@@ -95,9 +95,7 @@ pub fn parse_heif_exif<R: Read + Seek>(mut reader: R) -> crate::Result<Option<Ex
         }
     };
 
-    exif_data
-        .and_then(|exif_data| Some(parse_exif(exif_data)))
-        .transpose()
+    exif_data.map(parse_exif).transpose()
 }
 
 const HEIF_FTYPS: [&[u8]; 7] = [

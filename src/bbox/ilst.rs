@@ -25,7 +25,7 @@ pub struct IlstBox {
 }
 
 impl IlstBox {
-    pub fn parse_box<'a>(input: &'a [u8]) -> nom::IResult<&'a [u8], IlstBox> {
+    pub fn parse_box(input: &[u8]) -> nom::IResult<&[u8], IlstBox> {
         let (remain, header) = BoxHeader::parse(input)?;
         let (remain, items) = many0(IlstItem::parse)(remain)?;
 

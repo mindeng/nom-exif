@@ -39,14 +39,14 @@ impl ParseBody<MetaBox> for MetaBox {
         // parse iinf box
         let iinf = boxes
             .get("iinf")
-            .and_then(|iinf| Some(IinfBox::parse_box(iinf.data)))
+            .map(|iinf| IinfBox::parse_box(iinf.data))
             .transpose()?
             .map(|x| x.1);
 
         // parse iloc box
         let iloc = boxes
             .get("iloc")
-            .and_then(|iloc| Some(IlocBox::parse_box(iloc.data)))
+            .map(|iloc| IlocBox::parse_box(iloc.data))
             .transpose()?
             .map(|x| x.1);
 
@@ -79,23 +79,23 @@ impl MetaBox {
                     .as_ref()
                     .and_then(|iloc| iloc.item_offset_len(exif_infe.id))
             })
-            .and_then(|(construction_method, offset, length)| {
+            .map(|(construction_method, offset, length)| {
                 let start = offset as usize;
                 let end = (offset + length) as usize;
                 if construction_method == 0 {
                     // file offset
                     if end > input.len() {
-                        Some(Err(nom::Err::Incomplete(Needed::new(end - input.len()))))
+                        Err(nom::Err::Incomplete(Needed::new(end - input.len())))
                     } else {
-                        Some(Ok((&input[end..], Some(&input[start..end])))) // Safe-slice
+                        Ok((&input[end..], Some(&input[start..end]))) // Safe-slice
                     }
                 } else if construction_method == 1 {
                     // idat offset
                     eprintln!("idat offset construction method is not supported yet");
-                    Some(fail(input))
+                    fail(input)
                 } else {
                     eprintln!("item offset construction method is not supported yet");
-                    Some(fail(input))
+                    fail(input)
                 }
             })
             .unwrap_or(Ok((input, None)))

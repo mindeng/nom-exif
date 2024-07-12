@@ -121,7 +121,7 @@ pub struct FullBoxHeader {
 }
 
 impl FullBoxHeader {
-    fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], FullBoxHeader> {
+    fn parse(input: &[u8]) -> IResult<&[u8], FullBoxHeader> {
         let (remain, header) = BoxHeader::parse(input)?;
 
         let (remain, version) = number::streaming::u8(remain)?;
@@ -311,7 +311,7 @@ pub fn get_ftyp(input: &[u8]) -> crate::Result<Option<&[u8]>> {
             )
             .into());
         }
-        let (_, ftyp) = complete::take(4 as usize)(bbox.body_data())?;
+        let (_, ftyp) = complete::take(4_usize)(bbox.body_data())?;
         Ok(Some(ftyp))
     } else if bbox.box_type() == "wide" {
         // MOV files that extracted from HEIC starts with `wide` & `mdat` atoms
