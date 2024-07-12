@@ -24,14 +24,14 @@ pub struct LatLng(pub URational, pub URational, pub URational);
 impl GPSInfo {
     /// Returns an ISO 6709 geographic point location string such as
     /// `+48.8577+002.295/`.
-    pub fn to_iso6709(&self) -> String {
-        let latitude = self.latitude.0.to_float()
-            + self.latitude.1.to_float() / 60.0
-            + self.latitude.2.to_float() / 3600.0;
-        let longitude = self.longitude.0.to_float()
-            + self.longitude.1.to_float() / 60.0
-            + self.longitude.2.to_float() / 3600.0;
-        let altitude = self.altitude.to_float();
+    pub fn format_iso6709(&self) -> String {
+        let latitude = self.latitude.0.as_float()
+            + self.latitude.1.as_float() / 60.0
+            + self.latitude.2.as_float() / 3600.0;
+        let longitude = self.longitude.0.as_float()
+            + self.longitude.1.as_float() / 60.0
+            + self.longitude.2.as_float() / 3600.0;
+        let altitude = self.altitude.as_float();
         format!(
             "{}{latitude:08.5}{}{longitude:09.5}{}/",
             if self.latitude_ref == 'N' { '+' } else { '-' },
@@ -45,6 +45,14 @@ impl GPSInfo {
                 )
             }
         )
+    }
+
+    /// Returns an ISO 6709 geographic point location string such as
+    /// `+48.8577+002.295/`.
+    #[deprecated(since = "1.2.3", note = "please use `format_iso6709` instead")]
+    #[allow(clippy::wrong_self_convention)]
+    pub fn to_iso6709(&self) -> String {
+        self.format_iso6709()
     }
 }
 
@@ -128,7 +136,7 @@ mod tests {
             altitude_ref: 0,
             altitude: URational(0, 1),
         };
-        assert_eq!(palace.to_iso6709(), "+39.91667+116.39083/");
+        assert_eq!(palace.format_iso6709(), "+39.91667+116.39083/");
 
         let liberty = GPSInfo {
             latitude_ref: 'N',
@@ -138,7 +146,7 @@ mod tests {
             altitude_ref: 0,
             altitude: URational(0, 1),
         };
-        assert_eq!(liberty.to_iso6709(), "+40.68917-074.04444/");
+        assert_eq!(liberty.format_iso6709(), "+40.68917-074.04444/");
 
         let above = GPSInfo {
             latitude_ref: 'N',
@@ -148,7 +156,7 @@ mod tests {
             altitude_ref: 0,
             altitude: URational(123, 1),
         };
-        assert_eq!(above.to_iso6709(), "+40.68917-074.04444+123.000/");
+        assert_eq!(above.format_iso6709(), "+40.68917-074.04444+123.000/");
 
         let below = GPSInfo {
             latitude_ref: 'N',
@@ -158,6 +166,6 @@ mod tests {
             altitude_ref: 1,
             altitude: URational(123, 1),
         };
-        assert_eq!(below.to_iso6709(), "+40.68917-074.04444-123.000/");
+        assert_eq!(below.format_iso6709(), "+40.68917-074.04444-123.000/");
     }
 }

@@ -75,3 +75,7 @@ height                                  => 1280
   "com.apple.quicktime.location.ISO6709": "+27.1281+100.2508+000.000/"
 }
 ```
+
+## Changelog
+
+[CHANGELOG.md](CHANGELOG.md)

@@ -154,6 +154,7 @@ pub struct ItemLocation {
     extents: Vec<ItemLocationExtent>,
 }
 
+#[allow(clippy::enum_variant_names)]
 enum ConstructionMethod {
     FileOffset = 0,
     IdatOffset = 1,

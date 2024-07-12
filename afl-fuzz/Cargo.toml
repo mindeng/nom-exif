@@ -5,4 +5,4 @@ edition = "2021"
 
 [dependencies]
 afl = "0.15.8"
-nom-exif = { version = "1.2.1", path = ".." }
+nom-exif = { path = ".." }

@@ -1,6 +1,6 @@
 [package]
 name = "nom-exif"
-version = "1.2.2"
+version = "1.2.3"
 edition = "2021"
 license-file = "LICENSE"
 description = "Exif/metadata parsing library written in pure Rust, both JPEG/HEIF/HEIC images and MOV/MP4 videos are supported."
@@ -33,3 +33,6 @@ clap = { version = "4.4", features = ["derive"] }
 [[example]]
 name = "rexiftool"
 # required-features = ["json_dump"]
+
+[workspace]
+members = [".", "afl-fuzz"]

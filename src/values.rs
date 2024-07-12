@@ -151,8 +151,14 @@ impl From<(i32, i32)> for EntryValue {
 pub struct URational(pub u32, pub u32);
 
 impl URational {
-    pub fn to_float(&self) -> f64 {
+    pub fn as_float(&self) -> f64 {
         self.0 as f64 / self.1 as f64
+    }
+
+    #[deprecated(since = "1.2.3", note = "please use `as_float` instead")]
+    #[allow(clippy::wrong_self_convention)]
+    pub fn to_float(&self) -> f64 {
+        self.as_float()
     }
 }
 

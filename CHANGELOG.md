@@ -1,16 +1,36 @@
 # Changelog
 
+## nom-exif v1.2.3
+
+[2861cbc..HEAD](https://github.com/mindeng/nom-exif/compare/2861cbc..HEAD)
+
+### Fixed
+
+- **All** clippy warnings has been fixed!
+
+### Changed
+
+- **Deprecated** some less commonly used APIs and introduced several new ones,
+  mainly to satisfy clippy requirements, e.g.:
+
+  - `GPSInfo.to_iso6709` -> `format_iso6709`
+  - `URational.to_float` -> `as_float`
+  
+  See commit [8c5dc26](https://github.com/mindeng/nom-exif/commit/8c5dc26).
+
 ## nom-exif v1.2.2
 
-[96a8b4c..HEAD](https://github.com/mindeng/nom-exif/compare/96a8b4c..HEAD)
+[9b7fdf7..2861cbc](https://github.com/mindeng/nom-exif/compare/9b7fdf7..2861cbc)
 
 ### Added
 
-- *afl-fuzz* for fuzz testing.
+- **Fuzz testing**: Added *afl-fuzz* for fuzz testing.
 
 ### Changed
 
 ### Fixed
 
-- Fixed all crash issues discovered during fuzz testing.
-- Checked with the latest clippy and fixed almost all of the warnings.
+- **Robustness improved**: Fixed all crash issues discovered during fuzz
+  testing.
+- **Clippy warnings**: Checked with the latest clippy and fixed almost all of
+  the warnings.
