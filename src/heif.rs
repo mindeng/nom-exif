@@ -111,7 +111,7 @@ const HEIF_FTYPS: [&[u8]; 7] = [
 ];
 
 /// Extract Exif TIFF data from the bytes of a HEIF/HEIC file.
-fn extract_exif_data<'a>(input: &'a [u8]) -> IResult<&'a [u8], Option<&'a [u8]>> {
+fn extract_exif_data(input: &[u8]) -> IResult<&[u8], Option<&[u8]>> {
     let remain = input;
     let (remain, bbox) = BoxHolder::parse(remain)?;
     if bbox.box_type() != "ftyp" {
@@ -125,7 +125,7 @@ fn extract_exif_data<'a>(input: &'a [u8]) -> IResult<&'a [u8], Option<&'a [u8]>>
     if let Some(data) = data {
         let (remain, _) = be_u32(data)?;
         if check_exif_header(remain) {
-            Ok((out_remain, Some(&remain[6..])))
+            Ok((out_remain, Some(&remain[6..]))) // Safe-slice
         } else {
             Ok((out_remain, None))
         }

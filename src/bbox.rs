@@ -45,14 +45,14 @@ impl Display for Error {
 pub struct BoxHeader {
     pub box_size: u64,
     pub box_type: String,
-    pub header_size: usize,
+    pub header_size: usize, // include size, type
 }
 
 impl BoxHeader {
     pub fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], BoxHeader> {
         let (remain, size) = number::streaming::be_u32(input)?;
 
-        let (remain, box_type) = map_res(streaming::take(4 as usize), |res: &'a [u8]| {
+        let (remain, box_type) = map_res(streaming::take(4_usize), |res: &'a [u8]| {
             // String::from_utf8 will fail on "©xyz"
             Ok::<String, ()>(res.iter().map(|b| b.as_char()).collect::<String>())
             // String::from_utf8(res.to_vec()).map_err(|e| {
@@ -101,7 +101,7 @@ impl BoxHeader {
 pub struct FullBoxHeader {
     pub box_size: u64,
     pub box_type: String,
-    pub header_size: usize,
+    pub header_size: usize, // include size, type, version, flags
 
     version: u8, // 8 bits
     flags: u32,  // 24 bits
@@ -165,7 +165,7 @@ impl<'a> BoxHolder<'a> {
     }
 
     pub fn body_data(&self) -> &'a [u8] {
-        &self.data[self.header.header_size..]
+        &self.data[self.header_size()..] // Safe-slice
     }
 }
 
@@ -199,7 +199,7 @@ where
         assert!(rem.len() < remain.len());
         remain = rem;
 
-        if predicate(&header, rem) == false {
+        if !predicate(&header, rem) {
             break Ok((rem, header));
         }
 
@@ -210,7 +210,7 @@ where
         }
 
         // skip box body
-        remain = &remain[header.body_size() as usize..];
+        remain = &remain[header.body_size() as usize..]; // Safe-slice
     }
 }
 
@@ -230,43 +230,26 @@ pub fn find_box<'a>(input: &'a [u8], path: &str) -> IResult<&'a [u8], Option<Box
             continue;
         }
         let (rem, b) = travel_while(data, |b| b.box_type() != box_type)?;
-        data = &b.data[b.header_size()..];
+        data = b.body_data();
         (remain, bbox) = (rem, Some(b));
     }
 
     Ok((remain, bbox))
-
-    // let (box_type, remain_path) = path.split_once('/').unwrap_or_else(|| (path, ""));
-
-    // let data = if !box_type.is_empty() {
-    //     let (remain, bbox) = travel_while(input, |b| b.box_type() != box_type)?;
-    //     println!("got box: {:?}", bbox.header);
-
-    //     if remain_path.is_empty() {
-    //         return Ok((remain, bbox));
-    //     }
-
-    //     &bbox.data[bbox.header_size()..]
-    // } else {
-    //     input
-    // };
-
-    // find_box(data, remain_path)
 }
 
 trait ParseBody<O> {
-    fn parse_body<'a>(body: &'a [u8], header: FullBoxHeader) -> IResult<&'a [u8], O>;
+    fn parse_body(body: &[u8], header: FullBoxHeader) -> IResult<&[u8], O>;
 }
 
 pub trait ParseBox<O> {
-    fn parse_box<'a>(input: &'a [u8]) -> IResult<&'a [u8], O>;
+    fn parse_box(input: &[u8]) -> IResult<&[u8], O>;
 }
 
 /// auto implements parse_box for each Box which implements ParseBody
 impl<O, T: ParseBody<O>> ParseBox<O> for T {
-    fn parse_box<'a>(input: &'a [u8]) -> IResult<&'a [u8], O> {
+    fn parse_box(input: &[u8]) -> IResult<&[u8], O> {
         let (remain, header) = FullBoxHeader::parse(input)?;
-        assert_eq!(input.len(), header.header_size as usize + remain.len());
+        assert_eq!(input.len(), header.header_size + remain.len());
         assert!(
             header.box_size >= header.header_size as u64,
             "box_size = {}, header_size = {}",
@@ -277,10 +260,7 @@ impl<O, T: ParseBody<O>> ParseBox<O> for T {
         // limit parsing size
         let body_len = (header.box_size - header.header_size as u64) as usize;
         let (remain, data) = complete::take(body_len)(remain)?;
-        assert_eq!(
-            input.len(),
-            header.header_size as usize + data.len() + remain.len()
-        );
+        assert_eq!(input.len(), header.header_size + data.len() + remain.len());
 
         let (rem, bbox) = Self::parse_body(data, header)?;
         // assert_eq!(rem.len(), 0);
@@ -296,7 +276,7 @@ impl<O, T: ParseBody<O>> ParseBox<O> for T {
 
 fn parse_cstr(input: &[u8]) -> IResult<&[u8], String> {
     let (remain, s) = map_res(streaming::take_till(|b| b == 0), |bs: &[u8]| {
-        if bs.len() == 0 {
+        if bs.is_empty() {
             Ok("".to_owned())
         } else {
             String::from_utf8(bs.to_vec())
@@ -304,7 +284,7 @@ fn parse_cstr(input: &[u8]) -> IResult<&[u8], String> {
     })(input)?;
 
     // consumes the zero byte
-    Ok((&remain[1..], s))
+    Ok((&remain[1..], s)) // Safe-slice
 }
 
 pub fn get_ftyp(input: &[u8]) -> crate::Result<Option<&[u8]>> {
@@ -364,11 +344,14 @@ mod tests {
         assert_eq!(meta.box_type(), "meta");
 
         let mut boxes = Vec::new();
-        let (remain, bbox) = travel_while(&meta.body_data()[4..], |bbox| {
-            // println!("got {}", bbox.header.box_type);
-            boxes.push(bbox.header.box_type.to_owned());
-            bbox.box_type() != "iloc"
-        })
+        let (remain, bbox) = travel_while(
+            &meta.body_data()[4..], // Safe-slice in test_case
+            |bbox| {
+                // println!("got {}", bbox.header.box_type);
+                boxes.push(bbox.header.box_type.to_owned());
+                bbox.box_type() != "iloc"
+            },
+        )
         .unwrap();
         assert_eq!(bbox.box_type(), "iloc");
         assert_eq!(remain, b"");
@@ -535,7 +518,7 @@ mod tests {
         // gps info
         assert_eq!(
             "+27.2939+112.6932/",
-            std::str::from_utf8(&bbox.body_data()[4..]).unwrap()
+            std::str::from_utf8(&bbox.body_data()[4..]).unwrap() // Safe-slice in test_case
         );
     }
 

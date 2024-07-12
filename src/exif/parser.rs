@@ -25,12 +25,16 @@ use super::ifd::{entry_component_size, get_gps_info, DirectoryEntry, ImageFileDi
 ///
 /// This allows you to parse Exif values on-demand, reducing the parsing
 /// overhead.
-pub fn parse_exif<'a>(input: &'a [u8]) -> crate::Result<Exif> {
+pub fn parse_exif(input: &[u8]) -> crate::Result<Exif> {
     let (_, header) = Header::parse(input)?;
 
     // jump to ifd0
     let skip = (header.ifd0_offset) as usize;
     let (remain, _) = take(skip)(input)?;
+
+    if remain.is_empty() {
+        return Err("ifd0 is empty".into());
+    }
 
     let parser = Parser {
         data: input,
@@ -157,13 +161,13 @@ impl<'a> Parser<'a> {
         // occur when running fuzzing tests.
         if depth > MAX_IFD_DEPTH {
             eprintln!("too many nested IFDs, parsing aborted at depth {}", depth);
-            return fail(&self.data[pos..]);
+            return fail(&self.data[pos..]); // Safe-slice
         }
 
         let input = self.data;
         let endian = self.endian;
 
-        let (remain, entry_num) = u16(endian)(&input[pos..])?;
+        let (remain, entry_num) = u16(endian)(&input[pos..])?; // Safe-slice
         if entry_num == 0 {
             return Ok((remain, None));
         }
@@ -199,7 +203,7 @@ impl<'a> Parser<'a> {
                 pos + ENTRY_SIZE - input.len(),
             )));
         }
-        let entry_data = &input[pos..pos + ENTRY_SIZE];
+        let entry_data = &input[pos..pos + ENTRY_SIZE]; // Safe-slice
 
         let (_, (_, entry)) = map_res(
             tuple((u16(endian), u16(endian), u32(endian), u32(endian))),
@@ -213,7 +217,7 @@ impl<'a> Parser<'a> {
                 // get entry data
                 let size = components_num as usize * component_size;
                 let data = if size <= 4 {
-                    &entry_data[8..8 + size]
+                    &entry_data[8..8 + size] // Safe-slice
                 } else {
                     let start = value_or_offset as usize;
                     let end = start + size;
@@ -226,14 +230,14 @@ impl<'a> Parser<'a> {
                     //     return fail(input);
                     // }
 
-                    &input[start..end]
+                    &input[start..end] // Safe-slice
                 };
 
                 let data = Vec::from(data);
 
                 let subifd = self.parse_subifd(tag, value_or_offset as usize, depth)?;
 
-                Ok((&input[pos+ENTRY_SIZE..], DirectoryEntry {
+                Ok((&input[pos+ENTRY_SIZE..], DirectoryEntry { // Safe-slice
                     tag,
                     data_format,
                     components_num,
@@ -244,7 +248,7 @@ impl<'a> Parser<'a> {
             },
         )(entry_data)?;
 
-        Ok((&input[pos + ENTRY_SIZE..], entry))
+        Ok((&input[pos + ENTRY_SIZE..], entry)) // Safe-slice
     }
 
     fn parse_subifd(
@@ -343,7 +347,7 @@ mod tests {
         // println!("file size: {}", buf.len());
 
         // skip first 12 bytes
-        let exif = parse_exif(&buf[12..]).unwrap();
+        let exif = parse_exif(&buf[12..]).unwrap(); // Safe-slice in test_case
 
         let entries = exif.get_values(&[
             Unknown,
@@ -447,7 +451,7 @@ mod tests {
         open_sample(path).read_to_end(&mut buf).unwrap();
 
         // skip first 12 bytes
-        let exif = parse_exif(&buf[12..]).unwrap();
+        let exif = parse_exif(&buf[12..]).unwrap(); // Safe-slice in test_case
 
         let gps = exif.get_gps_info().unwrap().unwrap();
         assert_eq!(

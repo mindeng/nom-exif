@@ -80,19 +80,17 @@ pub fn parse_jpeg_exif<R: Read>(mut reader: R) -> crate::Result<Option<Exif>> {
         }
     };
 
-    exif_data
-        .and_then(|exif_data| Some(parse_exif(exif_data)))
-        .transpose()
+    exif_data.map(parse_exif).transpose()
 }
 
 /// Extract Exif TIFF data from the bytes of a JPEG file.
-fn extract_exif_data<'a>(input: &'a [u8]) -> IResult<&'a [u8], Option<&'a [u8]>> {
+fn extract_exif_data(input: &[u8]) -> IResult<&[u8], Option<&[u8]>> {
     let (remain, segment) = find_exif_segment(input)?;
     let data = segment.and_then(|segment| {
         if segment.payload_len() <= 6 {
             None
         } else {
-            Some(&segment.payload[6..])
+            Some(&segment.payload[6..]) // Safe-slice
         }
     });
 
@@ -386,9 +384,9 @@ mod tests {
         let f = open_sample(path).unwrap();
         let data = read_image_data(f).unwrap();
         assert_eq!(data.len(), len);
-        assert_eq!(u32::from_be_bytes(data[..4].try_into().unwrap()), start);
+        assert_eq!(u32::from_be_bytes(data[..4].try_into().unwrap()), start); // Safe-slice in test_case
         assert_eq!(
-            u32::from_be_bytes(data[data.len() - 4..].try_into().unwrap()),
+            u32::from_be_bytes(data[data.len() - 4..].try_into().unwrap()), // Safe-slice in test_case
             end
         );
     }

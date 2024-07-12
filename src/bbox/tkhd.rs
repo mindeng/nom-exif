@@ -124,7 +124,7 @@ fn find_video_track(input: &[u8]) -> crate::Result<BoxHolder> {
             if hdlr.body_data().len() < 4 {
                 return true;
             }
-            let subtype = &hdlr.body_data()[8..12];
+            let subtype = &hdlr.body_data()[8..12]; // Safe-slice
             if subtype == b"vide" {
                 // found it!
                 false

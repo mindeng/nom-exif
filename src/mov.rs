@@ -67,12 +67,15 @@ pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, E
     if ft == FileType::MP4 {
         const LOCATION_KEY: &str = "com.apple.quicktime.location.ISO6709";
 
-        if entries.iter().find(|x| x.0 == LOCATION_KEY).is_none() {
+        if !entries.iter().any(|x| x.0 == LOCATION_KEY) {
             // Try to parse GPS location for MP4 files. For mp4 files, Android
             // phones store GPS info in the `moov/udta/©xyz` atom.
             let (_, bbox) = find_box(&moov_body, "udta/©xyz").map_err(|_| "udta/©xyz not found")?;
             if let Some(bbox) = bbox {
-                let location = &bbox.body_data()[4..]
+                if bbox.body_data().len() <= 4 {
+                    return Err("box body is too small".into());
+                }
+                let location = &bbox.body_data()[4..] // Safe-slice
                     .iter()
                     .map(|b| *b as char)
                     .collect::<String>();
@@ -171,7 +174,7 @@ fn extract_moov_body<R: Read + Seek>(mut reader: R) -> Result<(FileType, Vec<u8>
 
     let mut offset = 0;
     let moov_body_range = loop {
-        let input = if offset > 0 { &buf[offset..] } else { &buf[..] };
+        let input = if offset > 0 { &buf[offset..] } else { &buf[..] }; // Safe-slice
 
         let to_read = match extract_moov_body_from_buf(input) {
             Ok(range) => break range.start + offset..range.end + offset,
@@ -316,12 +319,8 @@ fn check_ftyp(input: &[u8]) -> crate::Result<FileType> {
 
 fn parse_moov_body(remain: &[u8]) -> IResult<&[u8], Vec<(String, EntryValue)>> {
     let (_, meta) = travel_while(remain, |b| b.header.box_type != "meta")?;
-    let (_, keys) = travel_while(&meta.data[meta.header_size()..], |b| {
-        b.header.box_type != "keys"
-    })?;
-    let (_, ilst) = travel_while(&meta.data[meta.header_size()..], |b| {
-        b.header.box_type != "ilst"
-    })?;
+    let (_, keys) = travel_while(meta.body_data(), |b| b.header.box_type != "keys")?;
+    let (_, ilst) = travel_while(meta.body_data(), |b| b.header.box_type != "ilst")?;
 
     let (_, keys) = KeysBox::parse_box(keys.data)?;
     let (_, ilst) = IlstBox::parse_box(ilst.data)?;
@@ -346,10 +345,12 @@ fn tz_iso_8601_to_rfc3339(s: String) -> String {
     use regex::Regex;
 
     let ss = s.trim();
+    // Safe unwrap
     let re = Regex::new(r"([+-][0-9][0-9])([0-9][0-9])?$").unwrap();
 
     if let Some((offset, tz)) = re.captures(ss).map(|caps| {
         (
+            // Safe unwrap
             caps.get(1).unwrap().start(),
             format!(
                 "{}:{}",
@@ -358,7 +359,7 @@ fn tz_iso_8601_to_rfc3339(s: String) -> String {
             ),
         )
     }) {
-        let s1 = &ss.as_bytes()[..offset];
+        let s1 = &ss.as_bytes()[..offset]; // Safe-slice
         let s2 = tz.as_bytes();
         s1.iter().chain(s2.iter()).map(|x| *x as char).collect()
     } else {

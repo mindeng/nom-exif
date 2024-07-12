@@ -177,15 +177,14 @@ impl EntryValue {
                 if entry.data.len() < 2 {
                     return Err(Error::InvalidData("invalid DirectoryEntry".into()));
                 }
-                Ok(Self::U32(bytes_to_u16(&entry.data[..2], endian) as u32))
+                Ok(Self::U32(bytes_to_u16(&entry.data[..2], endian) as u32)) // Safe-slice
             }
             // u32
             4 => {
                 if entry.data.len() < 4 {
                     return Err(Error::InvalidData("invalid DirectoryEntry".into()));
                 }
-
-                Ok(Self::U32(bytes_to_u32(&entry.data[..4], endian)))
+                Ok(Self::U32(bytes_to_u32(&entry.data[..4], endian))) // Safe-slice
             }
 
             // unsigned rational
@@ -193,9 +192,8 @@ impl EntryValue {
                 if entry.data.len() < 8 {
                     return Err(Error::InvalidData("invalid DirectoryEntry".into()));
                 }
-
-                let numerator = bytes_to_u32(&entry.data[..4], endian);
-                let denominator = bytes_to_u32(&entry.data[4..8], endian);
+                let numerator = bytes_to_u32(&entry.data[..4], endian); // Safe-slice
+                let denominator = bytes_to_u32(&entry.data[4..8], endian); // Safe-slice
 
                 Ok(Self::URational(URational(numerator, denominator)))
             }
@@ -205,9 +203,8 @@ impl EntryValue {
                 if entry.data.len() < 8 {
                     return Err(Error::InvalidData("invalid DirectoryEntry".into()));
                 }
-
-                let numerator = bytes_to_i32(&entry.data[..4], endian);
-                let denominator = bytes_to_i32(&entry.data[4..8], endian);
+                let numerator = bytes_to_i32(&entry.data[..4], endian); // Safe-slice
+                let denominator = bytes_to_i32(&entry.data[4..8], endian); // Safe-slice
 
                 Ok(Self::IRational(IRational(numerator, denominator)))
             }
@@ -298,7 +295,7 @@ pub fn decode_urationals(data: &[u8], endian: Endianness) -> crate::Result<Vec<U
         let rational = decode_urational(remain, endian)?;
         res.push(rational);
 
-        remain = &remain[8..];
+        remain = &remain[8..]; // Safe-slice
     }
 }
 
@@ -309,8 +306,8 @@ pub fn decode_urational(remain: &[u8], endian: Endianness) -> crate::Result<URat
             remain.len()
         ))?;
     }
-    let numerator = bytes_to_u32(&remain[..4], endian);
-    let denominator = bytes_to_u32(&remain[4..8], endian);
+    let numerator = bytes_to_u32(&remain[..4], endian); // Safe-slice
+    let denominator = bytes_to_u32(&remain[4..8], endian); // Safe-slice
 
     Ok(URational(numerator, denominator))
 }
@@ -335,25 +332,28 @@ pub fn entry_component_size(data_format: u16) -> Result<usize, Error> {
 }
 
 fn bytes_to_u32(bs: &[u8], endian: Endianness) -> u32 {
+    assert!(bs.len() >= 4);
     match endian {
-        Endianness::Big => u32::from_be_bytes(bs[0..4].try_into().unwrap()),
-        Endianness::Little => u32::from_le_bytes(bs[0..4].try_into().unwrap()),
+        Endianness::Big => u32::from_be_bytes(bs[0..4].try_into().unwrap()), // Safe-slice
+        Endianness::Little => u32::from_le_bytes(bs[0..4].try_into().unwrap()), // Safe-slice
         Endianness::Native => unimplemented!(),
     }
 }
 
 fn bytes_to_i32(bs: &[u8], endian: Endianness) -> i32 {
+    assert!(bs.len() >= 4);
     match endian {
-        Endianness::Big => i32::from_be_bytes(bs[0..4].try_into().unwrap()),
-        Endianness::Little => i32::from_le_bytes(bs[0..4].try_into().unwrap()),
+        Endianness::Big => i32::from_be_bytes(bs[0..4].try_into().unwrap()), // Safe-slice
+        Endianness::Little => i32::from_le_bytes(bs[0..4].try_into().unwrap()), // Safe-slice
         Endianness::Native => unimplemented!(),
     }
 }
 
 fn bytes_to_u16(bs: &[u8], endian: Endianness) -> u16 {
+    assert!(bs.len() >= 2);
     match endian {
-        Endianness::Big => u16::from_be_bytes(bs[0..2].try_into().unwrap()),
-        Endianness::Little => u16::from_le_bytes(bs[0..2].try_into().unwrap()),
+        Endianness::Big => u16::from_be_bytes(bs[0..2].try_into().unwrap()), // Safe-slice
+        Endianness::Little => u16::from_le_bytes(bs[0..2].try_into().unwrap()), // Safe-slice
         Endianness::Native => unimplemented!(),
     }
 }

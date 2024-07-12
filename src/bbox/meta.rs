@@ -87,24 +87,18 @@ impl MetaBox {
                     if end > input.len() {
                         Some(Err(nom::Err::Incomplete(Needed::new(end - input.len()))))
                     } else {
-                        Some(Ok((&input[end..], Some(&input[start..end]))))
+                        Some(Ok((&input[end..], Some(&input[start..end])))) // Safe-slice
                     }
                 } else if construction_method == 1 {
                     // idat offset
                     eprintln!("idat offset construction method is not supported yet");
                     Some(fail(input))
-                    // if let Some(ref idat) = self.idat {
-                    //     Ok((&[0u8; 0], idat.get_data(start..end)))
-                    // } else {
-                    //     Ok((&input, None))
-                    // }
                 } else {
                     eprintln!("item offset construction method is not supported yet");
                     Some(fail(input))
                 }
             })
-            .or_else(|| Some(Ok((input, None))))
-            .unwrap()
+            .unwrap_or(Ok((input, None)))
     }
 }
 

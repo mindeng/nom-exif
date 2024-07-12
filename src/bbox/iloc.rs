@@ -112,14 +112,14 @@ impl IlocBox {
     pub fn item_offset_len(&self, id: u32) -> Option<(u8, u64, u64)> {
         self.items
             .get(&id)
-            .and_then(|item| Some((item, item.extents.first())))
+            .map(|item| (item, item.extents.first()))
             .and_then(|(item, extent)| {
-                extent.and_then(|extent| {
-                    Some((
+                extent.map(|extent| {
+                    (
                         item.construction_method.unwrap_or(0),
                         item.base_offset + extent.offset,
                         extent.length,
-                    ))
+                    )
                 })
             })
     }
