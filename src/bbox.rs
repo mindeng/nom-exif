@@ -77,7 +77,20 @@ impl BoxHeader {
         }
 
         if box_size > (MAX_BODY_LEN + header_size) as u64 {
-            eprintln!("box size of box '{}' is too big: {}", box_type, box_size);
+            eprintln!(
+                "box size of box '{}' is too big: {}",
+                box_type
+                    .chars()
+                    .map(|c| {
+                        if c.is_ascii_graphic() {
+                            c.as_char()
+                        } else {
+                            '*'
+                        }
+                    })
+                    .collect::<String>(),
+                box_size
+            );
             return fail(remain);
         }
 

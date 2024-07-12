@@ -172,7 +172,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .collect::<Vec<_>>()
         }
         other => {
-            println!("Unsupported filetype: {other}");
+            eprintln!("Unsupported filetype: {other}");
             return Err("Unsupported filetype".into());
         }
     };
