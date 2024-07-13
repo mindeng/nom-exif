@@ -8,7 +8,7 @@ const HEIF_FTYPS: &[&[u8]] = &[
     b"heis", // scalable
     b"hevm", // multiview sequence
     b"hevs", // scalable sequence
-    b"mif1", b"MiHE", b"miaf", b"MiHB", // QT file's compatible brands
+    b"mif1", b"MiHE", b"miaf", b"MiHB", // HEIC file's compatible brands
 ];
 
 const MP4_BRAND_NAMES: &[&str] = &[

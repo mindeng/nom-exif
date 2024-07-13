@@ -306,11 +306,10 @@ impl<O, T: ParseBody<O>> ParseBox<O> for T {
         assert_eq!(input.len(), header.header_size + data.len() + remain.len());
 
         let (rem, bbox) = Self::parse_body(data, header)?;
-        // assert_eq!(rem.len(), 0);
 
         if !rem.is_empty() {
-            // body is invalid
-            return fail(rem);
+            // TODO: Body data is not exhausted, should report this error with
+            // tracing
         }
 
         Ok((remain, bbox))

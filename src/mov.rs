@@ -70,13 +70,16 @@ pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, E
             let (_, bbox) = find_box(&moov_body, "udta/©xyz")?;
             if let Some(bbox) = bbox {
                 if bbox.body_data().len() <= 4 {
-                    return Err("box body is too small".into());
+                    // Just ignore this error at this time, can be reported by
+                    // tracing later.
+                    // return Err("box body is too small".into());
+                } else {
+                    let location = &bbox.body_data()[4..] // Safe-slice
+                        .iter()
+                        .map(|b| *b as char)
+                        .collect::<String>();
+                    entries.push((LOCATION_KEY.to_owned(), location.into()))
                 }
-                let location = &bbox.body_data()[4..] // Safe-slice
-                    .iter()
-                    .map(|b| *b as char)
-                    .collect::<String>();
-                entries.push((LOCATION_KEY.to_owned(), location.into()))
             }
         }
     }
@@ -95,15 +98,15 @@ pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, E
 
     let (_, bbox) = find_box(&moov_body, "mvhd")?;
     if let Some(bbox) = bbox {
-        let (_, mvhd) = MvhdBox::parse_box(bbox.data)?;
+        if let Ok((_, mvhd)) = MvhdBox::parse_box(bbox.data) {
+            entries.push(("duration".to_owned(), mvhd.duration_ms().into()));
 
-        entries.push(("duration".to_owned(), mvhd.duration_ms().into()));
-
-        if !entries.iter().any(|x| x.0 == CREATIONDATE_KEY) {
-            entries.push((
-                "com.apple.quicktime.creationdate".to_owned(),
-                EntryValue::Time(mvhd.creation_time()),
-            ));
+            if !entries.iter().any(|x| x.0 == CREATIONDATE_KEY) {
+                entries.push((
+                    CREATIONDATE_KEY.to_owned(),
+                    EntryValue::Time(mvhd.creation_time()),
+                ));
+            }
         }
     }
 

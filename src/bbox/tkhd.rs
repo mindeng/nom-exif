@@ -102,8 +102,7 @@ pub fn parse_video_tkhd_in_moov(input: &[u8]) -> crate::Result<Option<TkhdBox>> 
     let (_, Some(bbox)) = find_box(bbox.body_data(), "tkhd")? else {
         return Ok(None);
     };
-    let (remain, tkhd) = TkhdBox::parse_box(bbox.data).map_err(|_| "parse tkhd failed")?;
-    assert_eq!(remain.len(), 0);
+    let (_, tkhd) = TkhdBox::parse_box(bbox.data).map_err(|_| "parse tkhd failed")?;
     Ok(Some(tkhd))
 }
 

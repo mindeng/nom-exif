@@ -26,11 +26,6 @@ impl ParseBody<MetaBox> for MetaBox {
             Ok((remain, bbox))
         })(remain)?;
 
-        if !remain.is_empty() {
-            // body is invalid
-            return fail(remain);
-        }
-
         let boxes = boxes
             .into_iter()
             .map(|b| (b.header.box_type.to_owned(), b))
