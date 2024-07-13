@@ -107,7 +107,7 @@ pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, E
         }
     }
 
-    if let Ok(tkhd) = parse_video_tkhd_in_moov(&moov_body) {
+    if let Ok(Some(tkhd)) = parse_video_tkhd_in_moov(&moov_body) {
         entries.push(("width".to_owned(), tkhd.width.into()));
         entries.push(("height".to_owned(), tkhd.height.into()));
     }

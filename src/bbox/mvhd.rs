@@ -119,7 +119,9 @@ mod tests {
         f.read_to_end(&mut buf).unwrap();
 
         let (_, bbox) = travel_while(&buf, |b| b.box_type() != "moov").unwrap();
+        let bbox = bbox.unwrap();
         let (_, bbox) = travel_while(bbox.body_data(), |b| b.box_type() != "mvhd").unwrap();
+        let bbox = bbox.unwrap();
         let (_, mvhd) = MvhdBox::parse_box(bbox.data).unwrap();
 
         assert_eq!(mvhd.duration_ms(), milliseconds);

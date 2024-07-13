@@ -82,8 +82,11 @@ mod tests {
         f.read_to_end(&mut buf).unwrap();
 
         let (_, moov) = travel_while(&buf, |b| b.box_type() != "moov").unwrap();
+        let moov = moov.unwrap();
         let (_, meta) = travel_while(moov.body_data(), |b| b.box_type() != "meta").unwrap();
+        let meta = meta.unwrap();
         let (_, keys) = travel_while(meta.body_data(), |b| b.box_type() != "keys").unwrap();
+        let keys = keys.unwrap();
 
         assert_eq!(moov.box_size(), moov_size);
         assert_eq!(meta.box_size(), meta_size);
@@ -131,8 +134,11 @@ mod tests {
         f.read_to_end(&mut buf).unwrap();
 
         let (_, moov) = travel_while(&buf, |b| b.box_type() != "moov").unwrap();
+        let moov = moov.unwrap();
         let (_, meta) = travel_while(moov.body_data(), |b| b.box_type() != "meta").unwrap();
+        let meta = meta.unwrap();
         let (_, keys) = travel_while(meta.body_data(), |b| b.box_type() != "keys").unwrap();
+        let keys = keys.unwrap();
 
         assert_eq!(moov.box_size(), moov_size);
         assert_eq!(meta.box_size(), meta_size);

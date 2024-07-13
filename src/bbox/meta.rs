@@ -140,6 +140,7 @@ mod tests {
             bbox.box_type() != "meta"
         })
         .unwrap();
+        let bbox = bbox.unwrap();
 
         assert_eq!(bbox.data.len() as u64, bbox.box_size());
         let (remain, meta) = MetaBox::parse_box(bbox.data).unwrap();

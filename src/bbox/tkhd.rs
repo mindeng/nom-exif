@@ -95,16 +95,19 @@ impl ParseBody<TkhdBox> for TkhdBox {
 }
 
 /// Try to find a video track's tkhd in moov body. atom-path: "moov/trak/tkhd".
-pub fn parse_video_tkhd_in_moov(input: &[u8]) -> crate::Result<TkhdBox> {
-    let bbox = find_video_track(input)?;
-    let (_, bbox) = travel_while(bbox.body_data(), |b| b.box_type() != "tkhd")
-        .map_err(|e| format!("find tkhd failed: {e:?}"))?;
-    let (remain, tkhd) = TkhdBox::parse_box(bbox.data).unwrap();
+pub fn parse_video_tkhd_in_moov(input: &[u8]) -> crate::Result<Option<TkhdBox>> {
+    let Some(bbox) = find_video_track(input)? else {
+        return Ok(None);
+    };
+    let (_, Some(bbox)) = find_box(bbox.body_data(), "tkhd")? else {
+        return Ok(None);
+    };
+    let (remain, tkhd) = TkhdBox::parse_box(bbox.data).map_err(|_| "parse tkhd failed")?;
     assert_eq!(remain.len(), 0);
-    Ok(tkhd)
+    Ok(Some(tkhd))
 }
 
-fn find_video_track(input: &[u8]) -> crate::Result<BoxHolder> {
+fn find_video_track(input: &[u8]) -> crate::Result<Option<BoxHolder>> {
     let (_, bbox) = travel_while(input, |b| {
         // find video track
         if b.box_type() != "trak" {
@@ -155,7 +158,8 @@ mod tests {
         f.read_to_end(&mut buf).unwrap();
 
         let (_, bbox) = travel_while(&buf, |b| b.box_type() != "moov").unwrap();
-        let tkhd = parse_video_tkhd_in_moov(bbox.body_data()).unwrap();
+        let bbox = bbox.unwrap();
+        let tkhd = parse_video_tkhd_in_moov(bbox.body_data()).unwrap().unwrap();
 
         assert_eq!(tkhd.width, width);
         assert_eq!(tkhd.height, height);

@@ -182,21 +182,27 @@ impl<'a> BoxHolder<'a> {
     }
 }
 
+type BoxResult<'a> = IResult<&'a [u8], Option<BoxHolder<'a>>>;
+
 /// Parses every top level box while `predicate` returns true, then returns the
 /// last parsed box.
-pub fn travel_while<'a, F>(input: &'a [u8], mut predicate: F) -> IResult<&'a [u8], BoxHolder<'a>>
+pub fn travel_while<'a, F>(input: &'a [u8], mut predicate: F) -> BoxResult<'a>
 where
     F: FnMut(&BoxHolder<'a>) -> bool,
 {
     let mut remain = input;
     loop {
+        if remain.is_empty() {
+            return Ok((remain, None));
+        }
+
         let (rem, bbox) = BoxHolder::parse(remain)?;
         // Sanity check, to avoid infinite loops caused by unexpected errors.
         assert!(rem.len() < remain.len());
         remain = rem;
 
         if !predicate(&bbox) {
-            break Ok((rem, bbox));
+            return Ok((remain, Some(bbox)));
         }
     }
 }
@@ -347,6 +353,7 @@ mod tests {
             bbox.box_type() != "mdat"
         })
         .unwrap();
+        let bbox = bbox.unwrap();
 
         assert_eq!(bbox.header.box_type, "mdat");
         assert_eq!(remain, b"");
@@ -369,6 +376,7 @@ mod tests {
             },
         )
         .unwrap();
+        let bbox = bbox.unwrap();
         assert_eq!(bbox.box_type(), "iloc");
         assert_eq!(remain, b"");
 
@@ -392,6 +400,7 @@ mod tests {
             bbox.box_type() != "moov"
         })
         .unwrap();
+        let bbox = bbox.unwrap();
 
         assert_eq!(bbox.header.box_type, "moov");
         assert_eq!(remain, b"");
@@ -411,6 +420,8 @@ mod tests {
             bbox.box_type() != "meta"
         })
         .unwrap();
+        let bbox = bbox.unwrap();
+
         assert_eq!(bbox.box_type(), "meta");
         assert_eq!(remain, b"");
 
@@ -444,6 +455,7 @@ mod tests {
             bbox.box_type() != "moov"
         })
         .unwrap();
+        let bbox = bbox.unwrap();
 
         assert_eq!(bbox.header.box_type, "moov");
         assert_eq!(remain, b"");
@@ -463,6 +475,8 @@ mod tests {
             bbox.box_type() != "udta"
         })
         .unwrap();
+        let bbox = bbox.unwrap();
+
         assert_eq!(bbox.box_type(), "udta");
         assert_eq!(remain, b"");
 
@@ -499,7 +513,7 @@ mod tests {
         // sub-boxes in trak
         assert_eq!(boxes, ["tkhd", "edts", "mdia"],);
 
-        let mdia = bbox;
+        let mdia = bbox.unwrap();
         let mut boxes = Vec::new();
         let (remain, _) = travel_while(mdia.body_data(), |bbox| {
             // println!("got {}", bbox.header.box_type);

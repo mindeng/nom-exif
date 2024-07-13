@@ -141,8 +141,11 @@ mod tests {
         f.read_to_end(&mut buf).unwrap();
 
         let (_, bbox) = travel_while(&buf, |b| b.box_type() != "moov").unwrap();
+        let bbox = bbox.unwrap();
         let (_, bbox) = travel_while(bbox.body_data(), |b| b.box_type() != "meta").unwrap();
+        let bbox = bbox.unwrap();
         let (_, bbox) = travel_while(bbox.body_data(), |b| b.box_type() != "ilst").unwrap();
+        let bbox = bbox.unwrap();
 
         let (rem, ilst) = IlstBox::parse_box(bbox.data).unwrap();
         println!("ilst: {ilst:?}");
@@ -170,8 +173,11 @@ mod tests {
         f.read_to_end(&mut buf).unwrap();
 
         let (_, moov) = travel_while(&buf, |b| b.box_type() != "moov").unwrap();
+        let moov = moov.unwrap();
         let (_, meta) = travel_while(moov.body_data(), |b| b.box_type() != "meta").unwrap();
+        let meta = meta.unwrap();
         let (_, ilst) = travel_while(meta.body_data(), |b| b.box_type() != "ilst").unwrap();
+        let ilst = ilst.unwrap();
 
         let (rem, ilst) = IlstBox::parse_box(ilst.data).unwrap();
         assert_eq!(rem.len(), 0);
