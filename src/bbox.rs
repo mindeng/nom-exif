@@ -332,9 +332,7 @@ fn parse_cstr(input: &[u8]) -> IResult<&[u8], String> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Read;
-
-    use crate::testkit::open_sample;
+    use crate::testkit::read_sample;
 
     use super::*;
     use nom::error::make_error;
@@ -342,9 +340,7 @@ mod tests {
 
     #[test_case("exif.heic")]
     fn travel_heic(path: &str) {
-        let mut reader = open_sample(path).unwrap();
-        let mut buf = Vec::new();
-        reader.read_to_end(buf.as_mut()).unwrap();
+        let buf = read_sample(path).unwrap();
         let mut boxes = Vec::new();
 
         let (remain, bbox) = travel_while(&buf, |bbox| {
@@ -389,9 +385,7 @@ mod tests {
 
     #[test_case("meta.mov")]
     fn travel_mov(path: &str) {
-        let mut reader = open_sample(path).unwrap();
-        let mut buf = Vec::new();
-        reader.read_to_end(buf.as_mut()).unwrap();
+        let buf = read_sample(path).unwrap();
         let mut boxes = Vec::new();
 
         let (remain, bbox) = travel_while(&buf, |bbox| {
@@ -444,9 +438,7 @@ mod tests {
 
     #[test_case("meta.mp4")]
     fn travel_mp4(path: &str) {
-        let mut reader = open_sample(path).unwrap();
-        let mut buf = Vec::new();
-        reader.read_to_end(buf.as_mut()).unwrap();
+        let buf = read_sample(path).unwrap();
         let mut boxes = Vec::new();
 
         let (remain, bbox) = travel_while(&buf, |bbox| {
@@ -531,16 +523,7 @@ mod tests {
     // atom.
     #[test_case("meta.mp4")]
     fn find_android_gps_box(path: &str) {
-        let mut f = open_sample(path).unwrap();
-        let mut buf = Vec::new();
-        f.read_to_end(&mut buf).unwrap();
-
-        // let (_, bbox) = travel_while(&buf, |b| b.box_type() != "moov").unwrap();
-        // println!("bbox: {:?}", bbox.header);
-        // let (_, bbox) = travel_while(bbox.body_data(), |b| b.box_type() != "udta").unwrap();
-        // println!("bbox: {:?}", bbox.header);
-        // let (_, bbox) = travel_while(bbox.body_data(), |b| b.box_type() != "©xyz").unwrap();
-
+        let buf = read_sample(path).unwrap();
         let (_, bbox) = find_box(&buf, "moov/udta/©xyz").unwrap();
         let bbox = bbox.unwrap();
         // println!("bbox: {:?}", bbox.header);

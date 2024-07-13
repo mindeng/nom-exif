@@ -121,20 +121,14 @@ pub struct ItemLocation {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Read;
-
-    use crate::{bbox::travel_while, testkit::open_sample};
+    use crate::{bbox::travel_while, testkit::read_sample};
 
     use super::*;
     use test_case::test_case;
 
     #[test_case("exif.heic", 2618)]
     fn meta(path: &str, meta_size: usize) {
-        let mut reader = open_sample(path).unwrap();
-        let mut buf = Vec::new();
-        reader.read_to_end(buf.as_mut()).unwrap();
-        assert_eq!(buf.len() as u64, reader.metadata().unwrap().len());
-
+        let buf = read_sample(path).unwrap();
         let (_, bbox) = travel_while(&buf, |bbox| {
             // println!("got {}", bbox.header.box_type);
             bbox.box_type() != "meta"

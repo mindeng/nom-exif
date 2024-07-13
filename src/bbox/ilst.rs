@@ -127,19 +127,14 @@ fn parse_value(type_code: u32, data: &[u8]) -> crate::Result<EntryValue> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Read;
-
-    use crate::{bbox::travel_while, testkit::open_sample};
+    use crate::{bbox::travel_while, testkit::read_sample};
 
     use super::*;
     use test_case::test_case;
 
     #[test_case("meta.mov")]
     fn ilst_box(path: &str) {
-        let mut f = open_sample(path).unwrap();
-        let mut buf = Vec::new();
-        f.read_to_end(&mut buf).unwrap();
-
+        let buf = read_sample(path).unwrap();
         let (_, bbox) = travel_while(&buf, |b| b.box_type() != "moov").unwrap();
         let bbox = bbox.unwrap();
         let (_, bbox) = travel_while(bbox.body_data(), |b| b.box_type() != "meta").unwrap();
@@ -168,10 +163,7 @@ mod tests {
 
     #[test_case("embedded-in-heic.mov")]
     fn heic_mov_ilst(path: &str) {
-        let mut f = open_sample(path).unwrap();
-        let mut buf = Vec::new();
-        f.read_to_end(&mut buf).unwrap();
-
+        let buf = read_sample(path).unwrap();
         let (_, moov) = travel_while(&buf, |b| b.box_type() != "moov").unwrap();
         let moov = moov.unwrap();
         let (_, meta) = travel_while(moov.body_data(), |b| b.box_type() != "meta").unwrap();

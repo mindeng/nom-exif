@@ -68,11 +68,9 @@ impl KeyEntry {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Read;
-
     use crate::{
         bbox::{travel_while, ParseBox},
-        testkit::open_sample,
+        testkit::read_sample,
     };
 
     use super::*;
@@ -80,10 +78,7 @@ mod tests {
 
     #[test_case("meta.mov", 4133, 0x01b9, 0xc9)]
     fn keys_box(path: &str, moov_size: u64, meta_size: u64, keys_size: u64) {
-        let mut f = open_sample(path).unwrap();
-        let mut buf = Vec::new();
-        f.read_to_end(&mut buf).unwrap();
-
+        let buf = read_sample(path).unwrap();
         let (_, moov) = travel_while(&buf, |b| b.box_type() != "moov").unwrap();
         let moov = moov.unwrap();
         let (_, meta) = travel_while(moov.body_data(), |b| b.box_type() != "meta").unwrap();
@@ -132,10 +127,7 @@ mod tests {
 
     #[test_case("embedded-in-heic.mov", 0x1790, 0x0372, 0x1ce)]
     fn heic_mov_keys(path: &str, moov_size: u64, meta_size: u64, keys_size: u64) {
-        let mut f = open_sample(path).unwrap();
-        let mut buf = Vec::new();
-        f.read_to_end(&mut buf).unwrap();
-
+        let buf = read_sample(path).unwrap();
         let (_, moov) = travel_while(&buf, |b| b.box_type() != "moov").unwrap();
         let moov = moov.unwrap();
         let (_, meta) = travel_while(moov.body_data(), |b| b.box_type() != "meta").unwrap();

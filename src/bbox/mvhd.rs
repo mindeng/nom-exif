@@ -82,11 +82,9 @@ impl ParseBody<MvhdBox> for MvhdBox {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Read;
-
     use crate::{
         bbox::{travel_while, ParseBox},
-        testkit::open_sample,
+        testkit::read_sample,
     };
 
     use super::*;
@@ -106,9 +104,7 @@ mod tests {
         1063
     )]
     fn mvhd_box(path: &str, time_utc: &str, time_east8: &str, milliseconds: u32) {
-        let mut f = open_sample(path).unwrap();
-        let mut buf = Vec::new();
-        f.read_to_end(&mut buf).unwrap();
+        let buf = read_sample(path).unwrap();
 
         let (_, bbox) = travel_while(&buf, |b| b.box_type() != "moov").unwrap();
         let bbox = bbox.unwrap();

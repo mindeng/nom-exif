@@ -143,9 +143,7 @@ fn find_video_track(input: &[u8]) -> crate::Result<Option<BoxHolder>> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Read;
-
-    use crate::{bbox::travel_while, testkit::open_sample};
+    use crate::{bbox::travel_while, testkit::read_sample};
 
     use super::*;
     use test_case::test_case;
@@ -153,9 +151,7 @@ mod tests {
     #[test_case("meta.mov", 720, 1280)]
     #[test_case("meta.mp4", 1920, 1080)]
     fn tkhd_box(path: &str, width: u32, height: u32) {
-        let mut f = open_sample(path).unwrap();
-        let mut buf = Vec::new();
-        f.read_to_end(&mut buf).unwrap();
+        let buf = read_sample(path).unwrap();
 
         let (_, bbox) = travel_while(&buf, |b| b.box_type() != "moov").unwrap();
         let bbox = bbox.unwrap();
