@@ -1,5 +1,19 @@
 # Changelog
 
+## nom-exif v1.2.5
+
+[v1.2.4..v1.2.5](https://github.com/mindeng/nom-exif/compare/v1.2.4..v1.2.5)
+
+### Fixed
+
+- Bug fixed: [Unsupported mov file?
+  #7](https://github.com/mindeng/nom-exif/issues/7)
+
+### Internal
+
+- Change `travel_while` to return a result of optional `BoxHolder`, so we can
+  distinguish whether it is a parsing error or just not found.
+
 ## nom-exif v1.2.4
 
 [8c00f1b..v1.2.4](https://github.com/mindeng/nom-exif/compare/8c00f1b..v1.2.4)
