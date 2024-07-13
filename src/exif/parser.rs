@@ -4,6 +4,7 @@ use nom::{
     branch::alt,
     bytes::complete::{tag, take},
     combinator::{fail, map, map_res, verify},
+    error::context,
     multi::many_m_n,
     number::{
         complete::{u16, u32},
@@ -173,8 +174,12 @@ impl<'a> Parser<'a> {
         }
 
         // 12 bytes per entry
-        if remain.len() < entry_num as usize * ENTRY_SIZE {
-            let need = Needed::new(entry_num as usize * ENTRY_SIZE - remain.len());
+        let size = (entry_num as usize).checked_mul(ENTRY_SIZE);
+        let Some(size) = size else {
+            return context("ifd entry num is too big", fail)(remain);
+        };
+        if remain.len() < size {
+            let need = Needed::new(size - remain.len());
             return IResult::Err(nom::Err::Incomplete(need));
         }
 

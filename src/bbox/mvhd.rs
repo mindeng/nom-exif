@@ -1,8 +1,5 @@
 use chrono::{DateTime, Duration, FixedOffset, Local, NaiveDate, NaiveDateTime, TimeZone, Utc};
-use nom::{
-    bytes::complete::take, combinator::fail, error::context, number::complete::be_u32,
-    sequence::tuple,
-};
+use nom::{bytes::complete::take, number::complete::be_u32, sequence::tuple};
 
 use super::{FullBoxHeader, ParseBody};
 
@@ -39,7 +36,7 @@ pub struct MvhdBox {
 
 impl MvhdBox {
     pub fn duration_ms(&self) -> u32 {
-        (self.duration * 1000) / (self.time_scale)
+        ((self.duration as f64) / (self.time_scale as f64) * 1000_f64) as u32
     }
 
     fn creation_time_naive(&self) -> NaiveDateTime {
@@ -68,14 +65,6 @@ impl ParseBody<MvhdBox> for MvhdBox {
     fn parse_body(body: &[u8], header: FullBoxHeader) -> nom::IResult<&[u8], MvhdBox> {
         let (remain, (creation_time, modification_time, time_scale, duration, _, next_track_id)) =
             tuple((be_u32, be_u32, be_u32, be_u32, take(76usize), be_u32))(body)?;
-
-        if time_scale == 0 {
-            return context("time_scale == 0", fail)(remain);
-        }
-
-        if duration.checked_mul(1000).is_none() {
-            return context("duration is too big", fail)(remain);
-        }
 
         Ok((
             remain,
