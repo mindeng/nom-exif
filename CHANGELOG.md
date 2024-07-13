@@ -1,5 +1,21 @@
 # Changelog
 
+## nom-exif v1.2.6
+
+[v1.2.5..v1.2.6](https://github.com/mindeng/nom-exif/compare/v1.2.5..v1.2.6)
+
+### Fixed
+
+- Bug fixed: [A broken JPEG file - Library cannot read it, that exiftool reads
+  properly #2](https://github.com/mindeng/nom-exif/issues/2)
+- Bug fixed: [Another Unsupported MP4 file
+  #7](https://github.com/mindeng/nom-exif/issues/7#issuecomment-2226853761)
+
+### Internal
+
+- Remove redundant `fn open_sample` definitions in test cases.
+- Use `read_sample` instead of `open_sample` when possible.
+
 ## nom-exif v1.2.5
 
 [v1.2.4..v1.2.5](https://github.com/mindeng/nom-exif/compare/v1.2.4..v1.2.5)
