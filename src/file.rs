@@ -11,17 +11,28 @@ const HEIF_FTYPS: &[&[u8]] = &[
     b"mif1", b"MiHE", b"miaf", b"MiHB", // HEIC file's compatible brands
 ];
 
+// TODO: Refer to the information on the website https://www.ftyps.com to add
+// other less common MP4 brands.
 const MP4_BRAND_NAMES: &[&str] = &[
-    "3g2a", "3gp4", "3gp5", "3gp6", "mp41", "mp42", "iso2", "isom", "vfj1",
+    "3g2a", "3g2b", "3g2c", "3ge6", "3ge7", "3gg6", "3gp4", "3gp5", "3gp6", "3gs7", "avc1", "mp41",
+    "mp42", "iso2", "isom", "vfj1",
 ];
 
-const QT_BRAND_NAMES: &[&str] = &["qt  ", "CAEP"];
+const QT_BRAND_NAMES: &[&str] = &["qt  ", "mqt "];
 
 #[allow(unused)]
 #[derive(Debug, PartialEq, Eq)]
 pub enum FileType {
     Jpeg,
     Heif,
+
+    // Currently, there is not much difference between QuickTime and MP4 when
+    // parsing metadata, and they share the same parsing mechanism.
+    //
+    // The only difference is that if detected as an MP4 file, the
+    // `moov/udta/©xyz` atom is additionally checked and an attempt is made to
+    // read GPS information from it, since Android phones store GPS information
+    // in that atom.
     QuickTime,
     MP4,
 }
