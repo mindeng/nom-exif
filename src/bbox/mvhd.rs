@@ -82,9 +82,12 @@ impl ParseBody<MvhdBox> for MvhdBox {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs::File, io::Read, path::Path};
+    use std::io::Read;
 
-    use crate::bbox::{travel_while, ParseBox};
+    use crate::{
+        bbox::{travel_while, ParseBox},
+        testkit::open_sample,
+    };
 
     use super::*;
     use chrono::FixedOffset;
@@ -103,7 +106,7 @@ mod tests {
         1063
     )]
     fn mvhd_box(path: &str, time_utc: &str, time_east8: &str, milliseconds: u32) {
-        let mut f = open_sample(path);
+        let mut f = open_sample(path).unwrap();
         let mut buf = Vec::new();
         f.read_to_end(&mut buf).unwrap();
 
@@ -129,14 +132,5 @@ mod tests {
                 .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
             time_east8
         );
-    }
-
-    fn open_sample(path: &str) -> File {
-        let p = Path::new(path);
-        if p.is_absolute() {
-            File::open(p).unwrap()
-        } else {
-            File::open(Path::new("./testdata").join(p)).unwrap()
-        }
     }
 }

@@ -143,9 +143,9 @@ fn find_video_track(input: &[u8]) -> crate::Result<Option<BoxHolder>> {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs::File, io::Read, path::Path};
+    use std::io::Read;
 
-    use crate::bbox::travel_while;
+    use crate::{bbox::travel_while, testkit::open_sample};
 
     use super::*;
     use test_case::test_case;
@@ -153,7 +153,7 @@ mod tests {
     #[test_case("meta.mov", 720, 1280)]
     #[test_case("meta.mp4", 1920, 1080)]
     fn tkhd_box(path: &str, width: u32, height: u32) {
-        let mut f = open_sample(path);
+        let mut f = open_sample(path).unwrap();
         let mut buf = Vec::new();
         f.read_to_end(&mut buf).unwrap();
 
@@ -163,14 +163,5 @@ mod tests {
 
         assert_eq!(tkhd.width, width);
         assert_eq!(tkhd.height, height);
-    }
-
-    fn open_sample(path: &str) -> File {
-        let p = Path::new(path);
-        if p.is_absolute() {
-            File::open(p).unwrap()
-        } else {
-            File::open(Path::new("./testdata").join(p)).unwrap()
-        }
     }
 }

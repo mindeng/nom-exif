@@ -68,16 +68,19 @@ impl KeyEntry {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs::File, io::Read, path::Path};
+    use std::io::Read;
 
-    use crate::bbox::{travel_while, ParseBox};
+    use crate::{
+        bbox::{travel_while, ParseBox},
+        testkit::open_sample,
+    };
 
     use super::*;
     use test_case::test_case;
 
     #[test_case("meta.mov", 4133, 0x01b9, 0xc9)]
     fn keys_box(path: &str, moov_size: u64, meta_size: u64, keys_size: u64) {
-        let mut f = open_sample(path);
+        let mut f = open_sample(path).unwrap();
         let mut buf = Vec::new();
         f.read_to_end(&mut buf).unwrap();
 
@@ -129,7 +132,7 @@ mod tests {
 
     #[test_case("embedded-in-heic.mov", 0x1790, 0x0372, 0x1ce)]
     fn heic_mov_keys(path: &str, moov_size: u64, meta_size: u64, keys_size: u64) {
-        let mut f = open_sample(path);
+        let mut f = open_sample(path).unwrap();
         let mut buf = Vec::new();
         f.read_to_end(&mut buf).unwrap();
 
@@ -169,9 +172,5 @@ KeyEntry { size: 33, namespace: "mdta", key: "com.apple.quicktime.model" }
 KeyEntry { size: 36, namespace: "mdta", key: "com.apple.quicktime.software" }
 KeyEntry { size: 40, namespace: "mdta", key: "com.apple.quicktime.creationdate" }"#,
         );
-    }
-
-    fn open_sample(path: &str) -> File {
-        File::open(Path::new("./testdata").join(path)).unwrap()
     }
 }

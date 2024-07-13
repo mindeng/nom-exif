@@ -127,16 +127,16 @@ fn parse_value(type_code: u32, data: &[u8]) -> crate::Result<EntryValue> {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs::File, io::Read, path::Path};
+    use std::io::Read;
 
-    use crate::bbox::travel_while;
+    use crate::{bbox::travel_while, testkit::open_sample};
 
     use super::*;
     use test_case::test_case;
 
     #[test_case("meta.mov")]
     fn ilst_box(path: &str) {
-        let mut f = open_sample(path);
+        let mut f = open_sample(path).unwrap();
         let mut buf = Vec::new();
         f.read_to_end(&mut buf).unwrap();
 
@@ -168,7 +168,7 @@ mod tests {
 
     #[test_case("embedded-in-heic.mov")]
     fn heic_mov_ilst(path: &str) {
-        let mut f = open_sample(path);
+        let mut f = open_sample(path).unwrap();
         let mut buf = Vec::new();
         f.read_to_end(&mut buf).unwrap();
 
@@ -204,9 +204,5 @@ IlstItem { size: 37, index: 8, data_len: 29, type_set: 0, type_code: 1, local: 0
 IlstItem { size: 28, index: 9, data_len: 20, type_set: 0, type_code: 1, local: 0, value: Text(\"17.1\") }
 IlstItem { size: 48, index: 10, data_len: 40, type_set: 0, type_code: 1, local: 0, value: Text(\"2023-11-02T19:58:34+0800\") }"
             );
-    }
-
-    fn open_sample(path: &str) -> File {
-        File::open(Path::new("./testdata").join(path)).unwrap()
     }
 }
