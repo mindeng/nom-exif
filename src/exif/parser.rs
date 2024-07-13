@@ -193,13 +193,14 @@ impl<'a> Parser<'a> {
 
         let entries = entries
             .into_iter()
+            .flatten()
             .map(|x| (x.tag, x))
             .collect::<HashMap<_, _>>();
 
         Ok((remain, Some(ImageFileDirectory { entries })))
     }
 
-    fn parse_ifd_entry(&self, pos: usize, depth: usize) -> IResult<&[u8], DirectoryEntry> {
+    fn parse_ifd_entry(&self, pos: usize, depth: usize) -> IResult<&[u8], Option<DirectoryEntry>> {
         let input = self.data;
         let endian = self.endian;
 
@@ -208,15 +209,18 @@ impl<'a> Parser<'a> {
                 pos + ENTRY_SIZE - input.len(),
             )));
         }
+
         let entry_data = &input[pos..pos + ENTRY_SIZE]; // Safe-slice
+        let remain = &input[pos + ENTRY_SIZE..];
 
         let (_, (_, entry)) = map_res(
             tuple((u16(endian), u16(endian), u32(endian), u32(endian))),
-            |(tag, data_format, components_num, value_or_offset)| -> IResult<&[u8], DirectoryEntry> {
+            |(tag, data_format, components_num, value_or_offset)| -> IResult<&[u8], Option<DirectoryEntry>> {
                 // get component_size according to data format
                 let Ok(component_size) = entry_component_size(data_format) else {
                     // eprintln!("parse exif entry failed; {e}");
-                    return fail(input);
+                    // return fail(input);
+                    return Ok((remain, None))
                 };
 
                 // get entry data
@@ -227,7 +231,8 @@ impl<'a> Parser<'a> {
                     let start = value_or_offset as usize;
                     let end = start + size;
                     if end > input.len() {
-                        return Err(nom::Err::Incomplete(Needed::new(end - input.len())));
+                        // return Err(nom::Err::Incomplete(Needed::new(end - input.len())));
+                        return Ok((remain, None));
                     }
 
                     // Is `start` should be greater than or equal to `pos + ENTRY_SIZE` ?
@@ -240,20 +245,22 @@ impl<'a> Parser<'a> {
 
                 let data = Vec::from(data);
 
-                let subifd = self.parse_subifd(tag, value_or_offset as usize, depth)?;
+                let Ok(subifd) = self.parse_subifd(tag, value_or_offset as usize, depth) else {
+                    return Ok((remain, None))
+                };
 
-                Ok((&input[pos+ENTRY_SIZE..], DirectoryEntry { // Safe-slice
+                Ok((remain, Some(DirectoryEntry { // Safe-slice
                     tag,
                     data_format,
                     components_num,
                     data,
                     value: value_or_offset,
                     subifd,
-                }))
+                })))
             },
         )(entry_data)?;
 
-        Ok((&input[pos + ENTRY_SIZE..], entry)) // Safe-slice
+        Ok((remain, entry)) // Safe-slice
     }
 
     fn parse_subifd(
@@ -321,12 +328,11 @@ impl Header {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs::File, io::prelude::*, path::Path};
-
     use test_case::test_case;
 
     use crate::exif::ExifTag::*;
     use crate::exif::{GPSInfo, LatLng};
+    use crate::testkit::read_sample;
     use crate::values::URational;
 
     use super::*;
@@ -347,8 +353,7 @@ mod tests {
 
     #[test_case("exif.jpg")]
     fn test_parse_exif(path: &str) {
-        let mut buf = Vec::new();
-        open_sample(path).read_to_end(&mut buf).unwrap();
+        let buf = read_sample(path).unwrap();
         // println!("file size: {}", buf.len());
 
         // skip first 12 bytes
@@ -452,8 +457,7 @@ mod tests {
         altitude_ref: u8,
         altitude: URational,
     ) {
-        let mut buf = Vec::new();
-        open_sample(path).read_to_end(&mut buf).unwrap();
+        let buf = read_sample(path).unwrap();
 
         // skip first 12 bytes
         let exif = parse_exif(&buf[12..]).unwrap(); // Safe-slice in test_case
@@ -470,9 +474,5 @@ mod tests {
                 altitude,
             }
         )
-    }
-
-    fn open_sample(path: &str) -> impl Read + Seek {
-        File::open(Path::new("./testdata").join(path)).unwrap()
     }
 }

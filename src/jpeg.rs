@@ -390,4 +390,10 @@ mod tests {
             end
         );
     }
+
+    #[test]
+    fn broken_jpg() {
+        let f = open_sample("broken.jpg").unwrap();
+        parse_jpeg_exif(f).unwrap();
+    }
 }
