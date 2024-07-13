@@ -231,23 +231,47 @@ where
 /// Find a box by atom `path`, which is separated by '/', e.g.: "meta/iloc".
 pub fn find_box<'a>(input: &'a [u8], path: &str) -> IResult<&'a [u8], Option<BoxHolder<'a>>> {
     if path.is_empty() {
-        context("path is empty", fail::<_, BoxHolder<'a>, _>)(input)?;
+        return Ok((input, None));
     }
 
     let mut bbox = None;
     let mut remain = input;
     let mut data = input;
 
-    for box_type in path.split('/') {
-        if box_type.is_empty() {
-            continue;
-        }
-        let (rem, b) = travel_while(data, |b| b.box_type() != box_type)?;
+    for box_type in path.split('/').filter(|x| !x.is_empty()) {
+        assert!(!box_type.is_empty());
+
+        let (rem, b) = find_box_by_type(data, box_type)?;
+        let Some(b) = b else {
+            return Ok((rem, None));
+        };
+
         data = b.body_data();
         (remain, bbox) = (rem, Some(b));
     }
 
     Ok((remain, bbox))
+}
+
+fn find_box_by_type<'a>(
+    input: &'a [u8],
+    box_type: &str,
+) -> IResult<&'a [u8], Option<BoxHolder<'a>>> {
+    let mut remain = input;
+    loop {
+        if remain.is_empty() {
+            return Ok((remain, None));
+        }
+
+        let (rem, bbox) = BoxHolder::parse(remain)?;
+        // Sanity check, to avoid infinite loops caused by unexpected errors.
+        assert!(rem.len() < remain.len());
+        remain = rem;
+
+        if bbox.box_type() == box_type {
+            return Ok((rem, Some(bbox)));
+        }
+    }
 }
 
 trait ParseBody<O> {

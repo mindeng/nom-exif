@@ -5,10 +5,11 @@ use nom::combinator::fail;
 use nom::Needed;
 use nom::{number::complete::be_u32, IResult};
 
+use crate::bbox::find_box;
 use crate::exif::{parse_exif, Exif};
 use crate::file::check_heif;
 use crate::{
-    bbox::{travel_while, BoxHolder, MetaBox, ParseBox},
+    bbox::{BoxHolder, MetaBox, ParseBox},
     exif::check_exif_header,
 };
 
@@ -100,7 +101,9 @@ fn extract_exif_data(input: &[u8]) -> IResult<&[u8], Option<&[u8]>> {
         return fail(input);
     }
 
-    let (_, bbox) = travel_while(remain, |b| b.header.box_type != "meta")?;
+    let (_, Some(bbox)) = find_box(remain, "meta")? else {
+        return Ok((remain, None));
+    };
     let (_, bbox) = MetaBox::parse_box(bbox.data)?;
     let (out_remain, data) = bbox.exif_data(input)?;
 

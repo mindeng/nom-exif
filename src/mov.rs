@@ -10,8 +10,7 @@ use thiserror::Error;
 
 use crate::{
     bbox::{
-        find_box, parse_video_tkhd_in_moov, travel_header, travel_while, IlstBox, KeysBox, MvhdBox,
-        ParseBox,
+        find_box, parse_video_tkhd_in_moov, travel_header, IlstBox, KeysBox, MvhdBox, ParseBox,
     },
     file::{check_qt_mp4, FileType},
     EntryValue,
@@ -55,12 +54,10 @@ pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, E
     let (ft, moov_body) = extract_moov_body(reader)?;
 
     let (_, mut entries) = match parse_moov_body(&moov_body) {
-        Ok(entries) => entries,
+        Ok((remain, Some(entries))) => (remain, entries),
+        Ok((remain, None)) => (remain, Vec::new()),
         Err(_) => {
-            if ft == FileType::QuickTime {
-                return Err("parse moov body failed".into());
-            }
-            (&b""[..], Vec::new())
+            return Err("invalid moov body".into());
         }
     };
 
@@ -70,7 +67,7 @@ pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, E
         if !entries.iter().any(|x| x.0 == LOCATION_KEY) {
             // Try to parse GPS location for MP4 files. For mp4 files, Android
             // phones store GPS info in the `moov/udta/©xyz` atom.
-            let (_, bbox) = find_box(&moov_body, "udta/©xyz").map_err(|_| "udta/©xyz not found")?;
+            let (_, bbox) = find_box(&moov_body, "udta/©xyz")?;
             if let Some(bbox) = bbox {
                 if bbox.body_data().len() <= 4 {
                     return Err("box body is too small".into());
@@ -300,10 +297,20 @@ fn extract_moov_body_from_buf(input: &[u8]) -> Result<Range<usize>, Error> {
     Ok(skipped..skipped + body.len())
 }
 
-fn parse_moov_body(remain: &[u8]) -> IResult<&[u8], Vec<(String, EntryValue)>> {
-    let (_, meta) = travel_while(remain, |b| b.header.box_type != "meta")?;
-    let (_, keys) = travel_while(meta.body_data(), |b| b.header.box_type != "keys")?;
-    let (_, ilst) = travel_while(meta.body_data(), |b| b.header.box_type != "ilst")?;
+type EntriesResult<'a> = IResult<&'a [u8], Option<Vec<(String, EntryValue)>>>;
+
+fn parse_moov_body(input: &[u8]) -> EntriesResult {
+    let (remain, Some(meta)) = find_box(input, "meta")? else {
+        return Ok((input, None));
+    };
+
+    let (_, Some(keys)) = find_box(meta.body_data(), "keys")? else {
+        return Ok((remain, None));
+    };
+
+    let (_, Some(ilst)) = find_box(meta.body_data(), "ilst")? else {
+        return Ok((remain, None));
+    };
 
     let (_, keys) = KeysBox::parse_box(keys.data)?;
     let (_, ilst) = IlstBox::parse_box(ilst.data)?;
@@ -314,9 +321,8 @@ fn parse_moov_body(remain: &[u8]) -> IResult<&[u8], Vec<(String, EntryValue)>> {
         .map(|k| k.key)
         .zip(ilst.items.into_iter().map(|v| v.value))
         .collect::<Vec<_>>();
-    // .collect::<HashMap<_, _>>();
 
-    Ok((remain, entries))
+    Ok((input, Some(entries)))
 }
 
 /// Change timezone format from iso 8601 to rfc3339, e.g.:
@@ -385,6 +391,7 @@ mod tests {
         let (_, entries) = parse_moov_body(&buf[range]).unwrap();
         assert_eq!(
             entries
+                .unwrap()
                 .iter()
                 .map(|x| format!("{x:?}"))
                 .collect::<Vec<_>>()
