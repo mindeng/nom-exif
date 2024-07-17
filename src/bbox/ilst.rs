@@ -83,6 +83,7 @@ impl IlstItem {
 
 /// Parse ilst item data to value, see [Well-known
 /// types](https://developer.apple.com/documentation/quicktime-file-format/well-known_types)
+// #[tracing::instrument(skip(data))]
 fn parse_value(type_code: u32, data: &[u8]) -> crate::Result<EntryValue> {
     use EntryValue::*;
     let v = match type_code {
@@ -96,9 +97,13 @@ fn parse_value(type_code: u32, data: &[u8]) -> crate::Result<EntryValue> {
             3 => be_i24(data)?.1.into(),
             4 => be_i32(data)?.1.into(),
             8 => be_i64(data)?.1.into(),
-            x => {
-                let msg = format!("Invalid ilst item data; data type is BE Signed Integer while data len is : {x}");
-                // eprintln!("{msg}");
+            data_len => {
+                let data_type = "BE Signed Integer";
+                tracing::error!(data_type, data_len, "Invalid ilst item data.");
+                let msg = format!(
+                    "Invalid ilst item data; \
+                    data type is {data_type} while data len is : {data_len}",
+                );
                 return Err(msg.into());
             }
         },
@@ -108,18 +113,22 @@ fn parse_value(type_code: u32, data: &[u8]) -> crate::Result<EntryValue> {
             3 => be_u24(data)?.1.into(),
             4 => be_u32(data)?.1.into(),
             8 => be_u64(data)?.1.into(),
-            x => {
-                let msg = format!("Invalid ilst item data; data type is BE Unsigned Integer while data len is : {x}");
-                // eprintln!("{msg}");
+            data_len => {
+                let data_type = "BE Unsigned Integer";
+                tracing::error!(data_type, data_len, "Invalid ilst item data.");
+                let msg = format!(
+                    "Invalid ilst item data; \
+                    data type is {data_type} while data len is : {data_len}",
+                );
                 return Err(msg.into());
             }
         },
         23 => be_f32(data)?.1.into(),
         24 => be_f64(data)?.1.into(),
-        o => {
-            let msg = format!("Unsupported ilst item data type: {o}");
-            // eprintln!("{msg}");
-            return Err(msg.into());
+        data_type => {
+            let msg = format!("Unsupported ilst item data type");
+            tracing::error!(data_type, "{}.", msg);
+            return Err(format!("{}: {data_type}", msg).into());
         }
     };
     Ok(v)

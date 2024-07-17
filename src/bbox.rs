@@ -49,15 +49,16 @@ pub struct BoxHeader {
 }
 
 impl BoxHeader {
+    #[tracing::instrument(skip_all)]
     pub fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], BoxHeader> {
         let (remain, size) = number::streaming::be_u32(input)?;
 
         let (remain, box_type) = map_res(streaming::take(4_usize), |res: &'a [u8]| {
             // String::from_utf8 will fail on "©xyz"
             Ok::<String, ()>(res.iter().map(|b| b.as_char()).collect::<String>())
-            // String::from_utf8(res.to_vec()).map_err(|e| {
-            //     eprintln!("{e:?}");
-            //     e
+            // String::from_utf8(res.to_vec()).map_err(|error| {
+            //     tracing::error!(?error, ?res, "Failed to construct string");
+            //     error
             // })
         })(remain)?;
 
@@ -77,20 +78,17 @@ impl BoxHeader {
         }
 
         if box_size > (MAX_BODY_LEN + header_size) as u64 {
-            eprintln!(
-                "box size of box '{}' is too big: {}",
-                box_type
-                    .chars()
-                    .map(|c| {
-                        if c.is_ascii_graphic() {
-                            c.as_char()
-                        } else {
-                            '*'
-                        }
-                    })
-                    .collect::<String>(),
-                box_size
-            );
+            let box_type = box_type
+                .chars()
+                .map(|c| {
+                    if c.is_ascii_graphic() {
+                        c.as_char()
+                    } else {
+                        '*'
+                    }
+                })
+                .collect::<String>();
+            tracing::error!(?box_type, ?box_size, "Box is too big");
             return fail(remain);
         }
 
@@ -156,10 +154,11 @@ pub struct BoxHolder<'a> {
 }
 
 impl<'a> BoxHolder<'a> {
+    #[tracing::instrument(skip_all)]
     pub fn parse(input: &'a [u8]) -> IResult<&'a [u8], BoxHolder<'a>> {
         let (_, header) = BoxHeader::parse(input)?;
         let (remain, data) = streaming::take(header.box_size)(input)?;
-        // println!("got {} {}", header.box_type, data.len());
+        tracing::debug!(?header.box_type, data_len = ?data.len(), "Got");
 
         Ok((remain, BoxHolder { header, data }))
     }
