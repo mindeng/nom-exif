@@ -369,6 +369,8 @@ mod tests {
 
     #[test_case("meta.mov")]
     fn mov_parse(path: &str) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let reader = open_sample(path).unwrap();
         let entries = parse_metadata(reader).unwrap();
         assert_eq!(
@@ -390,8 +392,10 @@ mod tests {
 
     #[test_case("meta.mov")]
     fn mov_extract_mov(path: &str) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let buf = read_sample(path).unwrap();
-        println!("file size: {}", buf.len());
+        tracing::info!(bytes = buf.len(), "File size.");
         let range = extract_moov_body_from_buf(&buf).unwrap();
         let (_, entries) = parse_moov_body(&buf[range]).unwrap();
         assert_eq!(
@@ -411,21 +415,27 @@ mod tests {
 
     #[test_case("compatible-brands.mov")]
     fn mov_compatible_brands(path: &str) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let buf = read_sample(path).unwrap();
-        println!("file size: {}", buf.len());
+        tracing::info!(bytes = buf.len(), "File size.");
         let ft = check_qt_mp4(&buf).unwrap();
         assert_eq!(ft, FileType::QuickTime);
     }
 
     #[test_case("compatible-brands-fail.mov")]
     fn mov_compatible_brands_fail(path: &str) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let buf = read_sample(path).unwrap();
-        println!("file size: {}", buf.len());
+        tracing::info!(bytes = buf.len(), "File size.");
         check_qt_mp4(&buf).unwrap_err();
     }
 
     #[test_case("meta.mp4")]
     fn parse_mp4(path: &str) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let entries = parse_metadata(open_sample(path).unwrap()).unwrap();
         assert_eq!(
             entries
@@ -443,6 +453,8 @@ mod tests {
 
     #[test_case("embedded-in-heic.mov")]
     fn parse_embedded_mov(path: &str) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let entries = parse_mov_metadata(open_sample(path).unwrap()).unwrap();
         assert_eq!(
             entries
@@ -468,6 +480,8 @@ mod tests {
 
     #[test]
     fn test_iso_8601_tz_to_rfc3339() {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let s = "2023-11-02T19:58:34+08".to_string();
         assert_eq!(tz_iso_8601_to_rfc3339(s), "2023-11-02T19:58:34+08:00");
 

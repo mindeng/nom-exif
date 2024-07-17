@@ -128,6 +128,8 @@ mod tests {
 
     #[test_case("exif.heic")]
     fn heif(path: &str) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let reader = open_sample(path).unwrap();
         let exif = parse_heif_exif(reader).unwrap().unwrap();
 
@@ -187,6 +189,8 @@ mod tests {
 
     #[test_case("ramdisk.img")]
     fn invalid_heic(path: &str) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let reader = open_sample(path).unwrap();
         parse_heif_exif(reader).expect_err("should be ParseFailed error");
     }
@@ -194,6 +198,8 @@ mod tests {
     #[test_case("compatible-brands.heic", Some(FileType::Heif))]
     #[test_case("compatible-brands-fail.heic", None)]
     fn heic_compatible_brands(path: &str, ft: Option<FileType>) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let buf = read_sample(path).unwrap();
         let got = check_heif(&buf);
         if let Some(ft) = ft {
@@ -206,6 +212,8 @@ mod tests {
     #[test_case("no-exif.heic", 0x24-10)]
     #[test_case("exif.heic", 0xa3a-10)]
     fn heic_exif_data(path: &str, exif_size: usize) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let buf = read_sample(path).unwrap();
         let (_, exif) = extract_exif_data(&buf[..]).unwrap();
 

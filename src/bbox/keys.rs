@@ -78,6 +78,8 @@ mod tests {
 
     #[test_case("meta.mov", 4133, 0x01b9, 0xc9)]
     fn keys_box(path: &str, moov_size: u64, meta_size: u64, keys_size: u64) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let buf = read_sample(path).unwrap();
         let (_, moov) = travel_while(&buf, |b| b.box_type() != "moov").unwrap();
         let moov = moov.unwrap();
@@ -127,6 +129,8 @@ mod tests {
 
     #[test_case("embedded-in-heic.mov", 0x1790, 0x0372, 0x1ce)]
     fn heic_mov_keys(path: &str, moov_size: u64, meta_size: u64, keys_size: u64) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let buf = read_sample(path).unwrap();
         let (_, moov) = travel_while(&buf, |b| b.box_type() != "moov").unwrap();
         let moov = moov.unwrap();

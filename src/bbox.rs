@@ -338,11 +338,13 @@ mod tests {
 
     #[test_case("exif.heic")]
     fn travel_heic(path: &str) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let buf = read_sample(path).unwrap();
         let mut boxes = Vec::new();
 
         let (remain, bbox) = travel_while(&buf, |bbox| {
-            // println!("got {}", bbox.header.box_type);
+            tracing::info!(bbox.header.box_type, "Got");
             boxes.push((bbox.header.box_type.to_owned(), bbox.to_owned()));
             bbox.box_type() != "mdat"
         })
@@ -364,7 +366,7 @@ mod tests {
         let (remain, bbox) = travel_while(
             &meta.body_data()[4..], // Safe-slice in test_case
             |bbox| {
-                // println!("got {}", bbox.header.box_type);
+                tracing::info!(bbox.header.box_type, "Got");
                 boxes.push(bbox.header.box_type.to_owned());
                 bbox.box_type() != "iloc"
             },
@@ -383,11 +385,13 @@ mod tests {
 
     #[test_case("meta.mov")]
     fn travel_mov(path: &str) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let buf = read_sample(path).unwrap();
         let mut boxes = Vec::new();
 
         let (remain, bbox) = travel_while(&buf, |bbox| {
-            // println!("got {}", bbox.header.box_type);
+            tracing::info!(bbox.header.box_type, "Got");
             boxes.push((bbox.header.box_type.to_owned(), bbox.to_owned()));
             bbox.box_type() != "moov"
         })
@@ -407,7 +411,7 @@ mod tests {
 
         let mut boxes = Vec::new();
         let (remain, bbox) = travel_while(moov.body_data(), |bbox| {
-            // println!("got {}", bbox.header.box_type);
+            tracing::info!(bbox.header.box_type, "Got");
             boxes.push(bbox.header.box_type.to_owned());
             bbox.box_type() != "meta"
         })
@@ -423,7 +427,7 @@ mod tests {
         let meta = bbox;
         let mut boxes = Vec::new();
         let (remain, _) = travel_while(meta.body_data(), |bbox| {
-            // println!("got {}", bbox.header.box_type);
+            tracing::info!(bbox.header.box_type, "Got");
             boxes.push(bbox.header.box_type.to_owned());
             bbox.box_type() != "ilst"
         })
@@ -436,11 +440,13 @@ mod tests {
 
     #[test_case("meta.mp4")]
     fn travel_mp4(path: &str) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let buf = read_sample(path).unwrap();
         let mut boxes = Vec::new();
 
         let (remain, bbox) = travel_while(&buf, |bbox| {
-            // println!("got {}", bbox.header.box_type);
+            tracing::info!(bbox.header.box_type, "Got");
             boxes.push((bbox.header.box_type.to_owned(), bbox.to_owned()));
             bbox.box_type() != "moov"
         })
@@ -460,7 +466,7 @@ mod tests {
 
         let mut boxes = Vec::new();
         let (remain, bbox) = travel_while(moov.body_data(), |bbox| {
-            // println!("got {}", bbox.header.box_type);
+            tracing::info!(bbox.header.box_type, "Got");
             boxes.push((bbox.header.box_type.to_owned(), bbox.to_owned()));
             bbox.box_type() != "udta"
         })
@@ -481,7 +487,7 @@ mod tests {
         let meta = bbox;
         let mut boxes = Vec::new();
         let (remain, _) = travel_while(meta.body_data(), |bbox| {
-            // println!("got {}", bbox.header.box_type);
+            tracing::info!(bbox.header.box_type, "Got");
             boxes.push(bbox.header.box_type.to_owned());
             bbox.box_type() != "©xyz"
         })
@@ -493,7 +499,7 @@ mod tests {
 
         let mut boxes = Vec::new();
         let (remain, bbox) = travel_while(trak.body_data(), |bbox| {
-            // println!("got {}", bbox.header.box_type);
+            tracing::info!(bbox.header.box_type, "Got");
             boxes.push(bbox.header.box_type.to_owned());
             bbox.box_type() != "mdia"
         })
@@ -506,7 +512,7 @@ mod tests {
         let mdia = bbox.unwrap();
         let mut boxes = Vec::new();
         let (remain, _) = travel_while(mdia.body_data(), |bbox| {
-            // println!("got {}", bbox.header.box_type);
+            tracing::info!(bbox.header.box_type, "Got");
             boxes.push(bbox.header.box_type.to_owned());
             bbox.box_type() != "minf"
         })
@@ -521,10 +527,12 @@ mod tests {
     // atom.
     #[test_case("meta.mp4")]
     fn find_android_gps_box(path: &str) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let buf = read_sample(path).unwrap();
         let (_, bbox) = find_box(&buf, "moov/udta/©xyz").unwrap();
         let bbox = bbox.unwrap();
-        // println!("bbox: {:?}", bbox.header);
+        tracing::info!(?bbox.header, "bbox");
 
         // gps info
         assert_eq!(
@@ -535,6 +543,8 @@ mod tests {
 
     #[test]
     fn box_header() {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let data = [
             0x00, 0x00, 0x01, 0xdd, 0x6d, 0x65, 0x74, 0x61, 0x02, 0x04, 0x04, 0x00,
         ];

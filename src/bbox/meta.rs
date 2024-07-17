@@ -124,9 +124,11 @@ mod tests {
 
     #[test_case("exif.heic", 2618)]
     fn meta(path: &str, meta_size: usize) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let buf = read_sample(path).unwrap();
         let (_, bbox) = travel_while(&buf, |bbox| {
-            // println!("got {}", bbox.header.box_type);
+            tracing::info!(bbox.header.box_type, "Got");
             bbox.box_type() != "meta"
         })
         .unwrap();

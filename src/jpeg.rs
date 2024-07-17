@@ -266,6 +266,8 @@ mod tests {
 
     #[test_case("exif.jpg")]
     fn jpeg(path: &str) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let f = open_sample(path).unwrap();
         let exif = parse_jpeg_exif(f).unwrap().unwrap();
 
@@ -356,6 +358,8 @@ mod tests {
     #[test_case("no-exif.jpg", 0)]
     #[test_case("exif.jpg", 0x4569-2)]
     fn jpeg_find_exif(path: &str, exif_size: usize) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let buf = read_sample(path).unwrap();
         let (_, segment) = find_exif_segment(&buf[..]).unwrap();
 
@@ -369,6 +373,8 @@ mod tests {
     #[test_case("no-exif.jpg", 0)]
     #[test_case("exif.jpg", 0x4569-8)]
     fn jpeg_exif_data(path: &str, exif_size: usize) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let buf = read_sample(path).unwrap();
         let (_, exif) = extract_exif_data(&buf[..]).unwrap();
 
@@ -382,6 +388,8 @@ mod tests {
     #[test_case("no-exif.jpg", 4089704, 0x000c0301, 0xb3b3e43f)]
     #[test_case("exif.jpg", 3564768, 0x000c0301, 0x84a297a9)]
     fn jpeg_image_data(path: &str, len: usize, start: u32, end: u32) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let f = open_sample(path).unwrap();
         let data = read_image_data(f).unwrap();
         assert_eq!(data.len(), len);
@@ -394,6 +402,8 @@ mod tests {
 
     #[test]
     fn broken_jpg() {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let f = open_sample("broken.jpg").unwrap();
         parse_jpeg_exif(f).unwrap();
     }

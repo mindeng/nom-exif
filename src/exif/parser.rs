@@ -342,6 +342,8 @@ mod tests {
 
     #[test]
     fn header() {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let buf = [0x4d, 0x4d, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x08];
 
         let (_, header) = Header::parse(&buf).unwrap();
@@ -356,8 +358,10 @@ mod tests {
 
     #[test_case("exif.jpg")]
     fn test_parse_exif(path: &str) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let buf = read_sample(path).unwrap();
-        // println!("file size: {}", buf.len());
+        tracing::info!(bytes = buf.len(), "File size");
 
         // skip first 12 bytes
         let exif = parse_exif(&buf[12..]).unwrap(); // Safe-slice in test_case
@@ -460,6 +464,8 @@ mod tests {
         altitude_ref: u8,
         altitude: URational,
     ) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let buf = read_sample(path).unwrap();
 
         // skip first 12 bytes

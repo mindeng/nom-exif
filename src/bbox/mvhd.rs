@@ -104,6 +104,8 @@ mod tests {
         1063
     )]
     fn mvhd_box(path: &str, time_utc: &str, time_east8: &str, milliseconds: u32) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let buf = read_sample(path).unwrap();
 
         let (_, bbox) = travel_while(&buf, |b| b.box_type() != "moov").unwrap();

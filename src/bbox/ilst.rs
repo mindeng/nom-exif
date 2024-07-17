@@ -143,6 +143,8 @@ mod tests {
 
     #[test_case("meta.mov")]
     fn ilst_box(path: &str) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let buf = read_sample(path).unwrap();
         let (_, bbox) = travel_while(&buf, |b| b.box_type() != "moov").unwrap();
         let bbox = bbox.unwrap();
@@ -152,7 +154,7 @@ mod tests {
         let bbox = bbox.unwrap();
 
         let (rem, ilst) = IlstBox::parse_box(bbox.data).unwrap();
-        println!("ilst: {ilst:?}");
+        tracing::info!(?ilst, "ilst");
         assert_eq!(rem, b"");
 
         assert_eq!(
@@ -172,6 +174,8 @@ mod tests {
 
     #[test_case("embedded-in-heic.mov")]
     fn heic_mov_ilst(path: &str) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let buf = read_sample(path).unwrap();
         let (_, moov) = travel_while(&buf, |b| b.box_type() != "moov").unwrap();
         let moov = moov.unwrap();
