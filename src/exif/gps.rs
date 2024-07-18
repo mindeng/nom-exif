@@ -128,6 +128,8 @@ mod tests {
 
     #[test]
     fn gps_iso6709() {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let palace = GPSInfo {
             latitude_ref: 'N',
             latitude: LatLng(URational(39, 1), URational(55, 1), URational(0, 1)),

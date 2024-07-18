@@ -149,10 +149,12 @@ struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
+    #[tracing::instrument(skip(self))]
     fn parse_ifd(&'a self, pos: usize) -> IResult<&'a [u8], Option<ImageFileDirectory>> {
         self.parse_ifd_recursively(pos, 1)
     }
 
+    #[tracing::instrument(skip(self))]
     fn parse_ifd_recursively(
         &'a self,
         pos: usize,
@@ -161,7 +163,7 @@ impl<'a> Parser<'a> {
         // Prevent stack overflow caused by infinite recursion, which will
         // occur when running fuzzing tests.
         if depth > MAX_IFD_DEPTH {
-            eprintln!("too many nested IFDs, parsing aborted at depth {}", depth);
+            tracing::error!(?depth, "Too many nested IFDs. Parsing aborted.");
             return fail(&self.data[pos..]); // Safe-slice
         }
 
@@ -200,6 +202,7 @@ impl<'a> Parser<'a> {
         Ok((remain, Some(ImageFileDirectory { entries })))
     }
 
+    #[tracing::instrument(skip(self))]
     fn parse_ifd_entry(&self, pos: usize, depth: usize) -> IResult<&[u8], Option<DirectoryEntry>> {
         let input = self.data;
         let endian = self.endian;
@@ -218,7 +221,7 @@ impl<'a> Parser<'a> {
             |(tag, data_format, components_num, value_or_offset)| -> IResult<&[u8], Option<DirectoryEntry>> {
                 // get component_size according to data format
                 let Ok(component_size) = entry_component_size(data_format) else {
-                    // eprintln!("parse exif entry failed; {e}");
+                    // tracing::error!(error = ?e, "Parse Exif entry failed.");
                     // return fail(input);
                     return Ok((remain, None))
                 };
@@ -339,6 +342,8 @@ mod tests {
 
     #[test]
     fn header() {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let buf = [0x4d, 0x4d, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x08];
 
         let (_, header) = Header::parse(&buf).unwrap();
@@ -353,8 +358,10 @@ mod tests {
 
     #[test_case("exif.jpg")]
     fn test_parse_exif(path: &str) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let buf = read_sample(path).unwrap();
-        // println!("file size: {}", buf.len());
+        tracing::info!(bytes = buf.len(), "File size");
 
         // skip first 12 bytes
         let exif = parse_exif(&buf[12..]).unwrap(); // Safe-slice in test_case
@@ -457,6 +464,8 @@ mod tests {
         altitude_ref: u8,
         altitude: URational,
     ) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let buf = read_sample(path).unwrap();
 
         // skip first 12 bytes

@@ -65,6 +65,7 @@ impl ParseBody<MetaBox> for MetaBox {
 }
 
 impl MetaBox {
+    #[tracing::instrument(skip_all)]
     pub fn exif_data<'a>(&self, input: &'a [u8]) -> IResult<&'a [u8], Option<&'a [u8]>> {
         self.iinf
             .as_ref()
@@ -86,10 +87,10 @@ impl MetaBox {
                     }
                 } else if construction_method == 1 {
                     // idat offset
-                    eprintln!("idat offset construction method is not supported yet");
+                    tracing::debug!("idat offset construction method is not supported yet");
                     fail(input)
                 } else {
-                    eprintln!("item offset construction method is not supported yet");
+                    tracing::debug!("item offset construction method is not supported yet");
                     fail(input)
                 }
             })
@@ -123,9 +124,11 @@ mod tests {
 
     #[test_case("exif.heic", 2618)]
     fn meta(path: &str, meta_size: usize) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let buf = read_sample(path).unwrap();
         let (_, bbox) = travel_while(&buf, |bbox| {
-            // println!("got {}", bbox.header.box_type);
+            tracing::info!(bbox.header.box_type, "Got");
             bbox.box_type() != "meta"
         })
         .unwrap();

@@ -150,6 +150,8 @@ mod tests {
     #[test_case("meta.mov", 720, 1280)]
     #[test_case("meta.mp4", 1920, 1080)]
     fn tkhd_box(path: &str, width: u32, height: u32) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let buf = read_sample(path).unwrap();
 
         let (_, bbox) = travel_while(&buf, |b| b.box_type() != "moov").unwrap();

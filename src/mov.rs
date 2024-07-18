@@ -156,6 +156,7 @@ pub fn parse_mov_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(Strin
     parse_metadata(reader)
 }
 
+#[tracing::instrument(skip_all)]
 fn extract_moov_body<R: Read + Seek>(mut reader: R) -> Result<(FileType, Vec<u8>), crate::Error> {
     const INIT_BUF_SIZE: usize = 4096;
     const GROW_BUF_SIZE: usize = 4096;
@@ -180,7 +181,7 @@ fn extract_moov_body<R: Read + Seek>(mut reader: R) -> Result<(FileType, Vec<u8>
             Ok(range) => break range.start + offset..range.end + offset,
             Err(Error::Need(n)) => n,
             Err(Error::Skip(n)) => {
-                // println!("skip: {n}");
+                tracing::debug!(?n, "skip");
                 reader.seek(std::io::SeekFrom::Current(n as i64))?;
                 offset = buf.len();
                 GROW_BUF_SIZE
@@ -188,7 +189,7 @@ fn extract_moov_body<R: Read + Seek>(mut reader: R) -> Result<(FileType, Vec<u8>
             Err(Error::ParseFailed(e)) => return Err(e),
         };
 
-        // println!("to_read: {to_read}");
+        tracing::debug!(?to_read, "to_read");
         assert!(to_read > 0);
 
         let to_read = cmp::max(GROW_BUF_SIZE, to_read);
@@ -258,6 +259,7 @@ pub enum Error {
 /// moov atom it may contain.
 ///
 /// Regarding error handling, please refer to [Error] for more information.
+#[tracing::instrument(skip_all)]
 fn extract_moov_body_from_buf(input: &[u8]) -> Result<Range<usize>, Error> {
     // parse metadata from moov/meta/keys & moov/meta/ilst
     let remain = input;
@@ -274,7 +276,7 @@ fn extract_moov_body_from_buf(input: &[u8]) -> Result<Range<usize>, Error> {
     let mut to_skip = 0;
     let mut skipped = 0;
     let (remain, header) = travel_header(remain, |h, remain| {
-        // println!("got: {} {}", h.box_type, h.box_size);
+        tracing::debug!(?h.box_type, ?h.box_size, "Got");
         if h.box_type == "moov" {
             // stop travelling
             skipped += h.header_size;
@@ -367,6 +369,8 @@ mod tests {
 
     #[test_case("meta.mov")]
     fn mov_parse(path: &str) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let reader = open_sample(path).unwrap();
         let entries = parse_metadata(reader).unwrap();
         assert_eq!(
@@ -388,8 +392,10 @@ mod tests {
 
     #[test_case("meta.mov")]
     fn mov_extract_mov(path: &str) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let buf = read_sample(path).unwrap();
-        println!("file size: {}", buf.len());
+        tracing::info!(bytes = buf.len(), "File size.");
         let range = extract_moov_body_from_buf(&buf).unwrap();
         let (_, entries) = parse_moov_body(&buf[range]).unwrap();
         assert_eq!(
@@ -409,21 +415,27 @@ mod tests {
 
     #[test_case("compatible-brands.mov")]
     fn mov_compatible_brands(path: &str) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let buf = read_sample(path).unwrap();
-        println!("file size: {}", buf.len());
+        tracing::info!(bytes = buf.len(), "File size.");
         let ft = check_qt_mp4(&buf).unwrap();
         assert_eq!(ft, FileType::QuickTime);
     }
 
     #[test_case("compatible-brands-fail.mov")]
     fn mov_compatible_brands_fail(path: &str) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let buf = read_sample(path).unwrap();
-        println!("file size: {}", buf.len());
+        tracing::info!(bytes = buf.len(), "File size.");
         check_qt_mp4(&buf).unwrap_err();
     }
 
     #[test_case("meta.mp4")]
     fn parse_mp4(path: &str) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let entries = parse_metadata(open_sample(path).unwrap()).unwrap();
         assert_eq!(
             entries
@@ -441,6 +453,8 @@ mod tests {
 
     #[test_case("embedded-in-heic.mov")]
     fn parse_embedded_mov(path: &str) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let entries = parse_mov_metadata(open_sample(path).unwrap()).unwrap();
         assert_eq!(
             entries
@@ -466,6 +480,8 @@ mod tests {
 
     #[test]
     fn test_iso_8601_tz_to_rfc3339() {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         let s = "2023-11-02T19:58:34+08".to_string();
         assert_eq!(tz_iso_8601_to_rfc3339(s), "2023-11-02T19:58:34+08:00");
 
