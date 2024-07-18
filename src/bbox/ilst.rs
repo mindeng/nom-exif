@@ -83,7 +83,7 @@ impl IlstItem {
 
 /// Parse ilst item data to value, see [Well-known
 /// types](https://developer.apple.com/documentation/quicktime-file-format/well-known_types)
-// #[tracing::instrument(skip(data))]
+#[tracing::instrument(skip(data))]
 fn parse_value(type_code: u32, data: &[u8]) -> crate::Result<EntryValue> {
     use EntryValue::*;
     let v = match type_code {
