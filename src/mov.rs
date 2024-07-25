@@ -50,6 +50,7 @@ use crate::{
 /// ("height", U32(1280))"#,
 /// );
 /// ```
+#[tracing::instrument(skip_all)]
 pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, EntryValue)>> {
     let (ft, moov_body) = extract_moov_body(reader)?;
 
@@ -70,9 +71,7 @@ pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, E
             let (_, bbox) = find_box(&moov_body, "udta/©xyz")?;
             if let Some(bbox) = bbox {
                 if bbox.body_data().len() <= 4 {
-                    // Just ignore this error at this time, can be reported by
-                    // tracing later.
-                    // return Err("box body is too small".into());
+                    tracing::error!("Box body is too small.");
                 } else {
                     let location = &bbox.body_data()[4..] // Safe-slice
                         .iter()

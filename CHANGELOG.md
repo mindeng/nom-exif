@@ -1,5 +1,13 @@
 # Changelog
 
+## nom-exif v1.3.0
+
+[v1.2.6..v1.3.0](https://github.com/mindeng/nom-exif/compare/v1.2.6..v1.3.0)
+
+### Changed
+
+- Introduce tracing, and replace printing with tracing.
+
 ## nom-exif v1.2.6
 
 [v1.2.5..v1.2.6](https://github.com/mindeng/nom-exif/compare/v1.2.5..v1.2.6)
