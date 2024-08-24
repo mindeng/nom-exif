@@ -1,5 +1,13 @@
 # Changelog
 
+## nom-exif v1.4.0
+
+[v1.3.0..v1.4.0](https://github.com/mindeng/nom-exif/compare/v1.3.0..v1.4.0)
+
+### Performance Improved!
+
+- Avoid data copying during parsing IFD entries.
+
 ## nom-exif v1.3.0
 
 [v1.2.6..v1.3.0](https://github.com/mindeng/nom-exif/compare/v1.2.6..v1.3.0)
