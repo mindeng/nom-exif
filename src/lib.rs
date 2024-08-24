@@ -3,8 +3,10 @@ mod error;
 mod exif;
 mod file;
 mod heif;
+mod input;
 mod jpeg;
 mod mov;
+mod slice;
 mod values;
 
 pub use heif::parse_heif_exif;

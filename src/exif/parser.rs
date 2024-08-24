@@ -14,7 +14,10 @@ use nom::{
     IResult, Needed,
 };
 
-use crate::{exif::ExifTag, exif::GPSInfo, EntryValue};
+use crate::{
+    exif::{ExifTag, GPSInfo},
+    input, EntryValue,
+};
 
 use super::ifd::{entry_component_size, get_gps_info, DirectoryEntry, ImageFileDirectory};
 
@@ -26,19 +29,20 @@ use super::ifd::{entry_component_size, get_gps_info, DirectoryEntry, ImageFileDi
 ///
 /// This allows you to parse Exif values on-demand, reducing the parsing
 /// overhead.
-pub fn parse_exif(input: &[u8]) -> crate::Result<Exif> {
-    let (_, header) = Header::parse(input)?;
+pub fn parse_exif<'a>(input: impl Into<input::Input<'a>>) -> crate::Result<Exif> {
+    let input: input::Input<'a> = input.into();
+    let (_, header) = Header::parse(&input)?;
 
     // jump to ifd0
     let skip = (header.ifd0_offset) as usize;
-    let (remain, _) = take(skip)(input)?;
+    let (remain, _) = take(skip)(input.as_ref())?;
 
     if remain.is_empty() {
         return Err("ifd0 is empty".into());
     }
 
     let parser = Parser {
-        data: input,
+        data: &input,
         endian: header.endian,
     };
 

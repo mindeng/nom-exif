@@ -1,3 +1,4 @@
+use crate::{input::Input, slice::SubsliceRange as _};
 use std::cmp;
 use std::io::{Read, Seek};
 
@@ -68,7 +69,7 @@ pub fn parse_heif_exif<R: Read + Seek>(mut reader: R) -> crate::Result<Option<Ex
 
     let (_, exif_data) = loop {
         to_read = match extract_exif_data(&buf) {
-            Ok((remain, bbox)) => break (remain, bbox),
+            Ok((remain, data)) => break (remain, data),
             Err(nom::Err::Incomplete(needed)) => match needed {
                 Needed::Unknown => GROW_BUF_SIZE,
                 Needed::Size(need) => need.get(),
@@ -91,7 +92,11 @@ pub fn parse_heif_exif<R: Read + Seek>(mut reader: R) -> crate::Result<Option<Ex
         }
     };
 
-    exif_data.map(parse_exif).transpose()
+    exif_data
+        .and_then(|x| buf.subslice_range(x))
+        .map(|x| Input::from_vec(buf, x))
+        .map(parse_exif)
+        .transpose()
 }
 
 /// Extract Exif TIFF data from the bytes of a HEIF/HEIC file.

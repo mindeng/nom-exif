@@ -1,3 +1,4 @@
+use crate::{input::Input, slice::SubsliceRange as _};
 use std::{
     cmp,
     io::{Read, Seek},
@@ -80,7 +81,11 @@ pub fn parse_jpeg_exif<R: Read>(mut reader: R) -> crate::Result<Option<Exif>> {
         }
     };
 
-    exif_data.map(parse_exif).transpose()
+    exif_data
+        .and_then(|x| buf.subslice_range(x))
+        .map(|x| Input::from_vec(buf, x))
+        .map(parse_exif)
+        .transpose()
 }
 
 /// Extract Exif TIFF data from the bytes of a JPEG file.
