@@ -3,8 +3,7 @@ use std::collections::HashMap;
 use nom::{
     branch::alt,
     bytes::complete::{tag, take},
-    combinator::{fail, map, map_res, verify},
-    error::context,
+    combinator::{map, map_res, verify},
     multi::many_m_n,
     number::{
         complete::{u16, u32},
@@ -16,7 +15,8 @@ use nom::{
 
 use crate::{
     exif::{ExifTag, GPSInfo},
-    input, EntryValue,
+    input::{self, Input},
+    EntryValue, Error,
 };
 
 use super::ifd::{entry_component_size, get_gps_info, DirectoryEntry, ImageFileDirectory};
@@ -29,37 +29,33 @@ use super::ifd::{entry_component_size, get_gps_info, DirectoryEntry, ImageFileDi
 ///
 /// This allows you to parse Exif values on-demand, reducing the parsing
 /// overhead.
-pub fn parse_exif<'a>(input: impl Into<input::Input<'a>>) -> crate::Result<Exif> {
-    let input: input::Input<'a> = input.into();
+pub fn parse_exif<'a>(input: impl Into<input::Input<'a>>) -> crate::Result<Exif<'a>> {
+    let input: Input<'a> = input.into();
     let (_, header) = Header::parse(&input)?;
 
     // jump to ifd0
     let skip = (header.ifd0_offset) as usize;
-    let (remain, _) = take(skip)(input.as_ref())?;
+
+    let mut exif = Exif {
+        input,
+        header,
+        ifd0: None,
+        tz: None,
+    };
+    let buf = exif.input.into_associated(exif.input.as_ref());
+    let (remain, _) = take(skip)(buf.as_ref())?;
 
     if remain.is_empty() {
         return Err("ifd0 is empty".into());
     }
 
-    let parser = Parser {
-        data: &input,
-        endian: header.endian,
-    };
-
     // parse ifd0
-    let (_, ifd0) = parser
-        .parse_ifd(input.len() - remain.len())
+    exif.ifd0 = exif
+        .parse_ifd(exif.input.len() - remain.len())
         .map_err(|e| format!("Parse exif failed; {e}"))?;
+    exif.tz = exif.get_tz_offset();
 
-    let exif = Exif {
-        header,
-        ifd0,
-        tz: None,
-    };
-
-    let tz = exif.get_tz_offset();
-
-    Ok(Exif { tz, ..exif })
+    Ok(exif)
 }
 
 /// Represents Exif information in a JPEG/HEIF file.
@@ -71,13 +67,14 @@ pub fn parse_exif<'a>(input: impl Into<input::Input<'a>>) -> crate::Result<Exif>
 /// This allows you to parse Exif values on-demand, reducing the parsing
 /// overhead.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Exif {
+pub struct Exif<'a> {
+    input: Input<'a>,
     header: Header,
     ifd0: Option<ImageFileDirectory>,
     tz: Option<String>,
 }
 
-impl Exif {
+impl<'a> Exif<'a> {
     /// Searches for specified tags within the parsed Exif data, and parses the
     /// corresponding values within the found entries. The final result is
     /// returned in the form of a hash table.
@@ -116,17 +113,6 @@ impl Exif {
             .transpose()
     }
 
-    fn get_tz_offset(&self) -> Option<String> {
-        let values = self.get_values(&[ExifTag::OffsetTimeOriginal, ExifTag::OffsetTime]);
-        values.into_iter().find_map(|x| {
-            if let EntryValue::Text(s) = x.1 {
-                Some(s)
-            } else {
-                None
-            }
-        })
-    }
-
     /// Searches and parses the found GPS information within the parsed Exif
     /// structure.
     pub fn get_gps_info(&self) -> crate::Result<Option<GPSInfo>> {
@@ -142,60 +128,61 @@ impl Exif {
     fn endian(&self) -> Endianness {
         self.header.endian
     }
+
+    fn get_tz_offset(&self) -> Option<String> {
+        let values = self.get_values(&[ExifTag::OffsetTimeOriginal, ExifTag::OffsetTime]);
+        values.into_iter().find_map(|x| {
+            if let EntryValue::Text(s) = x.1 {
+                Some(s)
+            } else {
+                None
+            }
+        })
+    }
 }
 
 const ENTRY_SIZE: usize = 12;
 const MAX_IFD_DEPTH: usize = 20;
 
-struct Parser<'a> {
-    data: &'a [u8],
-    endian: Endianness,
-}
+type IfdResult = Result<Option<ImageFileDirectory>, Error>;
 
-impl<'a> Parser<'a> {
+impl<'a> Exif<'a> {
     #[tracing::instrument(skip(self))]
-    fn parse_ifd(&'a self, pos: usize) -> IResult<&'a [u8], Option<ImageFileDirectory>> {
+    fn parse_ifd(&self, pos: usize) -> IfdResult {
         self.parse_ifd_recursively(pos, 1)
     }
 
     #[tracing::instrument(skip(self))]
-    fn parse_ifd_recursively(
-        &'a self,
-        pos: usize,
-        depth: usize,
-    ) -> IResult<&'a [u8], Option<ImageFileDirectory>> {
+    fn parse_ifd_recursively(&'a self, pos: usize, depth: usize) -> IfdResult {
         // Prevent stack overflow caused by infinite recursion, which will
         // occur when running fuzzing tests.
         if depth > MAX_IFD_DEPTH {
-            tracing::error!(?depth, "Too many nested IFDs. Parsing aborted.");
-            return fail(&self.data[pos..]); // Safe-slice
+            return Err("Too many nested IFDs. Parsing aborted.".into());
         }
 
-        let input = self.data;
-        let endian = self.endian;
+        let endian = self.header.endian;
 
-        let (remain, entry_num) = u16(endian)(&input[pos..])?; // Safe-slice
+        let (remain, entry_num) = u16(endian)(&self.input[pos..])?; // Safe-slice
         if entry_num == 0 {
-            return Ok((remain, None));
+            return Ok(None);
         }
 
         // 12 bytes per entry
         let size = (entry_num as usize).checked_mul(ENTRY_SIZE);
         let Some(size) = size else {
-            return context("ifd entry num is too big", fail)(remain);
+            return Err("ifd entry num is too big".into());
         };
         if remain.len() < size {
             let need = Needed::new(size - remain.len());
-            return IResult::Err(nom::Err::Incomplete(need));
+            return Err(nom::Err::Incomplete(need).into());
         }
 
-        let mut pos = input.len() - remain.len();
-        let (remain, entries) =
-            many_m_n(entry_num as usize, entry_num as usize, |_: &'a [u8]| {
-                let (rem, entry) = self.parse_ifd_entry(pos, depth)?;
-                pos = input.len() - rem.len();
-                Ok((rem, entry))
-            })(input)?;
+        let mut pos = self.input.len() - remain.len();
+        let (_, entries) = many_m_n(entry_num as usize, entry_num as usize, |_: &'a [u8]| {
+            let (rem, entry) = self.parse_ifd_entry(pos, depth)?;
+            pos = self.input.len() - rem.len();
+            Ok((rem, entry))
+        })(&self.input)?;
 
         let entries = entries
             .into_iter()
@@ -203,22 +190,21 @@ impl<'a> Parser<'a> {
             .map(|x| (x.tag, x))
             .collect::<HashMap<_, _>>();
 
-        Ok((remain, Some(ImageFileDirectory { entries })))
+        Ok(Some(ImageFileDirectory { entries }))
     }
 
     #[tracing::instrument(skip(self))]
     fn parse_ifd_entry(&self, pos: usize, depth: usize) -> IResult<&[u8], Option<DirectoryEntry>> {
-        let input = self.data;
-        let endian = self.endian;
+        let endian = self.header.endian;
 
-        if pos + ENTRY_SIZE > input.len() {
+        if pos + ENTRY_SIZE > self.input.len() {
             return Err(nom::Err::Incomplete(Needed::new(
-                pos + ENTRY_SIZE - input.len(),
+                pos + ENTRY_SIZE - self.input.len(),
             )));
         }
 
-        let entry_data = &input[pos..pos + ENTRY_SIZE]; // Safe-slice
-        let remain = &input[pos + ENTRY_SIZE..];
+        let entry_data = &self.input[pos..pos + ENTRY_SIZE]; // Safe-slice
+        let remain = &self.input[pos + ENTRY_SIZE..];
 
         let (_, (_, entry)) = map_res(
             tuple((u16(endian), u16(endian), u32(endian), u32(endian))),
@@ -226,7 +212,7 @@ impl<'a> Parser<'a> {
                 // get component_size according to data format
                 let Ok(component_size) = entry_component_size(data_format) else {
                     // tracing::error!(error = ?e, "Parse Exif entry failed.");
-                    // return fail(input);
+                    // return fail(self.input);
                     return Ok((remain, None))
                 };
 
@@ -237,20 +223,20 @@ impl<'a> Parser<'a> {
                 } else {
                     let start = value_or_offset as usize;
                     let end = start + size;
-                    if end > input.len() {
-                        // return Err(nom::Err::Incomplete(Needed::new(end - input.len())));
+                    if end > self.input.len() {
+                        // return Err(nom::Err::Incomplete(Needed::new(end - self.input.len())));
                         return Ok((remain, None));
                     }
 
                     // Is `start` should be greater than or equal to `pos + ENTRY_SIZE` ?
                     // if start < pos + ENTRY_SIZE {
-                    //     return fail(input);
+                    //     return fail(self.input);
                     // }
 
-                    &input[start..end] // Safe-slice
+                    &self.input[start..end] // Safe-slice
                 };
 
-                let data = Vec::from(data);
+                let data = self.input.into_associated(data);
 
                 let Ok(subifd) = self.parse_subifd(tag, value_or_offset as usize, depth) else {
                     return Ok((remain, None))
@@ -270,22 +256,15 @@ impl<'a> Parser<'a> {
         Ok((remain, entry)) // Safe-slice
     }
 
-    fn parse_subifd(
-        &self,
-        tag: u16,
-        offset: usize,
-        depth: usize,
-    ) -> Result<Option<ImageFileDirectory>, nom::Err<nom::error::Error<&[u8]>>> {
-        let input = self.data;
+    fn parse_subifd(&self, tag: u16, offset: usize, depth: usize) -> IfdResult {
         let subifd = if tag == ExifTag::ExifOffset as u16 || tag == ExifTag::GPSInfo as u16 {
-            if offset > input.len() {
-                let need = Needed::new(offset - input.len());
-                return Err(nom::Err::Incomplete(need));
+            if offset > self.input.len() {
+                let need = Needed::new(offset - self.input.len());
+                return Err(nom::Err::Incomplete(need).into());
             }
 
             // load from offset
-            let (_, ifd) = self.parse_ifd_recursively(offset, depth + 1)?;
-            ifd
+            self.parse_ifd_recursively(offset, depth + 1)?
         } else {
             None
         };

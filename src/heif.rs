@@ -50,7 +50,7 @@ use crate::{
 /// );
 /// ```
 #[tracing::instrument(skip_all)]
-pub fn parse_heif_exif<R: Read + Seek>(mut reader: R) -> crate::Result<Option<Exif>> {
+pub fn parse_heif_exif<R: Read + Seek>(mut reader: R) -> crate::Result<Option<Exif<'static>>> {
     const INIT_BUF_SIZE: usize = 4096;
     const GROW_BUF_SIZE: usize = 1024;
 

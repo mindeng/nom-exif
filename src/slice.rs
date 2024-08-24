@@ -10,12 +10,12 @@ pub trait SubsliceRange {
 
 impl<T> SubsliceOffset for [T] {
     fn subslice_offset(&self, inner: &Self) -> Option<usize> {
-        let self_beg = self.as_ptr() as usize;
-        let inner = inner.as_ptr() as usize;
-        if inner < self_beg || inner > self_beg.wrapping_add(self.len()) {
+        let start = self.as_ptr() as usize;
+        let inner_start = inner.as_ptr() as usize;
+        if inner_start < start || inner_start > start.wrapping_add(self.len()) {
             None
         } else {
-            Some(inner.wrapping_sub(self_beg))
+            inner_start.checked_sub(start)
         }
     }
 }
@@ -25,14 +25,13 @@ where
     [T]: SubsliceOffset,
 {
     fn subslice_range(&self, inner: &Self) -> Option<Range<usize>> {
-        let offset = self.subslice_offset(inner);
-        if let Some(start) = offset {
-            Some(Range {
-                start,
-                end: start.wrapping_add(inner.len()),
-            })
-        } else {
+        let offset = self.subslice_offset(inner)?;
+        let end = offset.checked_add(inner.len())?;
+        let start = self.as_ptr() as usize;
+        if end > start + self.len() {
             None
+        } else {
+            Some(Range { start: offset, end })
         }
     }
 }

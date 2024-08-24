@@ -46,7 +46,7 @@ use crate::{
 ///     .collect::<Vec<_>>()
 /// );
 /// ```
-pub fn parse_jpeg_exif<R: Read>(mut reader: R) -> crate::Result<Option<Exif>> {
+pub fn parse_jpeg_exif<R: Read>(mut reader: R) -> crate::Result<Option<Exif<'static>>> {
     const INIT_BUF_SIZE: usize = 4096;
     const GROW_BUF_SIZE: usize = 4096;
 

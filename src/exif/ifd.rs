@@ -4,9 +4,7 @@ use chrono::{DateTime, Local, LocalResult, NaiveDateTime, TimeZone};
 use nom::number::Endianness;
 
 use crate::{
-    exif::{tags::ExifTag, LatLng},
-    values::{IRational, URational},
-    EntryValue,
+    exif::{tags::ExifTag, LatLng}, input::AssociatedInput, values::{IRational, URational}, EntryValue
 };
 use std::convert::TryInto;
 
@@ -40,7 +38,7 @@ pub(crate) struct DirectoryEntry {
     pub tag: u16,
     pub data_format: u16,
     pub components_num: u32,
-    pub data: Vec<u8>,
+    pub data: AssociatedInput,
     pub value: u32,
     pub subifd: Option<ImageFileDirectory>,
 }
