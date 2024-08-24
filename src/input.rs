@@ -21,7 +21,7 @@ impl Input<'_> {
         }
     }
 
-    pub fn into_associated(&self, subslice: &[u8]) -> AssociatedInput {
+    pub fn make_associated(&self, subslice: &[u8]) -> AssociatedInput {
         let _ = self
             .subslice_range(subslice)
             .expect("subslice should be a sub slice of self");

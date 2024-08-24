@@ -126,7 +126,7 @@ fn parse_value(type_code: u32, data: &[u8]) -> crate::Result<EntryValue> {
         23 => be_f32(data)?.1.into(),
         24 => be_f64(data)?.1.into(),
         data_type => {
-            let msg = format!("Unsupported ilst item data type");
+            let msg = "Unsupported ilst item data type";
             tracing::error!(data_type, "{}.", msg);
             return Err(format!("{}: {data_type}", msg).into());
         }

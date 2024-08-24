@@ -218,8 +218,8 @@ fn extract_moov_body<R: Read + Seek>(mut reader: R) -> Result<(FileType, Vec<u8>
 /// - For files, you can quickly skip using a `Seek` operation.
 ///
 /// - For network byte streams, you may need to skip these bytes through read
-/// operations, or preferably, by designing an appropriate network protocol for
-/// skipping.
+///   operations, or preferably, by designing an appropriate network protocol for
+///   skipping.
 ///
 /// # `Error::Skip`
 ///
@@ -227,14 +227,14 @@ fn extract_moov_body<R: Read + Seek>(mut reader: R) -> Result<(FileType, Vec<u8>
 /// should be understood as follows:
 ///
 /// - The parsing program has already consumed all available data and needs to
-/// skip n bytes further.
+///   skip n bytes further.
 ///
 /// - After skipping n bytes, it should continue to read subsequent data to fill
-/// the buffer and use it as input for the parsing function.
+///   the buffer and use it as input for the parsing function.
 ///
 /// - The next time the parsing function is called (usually within a loop), the
-/// previously consumed data (including the skipped bytes) should be ignored,
-/// and only the newly read data should be passed in.
+///   previously consumed data (including the skipped bytes) should be ignored,
+///   and only the newly read data should be passed in.
 ///
 /// # `Error::Need`
 ///

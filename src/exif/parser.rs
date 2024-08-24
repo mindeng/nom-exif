@@ -42,7 +42,7 @@ pub fn parse_exif<'a>(input: impl Into<input::Input<'a>>) -> crate::Result<Exif<
         ifd0: None,
         tz: None,
     };
-    let buf = exif.input.into_associated(exif.input.as_ref());
+    let buf = exif.input.make_associated(exif.input.as_ref());
     let (remain, _) = take(skip)(buf.as_ref())?;
 
     if remain.is_empty() {
@@ -147,12 +147,10 @@ const MAX_IFD_DEPTH: usize = 20;
 type IfdResult = Result<Option<ImageFileDirectory>, Error>;
 
 impl<'a> Exif<'a> {
-    #[tracing::instrument(skip(self))]
     fn parse_ifd(&self, pos: usize) -> IfdResult {
         self.parse_ifd_recursively(pos, 1)
     }
 
-    #[tracing::instrument(skip(self))]
     fn parse_ifd_recursively(&'a self, pos: usize, depth: usize) -> IfdResult {
         // Prevent stack overflow caused by infinite recursion, which will
         // occur when running fuzzing tests.
@@ -193,7 +191,6 @@ impl<'a> Exif<'a> {
         Ok(Some(ImageFileDirectory { entries }))
     }
 
-    #[tracing::instrument(skip(self))]
     fn parse_ifd_entry(&self, pos: usize, depth: usize) -> IResult<&[u8], Option<DirectoryEntry>> {
         let endian = self.header.endian;
 
@@ -236,7 +233,7 @@ impl<'a> Exif<'a> {
                     &self.input[start..end] // Safe-slice
                 };
 
-                let data = self.input.into_associated(data);
+                let data = self.input.make_associated(data);
 
                 let Ok(subifd) = self.parse_subifd(tag, value_or_offset as usize, depth) else {
                     return Ok((remain, None))
