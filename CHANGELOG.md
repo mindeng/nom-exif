@@ -1,5 +1,17 @@
 # Changelog
 
+## nom-exif v1.4.1
+
+[v1.4.0..v1.4.1](https://github.com/mindeng/nom-exif/compare/v1.4.0..v1.4.1)
+
+### Performance Improved!
+
+- Avoid data copying when extracting moov body.
+
+### Added
+
+- impl `Send` + `Sync` for `Exif`, so we can use it in multi-thread environment
+
 ## nom-exif v1.4.0
 
 [v1.3.0..v1.4.0](https://github.com/mindeng/nom-exif/compare/v1.3.0..v1.4.0)
