@@ -13,6 +13,7 @@ use crate::{
         find_box, parse_video_tkhd_in_moov, travel_header, IlstBox, KeysBox, MvhdBox, ParseBox,
     },
     file::{check_qt_mp4, FileType},
+    input::Input,
     EntryValue,
 };
 
@@ -156,7 +157,9 @@ pub fn parse_mov_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(Strin
 }
 
 #[tracing::instrument(skip_all)]
-fn extract_moov_body<R: Read + Seek>(mut reader: R) -> Result<(FileType, Vec<u8>), crate::Error> {
+fn extract_moov_body<R: Read + Seek>(
+    mut reader: R,
+) -> Result<(FileType, Input<'static>), crate::Error> {
     const INIT_BUF_SIZE: usize = 4096;
     const GROW_BUF_SIZE: usize = 4096;
     let mut buf = Vec::with_capacity(INIT_BUF_SIZE);
@@ -202,7 +205,8 @@ fn extract_moov_body<R: Read + Seek>(mut reader: R) -> Result<(FileType, Vec<u8>
             Err("metadata not found")?;
         }
     };
-    Ok((ft, buf.drain(moov_body_range).collect()))
+
+    Ok((ft, Input::from_vec(buf, moov_body_range)))
 }
 
 /// Due to the fact that metadata in MOV files is typically located at the end
