@@ -13,7 +13,6 @@ struct Cli {
 }
 
 const TAGS: &[ExifTag] = &[
-    Unknown,
     Make,
     Model,
     Orientation,

@@ -1,5 +1,19 @@
 use std::ops::Range;
 
+pub trait SliceChecked {
+    fn slice_checked(&self, range: Range<usize>) -> Option<&Self>;
+}
+
+impl<T> SliceChecked for [T] {
+    fn slice_checked(&self, range: Range<usize>) -> Option<&Self> {
+        if range.end <= self.len() {
+            Some(&self[range])
+        } else {
+            None
+        }
+    }
+}
+
 pub trait SubsliceOffset {
     fn subslice_offset(&self, inner: &Self) -> Option<usize>;
 }

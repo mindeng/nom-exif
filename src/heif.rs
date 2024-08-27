@@ -50,7 +50,7 @@ use crate::{
 /// );
 /// ```
 #[tracing::instrument(skip_all)]
-pub fn parse_heif_exif<R: Read + Seek>(mut reader: R) -> crate::Result<Option<Exif<'static>>> {
+pub fn parse_heif_exif<R: Read + Seek>(mut reader: R) -> crate::Result<Option<Exif>> {
     const INIT_BUF_SIZE: usize = 4096;
     const GROW_BUF_SIZE: usize = 1024;
 
@@ -128,7 +128,7 @@ fn extract_exif_data(input: &[u8]) -> IResult<&[u8], Option<&[u8]>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{file::FileType, testkit::*};
+    use crate::{file::FileFormat, testkit::*};
     use test_case::test_case;
 
     #[test_case("exif.heic")]
@@ -137,59 +137,13 @@ mod tests {
 
         let reader = open_sample(path).unwrap();
         let exif = parse_heif_exif(reader).unwrap().unwrap();
+        let mut expect = String::new();
+        open_sample(&format!("{path}.sorted.txt"))
+            .unwrap()
+            .read_to_string(&mut expect)
+            .unwrap();
 
-        assert_eq!(
-            sorted_exif_entries(&exif),
-            [
-                "ApertureValue(0x9202) » 14447/10653 (1.3561)",
-                "BrightnessValue(0x9203) » 97777/16376 (5.9707)",
-                "ColorSpace(0xa001) » 65535",
-                "CreateDate(0x9004) » 2022-07-22T21:26:32+08:00",
-                "DateTimeOriginal(0x9003) » 2022-07-22T21:26:32+08:00",
-                "ExifImageHeight(0xa003) » 3024",
-                "ExifImageWidth(0xa002) » 4032",
-                "ExposureBiasValue(0x9204) » 0/1 (0.0000)",
-                "ExposureMode(0xa402) » 0",
-                "ExposureProgram(0x8822) » 2",
-                "ExposureTime(0x829a) » 1/171 (0.0058)",
-                "FNumber(0x829d) » 8/5 (1.6000)",
-                "Flash(0x9209) » 16",
-                "FocalLength(0x920a) » 21/5 (4.2000)",
-                "FocalLengthIn35mmFilm(0xa405) » 26",
-                "GPSAltitude(0x0006) » 572946/359 (1595.9499)",
-                "GPSAltitudeRef(0x0005) » 0",
-                "GPSDestBearing(0x0018) » 443187/1672 (265.0640)",
-                "GPSDestBearingRef(0x0017) » T",
-                "GPSImgDirection(0x0011) » 443187/1672 (265.0640)",
-                "GPSImgDirectionRef(0x0010) » T",
-                "GPSLatitude(0x0002) » 43/1 (43.0000)",
-                "GPSLatitudeRef(0x0001) » N",
-                "GPSLongitude(0x0004) » 84/1 (84.0000)",
-                "GPSLongitudeRef(0x0003) » E",
-                "GPSSpeed(0x000d) » 0/1 (0.0000)",
-                "GPSSpeedRef(0x000c) » K",
-                "HostComputer(0x013c) » iPhone 12 Pro",
-                "ISOSpeedRatings(0x8827) » 32",
-                "LensMake(0xa433) » Apple",
-                "LensModel(0xa434) » iPhone 12 Pro back triple camera 4.2mm f/1.6",
-                "LensSpecification(0xa432) » 807365/524263 (1.5400)",
-                "Make(0x010f) » Apple",
-                "MeteringMode(0x9207) » 5",
-                "Model(0x0110) » iPhone 12 Pro",
-                "ModifyDate(0x0132) » 2022-07-22T21:26:32+08:00",
-                "OffsetTime(0x9010) » +08:00",
-                "OffsetTimeOriginal(0x9011) » +08:00",
-                "Orientation(0x0112) » 6",
-                "ResolutionUnit(0x0128) » 2",
-                "SensingMethod(0xa217) » 2",
-                "ShutterSpeedValue(0x9201) » 139397/18789 (7.4191)",
-                "Software(0x0131) » 15.5",
-                "SubjectArea(0x9214) » 2009",
-                "WhiteBalanceMode(0xa403) » 0",
-                "XResolution(0x011a) » 72/1 (72.0000)",
-                "YResolution(0x011b) » 72/1 (72.0000)"
-            ]
-        );
+        assert_eq!(sorted_exif_entries(&exif).join("\n"), expect.trim());
     }
 
     #[test_case("ramdisk.img")]
@@ -200,9 +154,9 @@ mod tests {
         parse_heif_exif(reader).expect_err("should be ParseFailed error");
     }
 
-    #[test_case("compatible-brands.heic", Some(FileType::Heif))]
+    #[test_case("compatible-brands.heic", Some(FileFormat::Heif))]
     #[test_case("compatible-brands-fail.heic", None)]
-    fn heic_compatible_brands(path: &str, ft: Option<FileType>) {
+    fn heic_compatible_brands(path: &str, ft: Option<FileFormat>) {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 
         let buf = read_sample(path).unwrap();

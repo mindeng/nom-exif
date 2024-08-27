@@ -12,7 +12,7 @@ use crate::{
     bbox::{
         find_box, parse_video_tkhd_in_moov, travel_header, IlstBox, KeysBox, MvhdBox, ParseBox,
     },
-    file::{check_qt_mp4, FileType},
+    file::{check_qt_mp4, FileFormat},
     input::Input,
     EntryValue,
 };
@@ -63,7 +63,7 @@ pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, E
         }
     };
 
-    if ft == FileType::MP4 {
+    if ft == FileFormat::MP4 {
         const LOCATION_KEY: &str = "com.apple.quicktime.location.ISO6709";
 
         if !entries.iter().any(|x| x.0 == LOCATION_KEY) {
@@ -159,7 +159,7 @@ pub fn parse_mov_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(Strin
 #[tracing::instrument(skip_all)]
 fn extract_moov_body<R: Read + Seek>(
     mut reader: R,
-) -> Result<(FileType, Input<'static>), crate::Error> {
+) -> Result<(FileFormat, Input<'static>), crate::Error> {
     const INIT_BUF_SIZE: usize = 4096;
     const GROW_BUF_SIZE: usize = 4096;
     let mut buf = Vec::with_capacity(INIT_BUF_SIZE);
@@ -423,7 +423,7 @@ mod tests {
         let buf = read_sample(path).unwrap();
         tracing::info!(bytes = buf.len(), "File size.");
         let ft = check_qt_mp4(&buf).unwrap();
-        assert_eq!(ft, FileType::QuickTime);
+        assert_eq!(ft, FileFormat::QuickTime);
     }
 
     #[test_case("compatible-brands-fail.mov")]

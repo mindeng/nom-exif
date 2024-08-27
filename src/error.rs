@@ -8,8 +8,11 @@ pub enum Error {
     #[error("exif/metadata not found")]
     NotFound,
 
-    #[error("parse failed; error: {0}")]
+    #[error("parse failed; {0}")]
     ParseFailed(FallbackError),
+
+    #[error("invalid entry; {0}")]
+    InvalidEntry(FallbackError),
 }
 
 pub use Error::*;

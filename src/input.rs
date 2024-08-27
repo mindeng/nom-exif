@@ -6,7 +6,7 @@ use std::ops::Deref;
 use std::ops::Range;
 use std::slice;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct Input<'a> {
     pub(crate) data: Cow<'a, [u8]>,
     pub(crate) range: Range<usize>,

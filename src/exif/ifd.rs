@@ -1,50 +1,400 @@
-use std::{collections::HashMap, fmt::Display};
+use std::collections::HashMap;
+use thiserror::Error;
 
-use chrono::{DateTime, Local, LocalResult, NaiveDateTime, TimeZone};
-use nom::number::Endianness;
-
-use crate::{
-    exif::{tags::ExifTag, LatLng}, input::AssociatedInput, values::{IRational, URational}, EntryValue
+use nom::{
+    combinator::map,
+    number::{complete, Endianness},
+    sequence::tuple,
 };
 use std::convert::TryInto;
 
-use super::GPSInfo;
+use crate::{
+    exif::gps::LatLng,
+    input::AssociatedInput,
+    slice::SliceChecked,
+    values::{decode_rational, DataFormat, EntryData, IRational, URational},
+    EntryValue, ExifTag,
+};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Error {
+use super::{tags::ExifTagCode, GPSInfo};
+
+#[derive(Debug, Error)]
+pub(crate) enum Error {
+    #[error("Failed to parse IFD entry; size/offset is overflow")]
+    Overflow,
+
+    #[error("Failed to parse IFD entry; invalid data: {0}")]
     InvalidData(String),
+
+    #[error("Failed to parse IFD entry; unsupported: {0}")]
     Unsupported(String),
 }
 
-impl std::error::Error for Error {}
-
-impl Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Error::InvalidData(v) => write!(f, "invalid data format: {v}"),
-            Error::Unsupported(v) => write!(f, "unsupported value of ifd entry: {v}"),
-        }
+impl From<Error> for crate::Error {
+    fn from(value: Error) -> Self {
+        Self::InvalidEntry(value.into())
     }
 }
 
 /// https://www.media.mit.edu/pia/Research/deepview/exif.html
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ImageFileDirectory {
-    pub(crate) entries: HashMap<u16, DirectoryEntry>,
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ParsedImageFileDirectory {
+    pub entries: HashMap<u16, ParsedIdfEntry>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct DirectoryEntry {
+impl ParsedImageFileDirectory {
+    pub fn new() -> Self {
+        Self {
+            entries: HashMap::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ImageFileDirectoryIter {
+    pub ifd_idx: usize,
+    pub input: AssociatedInput,
+    pub pos: usize,
+    pub endian: Endianness,
+    pub tz: Option<String>,
+
+    pub num_entries: u16,
+
+    // Iterating status
+    pub index: u16,
+}
+
+#[derive(Debug)]
+pub(crate) enum IfdEntry {
+    Ifd { idx: usize, offset: usize }, // ifd index
+    Entry(EntryValue),
+    Err(Error),
+}
+
+impl IfdEntry {
+    pub fn as_u8(&self) -> Option<u8> {
+        if let IfdEntry::Entry(entry) = self {
+            if let EntryValue::U8(v) = entry {
+                return Some(*v);
+            }
+        }
+        None
+    }
+
+    pub fn as_char(&self) -> Option<char> {
+        if let IfdEntry::Entry(entry) = self {
+            if let EntryValue::Text(s) = entry {
+                return s.chars().next();
+            }
+        }
+        None
+    }
+
+    fn as_irational(&self) -> Option<&IRational> {
+        match self {
+            IfdEntry::Entry(v) => match v {
+                EntryValue::IRational(v) => Some(v),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    fn as_irational_array(&self) -> Option<&Vec<IRational>> {
+        match self {
+            IfdEntry::Entry(v) => match v {
+                EntryValue::IRationalArray(v) => Some(v),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    fn as_urational(&self) -> Option<&URational> {
+        match self {
+            IfdEntry::Entry(v) => match v {
+                EntryValue::URational(v) => Some(v),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    fn as_urational_array(&self) -> Option<&Vec<URational>> {
+        match self {
+            IfdEntry::Entry(v) => match v {
+                EntryValue::URationalArray(v) => Some(v),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+}
+
+const ENTRY_SIZE: usize = 12;
+const SUBIFD_TAGS: &[u16] = &[ExifTag::ExifOffset.code(), ExifTag::GPSInfo.code()];
+const TZ_OFFSET_TAGS: &[u16] = &[
+    ExifTag::OffsetTimeOriginal.code(),
+    ExifTag::OffsetTimeDigitized.code(),
+    ExifTag::OffsetTime.code(),
+];
+
+impl Iterator for ImageFileDirectoryIter {
+    type Item = (ExifTagCode, IfdEntry);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let endian = self.endian;
+        if self.index >= self.num_entries {
+            // next IFD
+            let (_, offset) =
+                complete::u32::<_, nom::error::Error<_>>(endian)(&self.input[self.pos..]).ok()?;
+            let offset = offset as usize;
+
+            if offset == 0 {
+                return None;
+            } else if offset >= self.input.len() {
+                return None;
+            } else {
+                return Some((
+                    ExifTagCode::Tag(ExifTag::Unknown),
+                    IfdEntry::Ifd {
+                        idx: self.ifd_idx + 1,
+                        offset,
+                    },
+                ));
+            }
+        }
+
+        let entry_data = self.input.slice_checked(self.pos..self.pos + ENTRY_SIZE)?;
+        self.index += 1;
+        self.pos += ENTRY_SIZE;
+
+        let (tag, res) = self.parse_tag_entry(entry_data)?;
+
+        Some((tag.into(), res)) // Safe-slice
+    }
+}
+
+impl ImageFileDirectoryIter {
+    pub fn try_new(
+        ifd_idx: usize,
+        input: AssociatedInput,
+        pos: usize,
+        endian: Endianness,
+        tz: Option<String>,
+    ) -> crate::Result<Self> {
+        let num_entries = Self::parse_num_entries(endian, &input[pos..])?;
+        Ok(Self {
+            ifd_idx,
+            endian,
+            tz,
+            num_entries,
+            index: 0,
+            input,
+            pos: pos + 2,
+        })
+    }
+
+    fn parse_num_entries(endian: Endianness, data: &[u8]) -> crate::Result<u16> {
+        let (remain, num) = complete::u16(endian)(data)?; // Safe-slice
+        if num == 0 {
+            return Ok(num);
+        }
+
+        // 12 bytes per entry
+        let size = (num as usize).checked_mul(ENTRY_SIZE);
+        let Some(size) = size else {
+            return Err("ifd entry num is too big".into());
+        };
+        if size > remain.len() {
+            Err("ifd entry num is too big".into())
+        } else {
+            Ok(num)
+        }
+    }
+
+    fn parse_tag_entry(&self, entry_data: &[u8]) -> Option<(u16, IfdEntry)> {
+        let endian = self.endian;
+        let (_, (tag, data_format, components_num, value_or_offset)) = tuple((
+            complete::u16::<_, nom::error::Error<_>>(endian),
+            complete::u16(endian),
+            complete::u32(endian),
+            complete::u32(endian),
+        ))(entry_data)
+        .ok()?;
+
+        let df: DataFormat = match data_format.try_into() {
+            Ok(df) => df,
+            Err(e) => return Some((tag, IfdEntry::Err(e))),
+        };
+        let (tag, res) = self.parse_entry(tag, df, components_num, entry_data, value_or_offset);
+        Some((tag, res))
+    }
+
+    fn parse_entry(
+        &self,
+        tag: u16,
+        data_format: DataFormat,
+        components_num: u32,
+        entry_data: &[u8],
+        value_or_offset: u32,
+    ) -> (u16, IfdEntry) {
+        // get component_size according to data format
+        let component_size = data_format.component_size();
+
+        // get entry data
+        let size = components_num as usize * component_size;
+        let data = if size <= 4 {
+            &entry_data[8..8 + size] // Safe-slice
+        } else {
+            let start = value_or_offset as usize;
+            let end = start + size;
+            let Some(data) = self.input.slice_checked(start..end) else {
+                return (tag, IfdEntry::Err(Error::Overflow));
+            };
+
+            // Is `start` should be greater than or equal to `pos + ENTRY_SIZE` ?
+
+            data
+        };
+
+        if SUBIFD_TAGS.contains(&tag) {
+            if (value_or_offset as usize) < self.input.len() {
+                return (
+                    tag,
+                    IfdEntry::Ifd {
+                        idx: self.ifd_idx,
+                        offset: value_or_offset as usize,
+                    },
+                );
+            } else {
+                return (tag, IfdEntry::Err(Error::Overflow));
+            }
+        }
+
+        let entry = EntryData {
+            endian: self.endian,
+            tag,
+            data,
+            data_format,
+            components_num,
+        };
+        match EntryValue::parse(&entry, &self.tz) {
+            Ok(v) => (tag, IfdEntry::Entry(v)),
+            Err(e) => (tag, IfdEntry::Err(e)),
+        }
+    }
+
+    pub fn find_tz_offset(&self) -> Option<String> {
+        let endian = self.endian;
+        // find ExifOffset
+        for i in 0..self.num_entries {
+            let pos = self.pos + i as usize * ENTRY_SIZE;
+            let (remain, tag) =
+                complete::u16::<_, nom::error::Error<_>>(endian)(&self.input[pos..]).ok()?;
+            if tag == ExifTag::ExifOffset.code() {
+                let (_, (_, _, offset)) = tuple((
+                    complete::u16::<_, nom::error::Error<_>>(endian),
+                    complete::u32(endian),
+                    complete::u32(endian),
+                ))(remain)
+                .ok()?;
+
+                // find tz offset
+                return self.find_tz_offset_in_exif_subifd(offset as usize);
+            }
+        }
+        None
+    }
+
+    fn find_tz_offset_in_exif_subifd(&self, offset: usize) -> Option<String> {
+        let num_entries = Self::parse_num_entries(self.endian, &self.input[offset..]).ok()?;
+        let pos = offset + 2;
+        for i in 0..num_entries {
+            let pos = pos + i as usize * ENTRY_SIZE;
+            let entry_data = self.input.slice_checked(pos..pos + ENTRY_SIZE)?;
+            let (tag, res) = self.parse_tag_entry(entry_data)?;
+            if TZ_OFFSET_TAGS.contains(&tag) {
+                return match res {
+                    IfdEntry::Ifd { idx: _, offset: _ } => unreachable!(),
+                    IfdEntry::Entry(v) => match v {
+                        EntryValue::Text(v) => Some(v),
+                        _ => unreachable!(),
+                    },
+                    IfdEntry::Err(_) => None,
+                };
+            }
+        }
+        None
+    }
+
+    // Assume the current ifd is GPSInfo subifd.
+    pub fn parse_gps_info(&mut self) -> Option<GPSInfo> {
+        let mut gps = GPSInfo::default();
+        let mut has_data = false;
+        for (tag, entry) in self {
+            has_data = true;
+            println!("{tag:?}: {entry:?}");
+            match tag.tag() {
+                ExifTag::GPSLatitudeRef => {
+                    if let Some(c) = entry.as_char() {
+                        gps.latitude_ref = c;
+                    }
+                }
+                ExifTag::GPSLongitudeRef => {
+                    if let Some(c) = entry.as_char() {
+                        gps.longitude_ref = c;
+                    }
+                }
+                ExifTag::GPSAltitudeRef => {
+                    if let Some(c) = entry.as_u8() {
+                        gps.altitude_ref = c;
+                    }
+                }
+                ExifTag::GPSLatitude => {
+                    if let Some(v) = entry.as_urational_array() {
+                        gps.latitude = v.iter().collect();
+                    } else if let Some(v) = entry.as_irational_array() {
+                        gps.latitude = v.iter().collect();
+                    }
+                }
+                ExifTag::GPSLongitude => {
+                    if let Some(v) = entry.as_urational_array() {
+                        gps.longitude = v.iter().collect();
+                    } else if let Some(v) = entry.as_irational_array() {
+                        gps.longitude = v.iter().collect();
+                    }
+                }
+                ExifTag::GPSAltitude => {
+                    if let Some(v) = entry.as_urational() {
+                        gps.altitude = (*v).into();
+                    } else if let Some(v) = entry.as_irational() {
+                        gps.altitude = *v;
+                    }
+                }
+                _ => (),
+            }
+        }
+
+        if has_data {
+            println!("gps: {:?}", gps);
+            println!("gps: {}", gps.format_iso6709());
+            Some(gps)
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ParsedIdfEntry {
     pub tag: u16,
-    pub data_format: u16,
-    pub components_num: u32,
-    pub data: AssociatedInput,
-    pub value: u32,
-    pub subifd: Option<ImageFileDirectory>,
+    pub value: EntryValue,
+    pub subifd: Option<ParsedImageFileDirectory>,
 }
 
-impl ImageFileDirectory {
-    pub fn find(&self, tag: u16) -> Option<&DirectoryEntry> {
+impl ParsedImageFileDirectory {
+    pub fn find(&self, tag: u16) -> Option<&ParsedIdfEntry> {
         self.entries
             .get(&tag)
             .or_else(|| self.exif_ifd().and_then(|exif_ifd| exif_ifd.find(tag)))
@@ -52,308 +402,48 @@ impl ImageFileDirectory {
     }
 
     /// get exif sub ifd
-    pub fn exif_ifd(&self) -> Option<&ImageFileDirectory> {
+    pub fn exif_ifd(&self) -> Option<&ParsedImageFileDirectory> {
         self.entries
-            .get(&(ExifTag::ExifOffset as u16))
+            .get(&(ExifTag::ExifOffset.code()))
             .and_then(|entry| entry.subifd.as_ref())
     }
 
     /// get gps sub ifd
-    pub fn gps_ifd(&self) -> Option<&ImageFileDirectory> {
+    pub fn gps_ifd(&self) -> Option<&ParsedImageFileDirectory> {
         self.entries
-            .get(&(ExifTag::GPSInfo as u16))
+            .get(&(ExifTag::GPSInfo.code()))
             .and_then(|entry| entry.subifd.as_ref())
     }
-}
 
-impl EntryValue {
-    /// Parse an IFD entry value.
-    ///
-    /// # Structure of IFD Entry
-    ///
-    /// ```txt
-    /// | 2   | 2           | 4              | 4                      |
-    /// | tag | data format | components num | data (value or offset) |
-    /// ```
-    ///
-    /// # Data size
-    ///
-    /// `data_size = components_num * bytes_per_component`
-    ///
-    /// `bytes_per_component` is determined by tag & data format.
-    ///
-    /// If data_size > 4, then the data area of entry stores the offset of the
-    /// value, not the value itself.
-    ///
-    /// # Data format
-    ///
-    /// ```txt
-    /// | Value           |             1 |             2 |              3 |               4 |                 5 |            6 |
-    /// |-----------------+---------------+---------------+----------------+-----------------+-------------------+--------------|
-    /// | Format          | unsigned byte | ascii strings | unsigned short |   unsigned long | unsigned rational |  signed byte |
-    /// | Bytes/component |             1 |             1 |              2 |               4 |                 8 |            1 |
-    ///
-    /// | Value           |             7 |             8 |              9 |              10 |                11 |           12 |
-    /// |-----------------+---------------+---------------+----------------+-----------------+-------------------+--------------|
-    /// | Format          |     undefined |  signed short |    signed long | signed rational |      single float | double float |
-    /// | Bytes/component |             1 |             2 |              4 |               8 |                 4 |            8 |
-    /// ```
-    ///
-    /// See: [Exif](https://www.media.mit.edu/pia/Research/deepview/exif.html).
-    pub(crate) fn parse(
-        entry: &DirectoryEntry,
-        endian: Endianness,
-        tz: &Option<String>,
-    ) -> Result<EntryValue, Error> {
-        if entry.data.is_empty() {
-            return Err(Error::Unsupported(
-                "invalid DirectoryEntry: entry data is empty".into(),
-            ));
-        }
+    pub(crate) fn get(&self, tag: u16) -> Option<&EntryValue> {
+        self.entries.get(&tag).map(|x| &x.value)
+    }
 
-        let tag = entry.tag;
-
-        let exif_tag: Result<ExifTag, _> = tag.try_into();
-        if let Ok(tag) = exif_tag {
-            if tag == ExifTag::ExifOffset || tag == ExifTag::GPSInfo {
-                // load from offset
-                return Err(Error::Unsupported(format!(
-                    "tag {tag} is a sub ifd, not an entry"
-                )));
-            }
-
-            if tag == ExifTag::DateTimeOriginal
-                || tag == ExifTag::CreateDate
-                || tag == ExifTag::ModifyDate
-            {
-                // assert_eq!(entry.data_format, 2);
-                if entry.data_format != 2 {
-                    return Err(Error::InvalidData(
-                        "invalid DirectoryEntry: date format is invalid".into(),
-                    ));
-                }
-                let s = get_cstr(&entry.data).map_err(|e| Error::InvalidData(e.to_string()))?;
-
-                let t = if let Some(tz) = tz {
-                    let s = format!("{s} {tz}");
-                    DateTime::parse_from_str(&s, "%Y:%m:%d %H:%M:%S %z")?
-                } else {
-                    let t = NaiveDateTime::parse_from_str(&s, "%Y:%m:%d %H:%M:%S")?;
-                    let t = Local.from_local_datetime(&t);
-                    let t = if let LocalResult::Single(t) = t {
-                        Ok(t)
-                    } else {
-                        Err(Error::InvalidData(format!("parse time failed: {s}")))
-                    }?;
-
-                    t.with_timezone(t.offset())
-                };
-
-                return Ok(EntryValue::Time(t));
-            }
-        }
-
-        match entry.data_format {
-            // string
-            2 => Ok(EntryValue::Text(
-                get_cstr(&entry.data).map_err(|e| Error::InvalidData(e.to_string()))?,
-            )),
-
-            // u8
-            1 => match entry.components_num {
-                0 => Err(Error::InvalidData(
-                    "components num should'nt be 0".to_string(),
-                )),
-                1 => Ok(Self::U32(entry.data[0] as u32)),
-                x => Err(Error::Unsupported(format!(
-                    "usigned byte with {x} components num"
-                ))),
+    pub(crate) fn put(&mut self, code: u16, v: EntryValue) {
+        self.entries.insert(
+            code,
+            ParsedIdfEntry {
+                tag: code,
+                value: v,
+                subifd: None,
             },
-            // u16
-            3 => {
-                if entry.data.len() < 2 {
-                    return Err(Error::InvalidData("invalid DirectoryEntry".into()));
-                }
-                Ok(Self::U32(bytes_to_u16(&entry.data[..2], endian) as u32)) // Safe-slice
-            }
-            // u32
-            4 => {
-                if entry.data.len() < 4 {
-                    return Err(Error::InvalidData("invalid DirectoryEntry".into()));
-                }
-                Ok(Self::U32(bytes_to_u32(&entry.data[..4], endian))) // Safe-slice
-            }
-
-            // unsigned rational
-            5 => {
-                if entry.data.len() < 8 {
-                    return Err(Error::InvalidData("invalid DirectoryEntry".into()));
-                }
-                let numerator = bytes_to_u32(&entry.data[..4], endian); // Safe-slice
-                let denominator = bytes_to_u32(&entry.data[4..8], endian); // Safe-slice
-
-                Ok(Self::URational(URational(numerator, denominator)))
-            }
-
-            // signed rational
-            0xa => {
-                if entry.data.len() < 8 {
-                    return Err(Error::InvalidData("invalid DirectoryEntry".into()));
-                }
-                let numerator = bytes_to_i32(&entry.data[..4], endian); // Safe-slice
-                let denominator = bytes_to_i32(&entry.data[4..8], endian); // Safe-slice
-
-                Ok(Self::IRational(IRational(numerator, denominator)))
-            }
-
-            x => Err(Error::Unsupported(format!("data format {x}"))),
-        }
-    }
-}
-
-use std::string::FromUtf8Error;
-
-fn get_cstr(data: &[u8]) -> std::result::Result<String, FromUtf8Error> {
-    String::from_utf8(
-        data.iter()
-            .take_while(|b| **b != 0)
-            .filter(|b| **b != 0)
-            .cloned()
-            .collect::<Vec<u8>>(),
-    )
-}
-
-pub fn get_gps_info(gps_ifd: &ImageFileDirectory, endian: Endianness) -> crate::Result<GPSInfo> {
-    fn get_ref(gps_ifd: &ImageFileDirectory, tag: ExifTag) -> crate::Result<char> {
-        gps_ifd
-            .find(tag as u16)
-            .and_then(|entry| entry.data.first().map(|b| *b as char))
-            .ok_or("invalid latitude_ref".into())
+        );
     }
 
-    let get_latlng = |gps_ifd: &ImageFileDirectory, tag| -> crate::Result<LatLng> {
-        Ok(if let Some(entry) = gps_ifd.find(tag as u16) {
-            let rationals = decode_urationals(&entry.data, endian)?;
-            if rationals.len() < 3 {
-                return Err("invalid latitude".into());
-            }
-            LatLng(rationals[0], rationals[1], rationals[2])
-        } else {
-            LatLng::default()
-        })
-    };
-
-    let latitude_ref = get_ref(gps_ifd, ExifTag::GPSLatitudeRef)?;
-    let longitude_ref = get_ref(gps_ifd, ExifTag::GPSLongitudeRef)?;
-
-    let latitude = get_latlng(gps_ifd, ExifTag::GPSLatitude)?;
-    let longitude = get_latlng(gps_ifd, ExifTag::GPSLongitude)?;
-
-    let altitude_ref = gps_ifd
-        .find(ExifTag::GPSAltitudeRef as u16)
-        .map(|entry| entry.data[0])
-        .unwrap_or(0);
-
-    let altitude = if let Some(entry) = gps_ifd.find(ExifTag::GPSAltitude as u16) {
-        decode_urational(&entry.data, endian)?
-    } else {
-        URational::default()
-    };
-
-    Ok(GPSInfo {
-        latitude_ref,
-        latitude,
-        longitude_ref,
-        longitude,
-        altitude_ref,
-        altitude,
-    })
-}
-
-pub fn decode_urationals(data: &[u8], endian: Endianness) -> crate::Result<Vec<URational>> {
-    if data.len() < 8 {
-        Err(format!(
-            "unsigned rational need 8 bytes, {} bytes given",
-            data.len()
-        ))?;
-    }
-
-    let mut res = Vec::with_capacity(data.len() / 8);
-    let mut remain = data;
-
-    loop {
-        if remain.len() < 8 {
-            break Ok(res);
-        }
-
-        let rational = decode_urational(remain, endian)?;
-        res.push(rational);
-
-        remain = &remain[8..]; // Safe-slice
-    }
-}
-
-pub fn decode_urational(remain: &[u8], endian: Endianness) -> crate::Result<URational> {
-    if remain.len() < 8 {
-        Err(format!(
-            "unsigned rational need 8 bytes, {} bytes given",
-            remain.len()
-        ))?;
-    }
-    let numerator = bytes_to_u32(&remain[..4], endian); // Safe-slice
-    let denominator = bytes_to_u32(&remain[4..8], endian); // Safe-slice
-
-    Ok(URational(numerator, denominator))
-}
-
-pub fn entry_component_size(data_format: u16) -> Result<usize, Error> {
-    let component_size = match data_format {
-        // u8 | string | i8 | undefined
-        1 | 2 | 6 | 7 => 1,
-
-        // u16 | i16
-        3 | 8 => 2,
-
-        // u32 | i32 | f32
-        4 | 9 | 0xb => 4,
-
-        // unsigned rational | signed rational | f64
-        5 | 0xa | 0xc => 8,
-
-        x => return Err(Error::Unsupported(format!("data format {x}"))),
-    };
-    Ok(component_size)
-}
-
-fn bytes_to_u32(bs: &[u8], endian: Endianness) -> u32 {
-    assert!(bs.len() >= 4);
-    match endian {
-        Endianness::Big => u32::from_be_bytes(bs[0..4].try_into().unwrap()), // Safe-slice
-        Endianness::Little => u32::from_le_bytes(bs[0..4].try_into().unwrap()), // Safe-slice
-        Endianness::Native => unimplemented!(),
-    }
-}
-
-fn bytes_to_i32(bs: &[u8], endian: Endianness) -> i32 {
-    assert!(bs.len() >= 4);
-    match endian {
-        Endianness::Big => i32::from_be_bytes(bs[0..4].try_into().unwrap()), // Safe-slice
-        Endianness::Little => i32::from_le_bytes(bs[0..4].try_into().unwrap()), // Safe-slice
-        Endianness::Native => unimplemented!(),
-    }
-}
-
-fn bytes_to_u16(bs: &[u8], endian: Endianness) -> u16 {
-    assert!(bs.len() >= 2);
-    match endian {
-        Endianness::Big => u16::from_be_bytes(bs[0..2].try_into().unwrap()), // Safe-slice
-        Endianness::Little => u16::from_le_bytes(bs[0..2].try_into().unwrap()), // Safe-slice
-        Endianness::Native => unimplemented!(),
+    pub(crate) fn put_subifd(&mut self, code: u16, ifd: ParsedImageFileDirectory) {
+        self.entries.insert(
+            code,
+            ParsedIdfEntry {
+                tag: code,
+                value: EntryValue::U32(0),
+                subifd: Some(ifd),
+            },
+        );
     }
 }
 
 impl From<chrono::ParseError> for Error {
     fn from(value: chrono::ParseError) -> Self {
-        Error::InvalidData(format!("parse time failed: {value}"))
+        Error::InvalidData(format!("invalid time format: {value}"))
     }
 }

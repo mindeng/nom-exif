@@ -1,0 +1,66 @@
+IfdEntryResult { ifd: "ifd0", tag: ImageWidth(0x0100), value: "3072" }
+IfdEntryResult { ifd: "ifd0", tag: Model(0x0110), value: "vivo X90 Pro+" }
+IfdEntryResult { ifd: "ifd0", tag: ImageHeight(0x0101), value: "4096" }
+IfdEntryResult { ifd: "ifd0", tag: ModifyDate(0x0132), value: "2023-07-09T20:36:33+08:00" }
+IfdEntryResult { ifd: "ifd0", tag: Unrecognized(0x0213), value: "1" }
+IfdEntryResult { ifd: "ifd0", tag: ExifOffset(0x8769), value: "201" }
+IfdEntryResult { ifd: "ifd0", tag: MakerNote(0x927c), value: "Undefined[0x30]" }
+IfdEntryResult { ifd: "ifd0", tag: Unrecognized(0x8832), value: "454" }
+IfdEntryResult { ifd: "ifd0", tag: SensitivityType(0x8830), value: "2" }
+IfdEntryResult { ifd: "ifd0", tag: ISOSpeedRatings(0x8827), value: "454" }
+IfdEntryResult { ifd: "ifd0", tag: ExposureProgram(0x8822), value: "2" }
+IfdEntryResult { ifd: "ifd0", tag: FNumber(0x829d), value: "175/100 (1.7500)" }
+IfdEntryResult { ifd: "ifd0", tag: ExposureTime(0x829a), value: "9997/1000000 (0.0100)" }
+IfdEntryResult { ifd: "ifd0", tag: SensingMethod(0xa217), value: "2" }
+IfdEntryResult { ifd: "ifd0", tag: Unrecognized(0x9292), value: "616" }
+IfdEntryResult { ifd: "ifd0", tag: OffsetTimeOriginal(0x9011), value: "+08:00" }
+IfdEntryResult { ifd: "ifd0", tag: Unrecognized(0x9291), value: "616" }
+IfdEntryResult { ifd: "ifd0", tag: OffsetTime(0x9010), value: "+08:00" }
+IfdEntryResult { ifd: "ifd0", tag: Unrecognized(0x9290), value: "616" }
+IfdEntryResult { ifd: "ifd0", tag: FocalLength(0x920a), value: "8670/1000 (8.6700)" }
+IfdEntryResult { ifd: "ifd0", tag: Flash(0x9209), value: "16" }
+IfdEntryResult { ifd: "ifd0", tag: LightSource(0x9208), value: "21" }
+IfdEntryResult { ifd: "ifd0", tag: MeteringMode(0x9207), value: "1" }
+IfdEntryResult { ifd: "ifd0", tag: SceneCaptureType(0xa406), value: "0" }
+IfdEntryResult { ifd: "ifd0", tag: UserComment(0x9286), value: "filter: 0; fileterIntensity: 0.0; filterMask: 0; algolist: 0;\nmulti-frame: 1;\nbrp_mask:0;\nbrp_del_th:0.0000,0.0000;\nbrp_del_sen:0.0000,0.0000;\nmodule: photo; \nhw-remosaic: false; \ntouch: (-1.0, -1.0); \nsceneMode: 12582912; \ncct_value: 0; \nAI_Scene: (-1, -1); \naec_lux: 0.0; \naec_lux_index: 0; \nalbedo:  ; \nconfidence:  ; \nmotionLevel: -1; \nweatherinfo: null; \ntemperature: 30; \n" }
+IfdEntryResult { ifd: "ifd0", tag: Unrecognized(0xa005), value: "1168" }
+IfdEntryResult { ifd: "ifd0", tag: FocalLengthIn35mmFilm(0xa405), value: "23" }
+IfdEntryResult { ifd: "ifd0", tag: MaxApertureValue(0x9205), value: "161/100 (1.6100)" }
+IfdEntryResult { ifd: "ifd0", tag: CreateDate(0x9004), value: "2023-07-09T20:36:33+08:00" }
+IfdEntryResult { ifd: "ifd0", tag: ExposureBiasValue(0x9204), value: "0/1 (0.0000)" }
+IfdEntryResult { ifd: "ifd0", tag: DigitalZoomRatio(0xa404), value: "1/1 (1.0000)" }
+IfdEntryResult { ifd: "ifd0", tag: ExifImageHeight(0xa003), value: "4096" }
+IfdEntryResult { ifd: "ifd0", tag: WhiteBalanceMode(0xa403), value: "0" }
+IfdEntryResult { ifd: "ifd0", tag: DateTimeOriginal(0x9003), value: "2023-07-09T20:36:33+08:00" }
+IfdEntryResult { ifd: "ifd0", tag: BrightnessValue(0x9203), value: "70/100 (0.7000)" }
+IfdEntryResult { ifd: "ifd0", tag: ExifImageWidth(0xa002), value: "3072" }
+IfdEntryResult { ifd: "ifd0", tag: ExposureMode(0xa402), value: "0" }
+IfdEntryResult { ifd: "ifd0", tag: ApertureValue(0x9202), value: "161/100 (1.6100)" }
+IfdEntryResult { ifd: "ifd0", tag: Unrecognized(0x9101), value: "Undefined[0x01, 0x02, 0x03, 0x00]" }
+IfdEntryResult { ifd: "ifd0", tag: ColorSpace(0xa001), value: "1" }
+IfdEntryResult { ifd: "ifd0", tag: SceneType(0xa301), value: "Undefined[0x01]" }
+IfdEntryResult { ifd: "ifd0", tag: ShutterSpeedValue(0x9201), value: "6644/1000 (6.6440)" }
+IfdEntryResult { ifd: "ifd0", tag: ExifVersion(0x9000), value: "Undefined[0x30, 0x32, 0x32, 0x30]" }
+IfdEntryResult { ifd: "ifd0", tag: FlashPixVersion(0xa000), value: "Undefined[0x30, 0x31, 0x30, 0x30]" }
+IfdEntryResult { ifd: "ifd0", tag: ResolutionUnit(0x0128), value: "2" }
+IfdEntryResult { ifd: "ifd0", tag: GPSInfo(0x8825), value: "1198" }
+IfdEntryResult { ifd: "ifd0", tag: GPSLatitudeRef(0x0001), value: "N" }
+IfdEntryResult { ifd: "ifd0", tag: GPSLatitude(0x0002), value: "IRationalArray[22/1 (22.0000), 31/1 (31.0000), 5208/100 (52.0800)]" }
+IfdEntryResult { ifd: "ifd0", tag: GPSLongitudeRef(0x0003), value: "E" }
+IfdEntryResult { ifd: "ifd0", tag: GPSLongitude(0x0004), value: "IRationalArray[114/1 (114.0000), 1/1 (1.0000), 1733/100 (17.3300)]" }
+IfdEntryResult { ifd: "ifd0", tag: GPSAltitudeRef(0x0005), value: "0" }
+IfdEntryResult { ifd: "ifd0", tag: GPSAltitude(0x0006), value: "0/1 (0.0000)" }
+IfdEntryResult { ifd: "ifd0", tag: GPSTimeStamp(0x0007), value: "URationalArray[12/1 (12.0000), 36/1 (36.0000), 33/1 (33.0000)]" }
+IfdEntryResult { ifd: "ifd0", tag: GPSProcessingMethod(0x001b), value: "Undefined[0x43, 0x45, 0x4c, 0x4c, 0x49, 0x44]" }
+IfdEntryResult { ifd: "ifd0", tag: GPSDateStamp(0x001d), value: "2023:07:09" }
+IfdEntryResult { ifd: "ifd0", tag: XResolution(0x011a), value: "72/1 (72.0000)" }
+IfdEntryResult { ifd: "ifd0", tag: YResolution(0x011b), value: "72/1 (72.0000)" }
+IfdEntryResult { ifd: "ifd0", tag: Make(0x010f), value: "vivo" }
+IfdEntryResult { ifd: "ifd1", tag: Unrecognized(0x0201), value: "1527" }
+IfdEntryResult { ifd: "ifd1", tag: Unrecognized(0x0202), value: "16234" }
+IfdEntryResult { ifd: "ifd1", tag: Unrecognized(0x0103), value: "6" }
+IfdEntryResult { ifd: "ifd1", tag: ResolutionUnit(0x0128), value: "2" }
+IfdEntryResult { ifd: "ifd1", tag: XResolution(0x011a), value: "72/1 (72.0000)" }
+IfdEntryResult { ifd: "ifd1", tag: YResolution(0x011b), value: "72/1 (72.0000)" }
+IfdEntryResult { ifd: "ifd1", tag: ExifImageHeight(0xa003), value: "320" }
+IfdEntryResult { ifd: "ifd1", tag: ExifImageWidth(0xa002), value: "240" }

@@ -12,17 +12,27 @@ pub fn read_sample(path: &str) -> Result<Vec<u8>, std::io::Error> {
 
 pub fn open_sample(path: &str) -> Result<File, std::io::Error> {
     let p = Path::new(path);
-    if p.is_absolute() {
-        File::open(p)
+    let p = if p.is_absolute() {
+        p.to_path_buf()
     } else {
-        File::open(Path::new("./testdata").join(p))
-    }
+        Path::new("./testdata").join(p)
+    };
+    File::open(p)
+}
+
+pub fn open_sample_w(path: &str) -> Result<File, std::io::Error> {
+    let p = Path::new(path);
+    let p = if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        Path::new("./testdata").join(p)
+    };
+    File::create(p)
 }
 
 pub fn sorted_exif_entries(exif: &Exif) -> Vec<String> {
     let mut entries = exif
         .get_values(&[
-            Unknown,
             Make,
             Model,
             Orientation,

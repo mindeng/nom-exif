@@ -22,7 +22,7 @@ const QT_BRAND_NAMES: &[&str] = &["qt  ", "mqt "];
 
 #[allow(unused)]
 #[derive(Debug, PartialEq, Eq)]
-pub enum FileType {
+pub enum FileFormat {
     Jpeg,
     Heif,
 
@@ -38,26 +38,26 @@ pub enum FileType {
 }
 
 use nom::{bytes::complete, multi::many0};
-use FileType::*;
+use FileFormat::*;
 
-use crate::bbox::BoxHolder;
+use crate::{bbox::BoxHolder, jpeg::check_jpeg};
 
 // Parse the input buffer and detect its file type
-impl TryFrom<&[u8]> for FileType {
+impl TryFrom<&[u8]> for FileFormat {
     type Error = crate::Error;
 
     fn try_from(input: &[u8]) -> Result<Self, Self::Error> {
-        // check qt & mp4 first, because a embedded QT file may not have a ftyp
-        // box
-        if let Ok(ft) = check_qt_mp4(input) {
+        if check_jpeg(input).is_ok() {
+            Ok(Self::Jpeg)
+        } else if let Ok(ft) = check_heif(input) {
             Ok(ft)
         } else {
-            check_heif(input)
+            check_qt_mp4(input)
         }
     }
 }
 
-impl Display for FileType {
+impl Display for FileFormat {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Jpeg => "JPEG".fmt(f),
@@ -68,38 +68,38 @@ impl Display for FileType {
     }
 }
 
-pub fn check_heif(input: &[u8]) -> crate::Result<FileType> {
+pub fn check_heif(input: &[u8]) -> crate::Result<FileFormat> {
     let (ftyp, Some(major_brand)) = get_ftyp_and_major_brand(input)? else {
         return Err("invalid ISOBMFF file; ftyp not found".into());
     };
 
     if HEIF_FTYPS.contains(&major_brand) {
-        Ok(FileType::Heif)
+        Ok(FileFormat::Heif)
     } else {
         // Check compatible brands
         let compatible_brands = get_compatible_brands(ftyp.body_data())?;
         if HEIF_FTYPS.iter().any(|x| compatible_brands.contains(x)) {
-            Ok(FileType::Heif)
+            Ok(FileFormat::Heif)
         } else {
             Err(format!("unsupported HEIF/HEIC file; major brand: {major_brand:?}").into())
         }
     }
 }
 
-pub fn check_qt_mp4(input: &[u8]) -> crate::Result<FileType> {
+pub fn check_qt_mp4(input: &[u8]) -> crate::Result<FileFormat> {
     let (ftyp, Some(major_brand)) = get_ftyp_and_major_brand(input)? else {
         // ftyp is None, assume it's a MOV file extracted from HEIC
-        return Ok(FileType::QuickTime);
+        return Ok(FileFormat::QuickTime);
     };
 
     // Check if it is a QuickTime file
     if QT_BRAND_NAMES.iter().any(|v| v.as_bytes() == major_brand) {
-        return Ok(FileType::QuickTime);
+        return Ok(FileFormat::QuickTime);
     }
 
     // Check if it is a MP4 file
     if MP4_BRAND_NAMES.iter().any(|v| v.as_bytes() == major_brand) {
-        return Ok(FileType::MP4);
+        return Ok(FileFormat::MP4);
     }
 
     // Check compatible brands
@@ -109,14 +109,14 @@ pub fn check_qt_mp4(input: &[u8]) -> crate::Result<FileType> {
         .iter()
         .any(|v| compatible_brands.iter().any(|x| v.as_bytes() == *x))
     {
-        return Ok(FileType::QuickTime);
+        return Ok(FileFormat::QuickTime);
     }
 
     if MP4_BRAND_NAMES
         .iter()
         .any(|v| compatible_brands.iter().any(|x| v.as_bytes() == *x))
     {
-        return Ok(FileType::MP4);
+        return Ok(FileFormat::MP4);
     }
 
     Err(format!(
