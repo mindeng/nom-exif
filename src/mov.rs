@@ -206,7 +206,7 @@ fn extract_moov_body<R: Read + Seek>(
         }
     };
 
-    Ok((ft, Input::from_vec(buf, moov_body_range)))
+    Ok((ft, Input::from_vec_range(buf, moov_body_range)))
 }
 
 /// Due to the fact that metadata in MOV files is typically located at the end

@@ -1,14 +1,11 @@
-use crate::{input::Input, slice::SubsliceRange as _};
-use std::cmp;
 use std::io::{Read, Seek};
 
 use nom::combinator::fail;
-use nom::Needed;
 use nom::{number::complete::be_u32, IResult};
 
 use crate::bbox::find_box;
-use crate::exif::{parse_exif, Exif};
-use crate::file::check_heif;
+use crate::exif::{input_to_exif, read_exif, Exif};
+use crate::file::FileFormat;
 use crate::{
     bbox::{BoxHolder, MetaBox, ParseBox},
     exif::check_exif_header,
@@ -49,58 +46,14 @@ use crate::{
 ///     .collect::<Vec<_>>()
 /// );
 /// ```
-#[tracing::instrument(skip_all)]
-pub fn parse_heif_exif<R: Read + Seek>(mut reader: R) -> crate::Result<Option<Exif>> {
-    const INIT_BUF_SIZE: usize = 4096;
-    const GROW_BUF_SIZE: usize = 1024;
-
-    let mut buf = Vec::with_capacity(INIT_BUF_SIZE);
-    let mut to_read = INIT_BUF_SIZE;
-
-    let n = reader
-        .by_ref()
-        .take(to_read as u64)
-        .read_to_end(buf.as_mut())?;
-    if n == 0 {
-        Err("file is empty")?;
-    }
-
-    check_heif(&buf)?;
-
-    let (_, exif_data) = loop {
-        to_read = match extract_exif_data(&buf) {
-            Ok((remain, data)) => break (remain, data),
-            Err(nom::Err::Incomplete(needed)) => match needed {
-                Needed::Unknown => GROW_BUF_SIZE,
-                Needed::Size(need) => need.get(),
-            },
-            Err(e) => Err(e)?,
-        };
-
-        tracing::debug!(bytes = ?to_read, "to_read");
-        assert!(to_read > 0);
-
-        let to_read = cmp::max(GROW_BUF_SIZE, to_read);
-        buf.reserve(to_read);
-
-        let n = reader
-            .by_ref()
-            .take(to_read as u64)
-            .read_to_end(buf.as_mut())?;
-        if n == 0 {
-            Err("meta box not found")?;
-        }
-    };
-
-    exif_data
-        .and_then(|x| buf.subslice_range(x))
-        .map(|x| Input::from_vec(buf, x))
-        .map(parse_exif)
+pub fn parse_heif_exif<R: Read + Seek>(reader: R) -> crate::Result<Option<Exif>> {
+    read_exif(reader, Some(FileFormat::Heif))?
+        .map(input_to_exif)
         .transpose()
 }
 
 /// Extract Exif TIFF data from the bytes of a HEIF/HEIC file.
-fn extract_exif_data(input: &[u8]) -> IResult<&[u8], Option<&[u8]>> {
+pub(crate) fn extract_exif_data(input: &[u8]) -> IResult<&[u8], Option<&[u8]>> {
     let remain = input;
     let (remain, bbox) = BoxHolder::parse(remain)?;
     if bbox.box_type() != "ftyp" {
@@ -128,7 +81,10 @@ fn extract_exif_data(input: &[u8]) -> IResult<&[u8], Option<&[u8]>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{file::FileFormat, testkit::*};
+    use crate::{
+        file::{check_heif, FileFormat},
+        testkit::*,
+    };
     use test_case::test_case;
 
     #[test_case("exif.heic")]
@@ -161,8 +117,8 @@ mod tests {
 
         let buf = read_sample(path).unwrap();
         let got = check_heif(&buf);
-        if let Some(ft) = ft {
-            assert_eq!(ft, got.unwrap());
+        if ft.is_some() {
+            got.unwrap();
         } else {
             got.unwrap_err();
         }

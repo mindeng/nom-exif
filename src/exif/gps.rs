@@ -1,27 +1,35 @@
 use crate::values::{IRational, URational};
 
+/// Represents gps information stored in [`crate::ExifTag::GPSInfo`] subIFD.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct GPSInfo {
-    // N, S
+    /// N, S
     pub latitude_ref: char,
-    // degree, minute, second,
+    /// degree, minute, second,
     pub latitude: LatLng,
 
-    // E, W
+    /// E, W
     pub longitude_ref: char,
-    // degree, minute, second,
+    /// degree, minute, second,
     pub longitude: LatLng,
 
-    // 0 = Above Sea Level
-    // 1 = Below Sea Level
+    /// 0: Above Sea Level
+    /// 1: Below Sea Level
     pub altitude_ref: u8,
-    pub altitude: IRational,
+    /// meters
+    pub altitude: URational,
+
+    /// Speed unit
+    /// - K: kilometers per hour
+    /// - M: miles per hour
+    /// - N: knots
+    pub speed_ref: char,
+    pub speed: URational,
 }
 
-pub enum RationalOpt {}
-
+/// degree, minute, second,
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct LatLng(pub IRational, pub IRational, pub IRational);
+pub struct LatLng(pub URational, pub URational, pub URational);
 
 impl GPSInfo {
     /// Returns an ISO 6709 geographic point location string such as
@@ -74,7 +82,7 @@ impl From<[(u32, u32); 3]> for LatLng {
 
 impl From<[URational; 3]> for LatLng {
     fn from(value: [URational; 3]) -> Self {
-        Self(value[0].into(), value[1].into(), value[2].into())
+        Self(value[0], value[1], value[2])
     }
 }
 
@@ -93,7 +101,7 @@ impl TryFrom<Vec<URational>> for LatLng {
         if value.len() < 3 {
             Err("convert to LatLng failed; need at least 3 (u32, u32)".into())
         } else {
-            Ok(Self(value[0].into(), value[1].into(), value[2].into()))
+            Ok(Self(value[0], value[1], value[2]))
         }
     }
 }
@@ -102,9 +110,9 @@ impl FromIterator<URational> for LatLng {
     fn from_iter<T: IntoIterator<Item = URational>>(iter: T) -> Self {
         let mut values = iter.into_iter();
         Self(
-            values.next().unwrap().into(),
-            values.next().unwrap().into(),
-            values.next().unwrap().into(),
+            values.next().unwrap(),
+            values.next().unwrap(),
+            values.next().unwrap(),
         )
     }
 }
@@ -113,9 +121,9 @@ impl<'a> FromIterator<&'a URational> for LatLng {
     fn from_iter<T: IntoIterator<Item = &'a URational>>(iter: T) -> Self {
         let mut values = iter.into_iter();
         Self(
-            (*values.next().unwrap()).into(),
-            (*values.next().unwrap()).into(),
-            (*values.next().unwrap()).into(),
+            *values.next().unwrap(),
+            *values.next().unwrap(),
+            *values.next().unwrap(),
         )
     }
 }
@@ -124,9 +132,9 @@ impl<'a> FromIterator<&'a IRational> for LatLng {
     fn from_iter<T: IntoIterator<Item = &'a IRational>>(iter: T) -> Self {
         let mut values = iter.into_iter();
         Self(
-            *values.next().unwrap(),
-            *values.next().unwrap(),
-            *values.next().unwrap(),
+            (*values.next().unwrap()).into(),
+            (*values.next().unwrap()).into(),
+            (*values.next().unwrap()).into(),
         )
     }
 }
@@ -159,72 +167,76 @@ mod tests {
         let palace = GPSInfo {
             latitude_ref: 'N',
             latitude: LatLng(
-                Rational::<i32>(39, 1),
-                Rational::<i32>(55, 1),
-                Rational::<i32>(0, 1),
+                Rational::<u32>(39, 1),
+                Rational::<u32>(55, 1),
+                Rational::<u32>(0, 1),
             ),
             longitude_ref: 'E',
             longitude: LatLng(
-                Rational::<i32>(116, 1),
-                Rational::<i32>(23, 1),
-                Rational::<i32>(27, 1),
+                Rational::<u32>(116, 1),
+                Rational::<u32>(23, 1),
+                Rational::<u32>(27, 1),
             ),
             altitude_ref: 0,
-            altitude: Rational::<i32>(0, 1),
+            altitude: Rational::<u32>(0, 1),
+            ..Default::default()
         };
         assert_eq!(palace.format_iso6709(), "+39.91667+116.39083/");
 
         let liberty = GPSInfo {
             latitude_ref: 'N',
             latitude: LatLng(
-                Rational::<i32>(40, 1),
-                Rational::<i32>(41, 1),
-                Rational::<i32>(21, 1),
+                Rational::<u32>(40, 1),
+                Rational::<u32>(41, 1),
+                Rational::<u32>(21, 1),
             ),
             longitude_ref: 'W',
             longitude: LatLng(
-                Rational::<i32>(74, 1),
-                Rational::<i32>(2, 1),
-                Rational::<i32>(40, 1),
+                Rational::<u32>(74, 1),
+                Rational::<u32>(2, 1),
+                Rational::<u32>(40, 1),
             ),
             altitude_ref: 0,
-            altitude: Rational::<i32>(0, 1),
+            altitude: Rational::<u32>(0, 1),
+            ..Default::default()
         };
         assert_eq!(liberty.format_iso6709(), "+40.68917-074.04444/");
 
         let above = GPSInfo {
             latitude_ref: 'N',
             latitude: LatLng(
-                Rational::<i32>(40, 1),
-                Rational::<i32>(41, 1),
-                Rational::<i32>(21, 1),
+                Rational::<u32>(40, 1),
+                Rational::<u32>(41, 1),
+                Rational::<u32>(21, 1),
             ),
             longitude_ref: 'W',
             longitude: LatLng(
-                Rational::<i32>(74, 1),
-                Rational::<i32>(2, 1),
-                Rational::<i32>(40, 1),
+                Rational::<u32>(74, 1),
+                Rational::<u32>(2, 1),
+                Rational::<u32>(40, 1),
             ),
             altitude_ref: 0,
-            altitude: Rational::<i32>(123, 1),
+            altitude: Rational::<u32>(123, 1),
+            ..Default::default()
         };
         assert_eq!(above.format_iso6709(), "+40.68917-074.04444+123.000/");
 
         let below = GPSInfo {
             latitude_ref: 'N',
             latitude: LatLng(
-                Rational::<i32>(40, 1),
-                Rational::<i32>(41, 1),
-                Rational::<i32>(21, 1),
+                Rational::<u32>(40, 1),
+                Rational::<u32>(41, 1),
+                Rational::<u32>(21, 1),
             ),
             longitude_ref: 'W',
             longitude: LatLng(
-                Rational::<i32>(74, 1),
-                Rational::<i32>(2, 1),
-                Rational::<i32>(40, 1),
+                Rational::<u32>(74, 1),
+                Rational::<u32>(2, 1),
+                Rational::<u32>(40, 1),
             ),
             altitude_ref: 1,
-            altitude: Rational::<i32>(123, 1),
+            altitude: Rational::<u32>(123, 1),
+            ..Default::default()
         };
         assert_eq!(below.format_iso6709(), "+40.68917-074.04444-123.000/");
     }

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 #[allow(unused)]
 #[cfg_attr(feature = "json_dump", derive(Serialize, Deserialize))]
 #[derive(Eq, PartialEq, Hash, Clone, Copy)]
-pub enum ExifTagCode {
+pub(crate) enum ExifTagCode {
     /// Recognized Exif tag
     Tag(ExifTag),
 
@@ -21,7 +21,7 @@ impl ExifTagCode {
     /// Get recognized Exif tag, maybe return [`ExifTag::Unknown`] if it's
     /// unrecognized (you can get raw tag code via [`Self::code`] in this
     /// case).
-    pub fn tag(&self) -> ExifTag {
+    pub(crate) fn tag(&self) -> ExifTag {
         match self {
             ExifTagCode::Tag(t) => t.to_owned(),
             ExifTagCode::Code(_) => ExifTag::Unknown,
@@ -29,7 +29,7 @@ impl ExifTagCode {
     }
 
     /// Get the raw tag code value.
-    pub fn code(&self) -> u16 {
+    pub(crate) fn code(&self) -> u16 {
         match self {
             ExifTagCode::Tag(t) => t.code(),
             ExifTagCode::Code(c) => *c,

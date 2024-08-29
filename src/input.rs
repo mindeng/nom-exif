@@ -7,13 +7,18 @@ use std::ops::Range;
 use std::slice;
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
-pub struct Input<'a> {
+pub(crate) struct Input<'a> {
     pub(crate) data: Cow<'a, [u8]>,
     pub(crate) range: Range<usize>,
 }
 
 impl Input<'_> {
-    pub fn from_vec(data: Vec<u8>, range: Range<usize>) -> Input<'static> {
+    pub(crate) fn from_vec(data: Vec<u8>) -> Input<'static> {
+        let range = 0..data.len();
+        Self::from_vec_range(data, range)
+    }
+
+    pub(crate) fn from_vec_range(data: Vec<u8>, range: Range<usize>) -> Input<'static> {
         assert!(range.end <= data.len());
         Input {
             data: Cow::Owned(data),
@@ -21,7 +26,7 @@ impl Input<'_> {
         }
     }
 
-    pub fn make_associated(&self, subslice: &[u8]) -> AssociatedInput {
+    pub(crate) fn make_associated(&self, subslice: &[u8]) -> AssociatedInput {
         let _ = self
             .subslice_range(subslice)
             .expect("subslice should be a sub slice of self");
@@ -42,10 +47,16 @@ impl<'a> From<&'a [u8]> for Input<'a> {
     }
 }
 
+impl From<Vec<u8>> for Input<'static> {
+    fn from(value: Vec<u8>) -> Self {
+        Input::from_vec(value)
+    }
+}
+
 impl From<(Vec<u8>, Range<usize>)> for Input<'static> {
     fn from(value: (Vec<u8>, Range<usize>)) -> Self {
         let (data, range) = value;
-        Input::from_vec(data, range)
+        Input::from_vec_range(data, range)
     }
 }
 

@@ -15,7 +15,7 @@ pub enum Error {
     InvalidEntry(FallbackError),
 }
 
-pub use Error::*;
+use Error::*;
 
 impl From<io::Error> for Error {
     fn from(value: io::Error) -> Self {
@@ -47,7 +47,7 @@ impl From<nom::Err<nom::error::Error<&[u8]>>> for crate::Error {
     }
 }
 
-pub fn convert_parse_error(e: nom::Err<nom::error::Error<&[u8]>>, message: &str) -> Error {
+pub(crate) fn convert_parse_error(e: nom::Err<nom::error::Error<&[u8]>>, message: &str) -> Error {
     let s = match e {
         nom::Err::Incomplete(_) => format!("{e}; {message}"),
         nom::Err::Error(e) => format!("{}; {message}", e.code.description()),

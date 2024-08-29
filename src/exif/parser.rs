@@ -1,61 +1,40 @@
-use std::{
-    borrow::{Borrow, BorrowMut},
-    cell::RefCell,
-    collections::HashMap,
-    fmt::Debug,
-    sync::{Arc, Mutex, RwLock},
-};
-
 use nom::{
     branch::alt,
     bytes::complete::{tag, take},
-    combinator::{map, map_res, verify},
-    multi::many_m_n,
+    combinator::{map, verify},
     number::{
         complete::{u16, u32},
         Endianness,
     },
     sequence::tuple,
-    IResult, Needed,
+    IResult,
 };
 
 use crate::{
     exif::{ExifTag, GPSInfo},
     input::{self, Input},
-    values::DataFormat,
-    EntryValue, Error,
+    EntryValue,
 };
 
 use super::{
-    ifd::{self, ImageFileDirectoryIter, ParsedIdfEntry, ParsedImageFileDirectory},
-    tags::ExifTagCode,
+    exif_iter::{ExifIter, ImageFileDirectoryIter, ParsedEntry},
+    ifd::ParsedImageFileDirectory,
 };
 
 /// Parses Exif information from the `input` TIFF data.
-///
-/// Please note that Exif values are lazy-parsed, meaning that they are only
-/// truly parsed when the `Exif::get_value` and `Exif::get_values` methods are
-/// called.
-///
-/// This allows you to parse Exif values on-demand, reducing the parsing
-/// overhead.
-pub fn parse_exif<'a>(input: impl Into<input::Input<'a>>) -> crate::Result<Exif> {
+pub(crate) fn input_to_iter<'a>(input: impl Into<input::Input<'a>>) -> crate::Result<ExifIter<'a>> {
     let input = input.into();
-    let (_, header) = Header::parse(&input)?;
-
     let parser = ExifParser::new(input);
     let iter: ExifIter<'a> = parser.parse_iter()?;
-    let gps_info = iter.parse_gps_info().ok().flatten();
-    let mut exif = Exif::new(header, gps_info);
-
-    for it in iter {
-        exif.put(it);
-    }
-
-    Ok(exif)
+    Ok(iter)
 }
 
-pub struct ExifParser<'a> {
+/// Parses Exif information from the `input` TIFF data.
+pub(crate) fn input_to_exif<'a>(input: impl Into<input::Input<'a>>) -> crate::Result<Exif> {
+    Ok(input_to_iter(input)?.into())
+}
+
+pub(crate) struct ExifParser<'a> {
     inner: Inner<'a>,
 }
 
@@ -130,257 +109,28 @@ impl<'a> Inner<'a> {
     }
 }
 
-// /// Parses Exif information from the `input` TIFF data.
-// ///
-// /// All entries are lazy-parsed. That is, only when you iterate over
-// /// [`ExifIter`] will the IFD entries be parsed one by one.
-// pub fn parse_exif_iter<'a>(input: impl Into<input::Input<'a>>) -> crate::Result<ExifIter<'a>> {
-//     let input: Input<'a> = input.into();
-//     let (_, header) = Header::parse(&input)?;
-
-//     // jump to ifd0
-
-//     let (remain, _) =
-//         take::<_, _, nom::error::Error<_>>((header.ifd0_offset) as usize)(input.as_ref())
-//             .map_err(|_| "not enough bytes")?;
-//     if remain.is_empty() {
-//         return Ok(ExifIter::default());
-//     }
-
-//     let pos = input.len() - remain.len();
-//     let mut ifd0 = match ImageFileDirectoryIter::try_new(
-//         0,
-//         input.make_associated(&input[..]),
-//         pos,
-//         header.endian,
-//         None,
-//     ) {
-//         Ok(ifd0) => ifd0,
-//         Err(e) => return Err(e),
-//     };
-
-//     let tz = ifd0.find_tz_offset();
-//     ifd0.tz = tz.clone();
-
-//     let iter = ExifIter::new(input, header.endian, tz, vec![ifd0]);
-
-//     Ok(iter)
-// }
-
-/// Represents Exif information in a JPEG/HEIF file.
-///
-/// Please note that Exif values are lazy-parsed, meaning that they are only
-/// truly parsed when the `Exif::get_value` and `Exif::get_values` methods are
-/// called.
-
-/// This allows you to parse Exif values on-demand, reducing the parsing
-/// overhead.
+/// Represents a parsed Exif information.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Exif {
-    header: Header,
     ifds: Vec<ParsedImageFileDirectory>,
     gps_info: Option<GPSInfo>,
 }
 
 impl Exif {
-    pub fn new(header: Header, gps_info: Option<GPSInfo>) -> Exif {
+    fn new(gps_info: Option<GPSInfo>) -> Exif {
         Exif {
-            header,
             ifds: Vec::new(),
             gps_info,
         }
     }
-}
 
-/// An iterator version of [`Exif`].
-#[derive(Debug, Clone)]
-pub struct ExifIter<'a> {
-    input: Input<'a>,
-    endian: Endianness,
-    tz: Option<String>,
-    ifd0: Option<ImageFileDirectoryIter>,
-
-    // Iterating status
-    ifds: Vec<ImageFileDirectoryIter>,
-}
-
-impl<'a> ExifIter<'a> {
-    fn new(
-        input: impl Into<Input<'a>>,
-        endian: Endianness,
-        tz: Option<String>,
-        ifd0: Option<ImageFileDirectoryIter>,
-    ) -> ExifIter<'a> {
-        let mut ifds = Vec::new();
-        if let Some(ref ifd0) = ifd0 {
-            ifds.push(ifd0.clone());
-        }
-        ExifIter {
-            input: input.into(),
-            endian,
-            tz,
-            ifd0,
-            ifds,
-        }
-    }
-
-    /// Try to find and parse gps information.
-    ///
-    /// Returns:
-    ///
-    /// - An `Ok<Some<GPSInfo>>` if gps info is found and parsed successfully.
-    /// - An `Ok<None>` if gps info is not found.
-    /// - An `Err` if gps info is found but parsing failed.
-    pub fn parse_gps_info(&self) -> crate::Result<Option<GPSInfo>> {
-        let mut iter = self.shallow_clone();
-        let Some(gps) = iter.find(|x| x.tag.tag() == ExifTag::GPSInfo) else {
-            return Ok(None);
-        };
-
-        let offset = match gps.res {
-            Ok(v) => v.as_u32().unwrap() as usize,
-            Err(e) => return Err(e),
-        };
-
-        let data = &iter.input[..];
-        let mut gps_subifd = match ImageFileDirectoryIter::try_new(
-            gps.ifd,
-            iter.input.make_associated(data),
-            offset,
-            iter.endian,
-            iter.tz.clone(),
-        ) {
-            Ok(ifd0) => ifd0,
-            Err(e) => return Err(e),
-        };
-        Ok(gps_subifd.parse_gps_info())
-    }
-
-    // Make sure we won't clone the owned data.
-    fn shallow_clone(&'a self) -> Self {
-        ExifIter::new(
-            &self.input[..],
-            self.endian,
-            self.tz.clone(),
-            self.ifd0.clone(),
-        )
-    }
-}
-
-impl Default for ExifIter<'static> {
-    fn default() -> Self {
-        Self::new(Input::default(), Endianness::Big, None, None)
-    }
-}
-
-pub struct IfdEntryResult {
-    /// 0: ifd0, 1: ifd1
-    pub ifd: usize,
-    pub tag: ExifTagCode,
-    pub res: crate::Result<EntryValue>,
-}
-
-impl Debug for IfdEntryResult {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let value = match &self.res {
-            Ok(v) => format!("{v}"),
-            Err(e) => format!("{e:?}"),
-        };
-        f.debug_struct("IfdEntryResult")
-            .field("ifd", &format!("ifd{}", self.ifd))
-            .field("tag", &self.tag)
-            .field("value", &value)
-            .finish()
-    }
-}
-
-impl IfdEntryResult {
-    fn ok(ifd: usize, tag: ExifTagCode, v: EntryValue) -> Self {
-        Self {
-            ifd,
-            tag,
-            res: Ok(v),
-        }
-    }
-
-    fn err(ifd: usize, tag: ExifTagCode, e: ifd::Error) -> Self {
-        Self {
-            ifd,
-            tag,
-            res: Err(crate::Error::InvalidEntry(e.into())),
-        }
-    }
-}
-
-impl<'a> Iterator for ExifIter<'a> {
-    type Item = IfdEntryResult;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let endian = self.endian;
-        loop {
-            if self.ifds.len() > MAX_IFD_DEPTH {
-                self.ifds.pop();
-            }
-
-            let mut ifd = self.ifds.pop()?;
-            match ifd.next() {
-                Some((tag_code, entry)) => match entry {
-                    super::ifd::IfdEntry::Ifd { idx, offset } => {
-                        let is_subifd = if idx == ifd.ifd_idx {
-                            // Push the current ifd before enter sub-ifd.
-                            self.ifds.push(ifd);
-                            true
-                        } else {
-                            // Otherwise this is a next ifd. It means that the
-                            // current ifd has been parsed, so we don't need to
-                            // push it.
-                            false
-                        };
-
-                        if let Ok(ifd) = ImageFileDirectoryIter::try_new(
-                            idx,
-                            self.input.make_associated(&self.input[..]),
-                            offset,
-                            endian,
-                            self.tz.clone(),
-                        ) {
-                            self.ifds.push(ifd);
-                        }
-
-                        if is_subifd {
-                            // Return sub-ifd as an entry
-                            return Some(IfdEntryResult::ok(
-                                idx,
-                                tag_code,
-                                EntryValue::U32(offset as u32),
-                            ));
-                        }
-                    }
-                    super::ifd::IfdEntry::Entry(v) => {
-                        let res = Some(IfdEntryResult::ok(ifd.ifd_idx, tag_code, v));
-                        self.ifds.push(ifd);
-                        return res;
-                    }
-                    super::ifd::IfdEntry::Err(e) => {
-                        let res = Some(IfdEntryResult::err(ifd.ifd_idx, tag_code, e));
-                        self.ifds.push(ifd);
-                        return res;
-                    }
-                },
-                None => continue,
-            }
-        }
-    }
-}
-
-impl Exif {
     /// Get entry value for the specified `tag` in ifd0 (the main image).
     ///
     /// *Note*:
     ///
     /// - The parsing error related to this tag won't be reported by this
-    ///   method. If this entry is not parsed successfully, this method will
-    ///   return None.
+    ///   method. Either this entry is not parsed successfully, or the tag does
+    ///   not exist in the input data, this method will return None.
     ///
     /// - If you want to handle parsing error, please consider to use
     ///   [`ExifIter`].
@@ -393,8 +143,8 @@ impl Exif {
     /// *Note*:
     ///
     /// - The parsing error related to this tag won't be reported by this
-    ///   method. If this entry is not parsed successfully, this method will
-    ///   return None.
+    ///   method. Either this entry is not parsed successfully, or the tag does
+    ///   not exist in the input data, this method will return None.
     ///
     /// - If you want to handle parsing error, please consider to use
     ///   [`ExifIter`].
@@ -407,7 +157,10 @@ impl Exif {
     /// Please note that this method will ignore errors encountered during the
     /// search and parsing process, such as missing tags or errors in parsing
     /// values, and handle them silently.
-    #[deprecated(since = "1.4.2", note = "please use [`get`] or [`ExifIter`] instead")]
+    #[deprecated(
+        since = "1.5.0",
+        note = "please use [`Self::get`] or [`ExifIter`] instead"
+    )]
     pub fn get_values<'b>(&self, tags: &'b [ExifTag]) -> Vec<(&'b ExifTag, EntryValue)> {
         tags.iter()
             .zip(tags.iter())
@@ -421,14 +174,14 @@ impl Exif {
     }
 
     /// Get entry value for the specified `tag` in ifd0 (the main image).
-    #[deprecated(since = "1.4.2", note = "please use [`get`] instead")]
+    #[deprecated(since = "1.5.0", note = "please use [`Self::get`] instead")]
     pub fn get_value(&self, tag: &ExifTag) -> crate::Result<Option<EntryValue>> {
         #[allow(deprecated)]
         self.get_value_by_tag_code(tag.code())
     }
 
     /// Get entry value for the specified `tag` in ifd0 (the main image).
-    #[deprecated(since = "1.4.2", note = "please use [`get_by_tag_code`] instead")]
+    #[deprecated(since = "1.5.0", note = "please use [`Self::get_by_tag_code`] instead")]
     pub fn get_value_by_tag_code(&self, tag: u16) -> crate::Result<Option<EntryValue>> {
         Ok(self.get_by_tag_code(tag).map(|x| x.to_owned()))
     }
@@ -438,12 +191,12 @@ impl Exif {
         Ok(self.gps_info.clone())
     }
 
-    fn put(&mut self, res: IfdEntryResult) {
-        while self.ifds.len() < res.ifd + 1 {
+    fn put(&mut self, res: ParsedEntry) {
+        while self.ifds.len() < res.ifd_index() + 1 {
             self.ifds.push(ParsedImageFileDirectory::new());
         }
-        if let Ok(v) = res.res {
-            self.ifds[res.ifd].put(res.tag.code(), v);
+        if let Ok(v) = res.take_value() {
+            self.ifds[res.ifd_index()].put(res.tag_code(), v);
         }
     }
 
@@ -452,13 +205,21 @@ impl Exif {
     }
 }
 
-const ENTRY_SIZE: usize = 12;
-const MAX_IFD_DEPTH: usize = 8;
+impl From<ExifIter<'_>> for Exif {
+    fn from(iter: ExifIter<'_>) -> Self {
+        let gps_info = iter.parse_gps_info().ok().flatten();
+        let mut exif = Exif::new(gps_info);
 
-type IfdResult = Result<Option<ParsedImageFileDirectory>, Error>;
+        for it in iter {
+            exif.put(it);
+        }
+
+        exif
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Header {
+struct Header {
     pub endian: Endianness,
     pub ifd0_offset: u32,
 }
@@ -497,18 +258,26 @@ impl Header {
     }
 }
 
+pub(crate) fn check_exif_header(data: &[u8]) -> bool {
+    use nom::bytes::complete;
+    assert!(data.len() >= 6);
+
+    const EXIF_IDENT: &str = "Exif\0\0";
+    complete::tag::<_, _, nom::error::Error<_>>(EXIF_IDENT)(data).is_ok()
+}
+
 #[cfg(test)]
 mod tests {
-    use std::io::{Read, Write};
+    use std::io::Read;
+    use std::thread;
 
     use test_case::test_case;
 
-    use crate::exif::ExifTag::*;
     use crate::exif::{GPSInfo, LatLng};
     use crate::jpeg::extract_exif_data;
     use crate::slice::SubsliceRange;
-    use crate::testkit::{open_sample, open_sample_w, read_sample};
-    use crate::values::{IRational, URational};
+    use crate::testkit::{open_sample, read_sample};
+    use crate::values::URational;
 
     use super::*;
 
@@ -528,18 +297,6 @@ mod tests {
         );
     }
 
-    #[test_case("exif.jpg")]
-    fn test_parse_exif(path: &str) {
-        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
-
-        let buf = read_sample(path).unwrap();
-        tracing::info!(bytes = buf.len(), "File size");
-
-        // skip first 12 bytes
-        let exif = parse_exif(&buf[12..]).unwrap(); // Safe-slice in test_case
-                                                    // TODO:
-    }
-
     #[test_case(
         "exif.jpg",
         'N',
@@ -547,8 +304,11 @@ mod tests {
         'E',
         [(114, 1), (1, 1), (1733, 100)].into(),
         0u8,
-        (0, 1).into()
+        (0, 1).into(),
+        '\x00',
+        URational::default()
     )]
+    #[allow(clippy::too_many_arguments)]
     fn gps_info(
         path: &str,
         latitude_ref: char,
@@ -556,14 +316,16 @@ mod tests {
         longitude_ref: char,
         longitude: LatLng,
         altitude_ref: u8,
-        altitude: IRational,
+        altitude: URational,
+        speed_ref: char,
+        speed: URational,
     ) {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 
         let buf = read_sample(path).unwrap();
 
         // skip first 12 bytes
-        let exif = parse_exif(&buf[12..]).unwrap(); // Safe-slice in test_case
+        let exif = input_to_exif(&buf[12..]).unwrap(); // Safe-slice in test_case
 
         let gps = exif.get_gps_info().unwrap().unwrap();
         assert_eq!(
@@ -575,6 +337,8 @@ mod tests {
                 longitude,
                 altitude_ref,
                 altitude,
+                speed_ref,
+                speed,
             }
         )
     }
@@ -586,10 +350,10 @@ mod tests {
         let (_, data) = extract_exif_data(&buf).unwrap();
         let data = data
             .and_then(|x| buf.subslice_range(x))
-            .map(|x| Input::from_vec(buf, x))
+            .map(|x| Input::from_vec_range(buf, x))
             .unwrap();
-        let mut parser = ExifParser::new(data);
-        let mut iter = parser.parse_iter().unwrap();
+        let parser = ExifParser::new(data);
+        let iter = parser.parse_iter().unwrap();
 
         let mut expect = String::new();
         open_sample(&format!("{path}.txt"))
@@ -599,7 +363,7 @@ mod tests {
 
         let mut result = String::new();
         for res in iter {
-            writeln!(&mut result, "{res:?}");
+            writeln!(&mut result, "{res:?}").unwrap();
         }
 
         // open_sample_w(&format!("{path}.txt"))
@@ -611,16 +375,52 @@ mod tests {
     }
 
     #[test_case("exif.jpg")]
-    fn exif_gps(path: &str) {
+    fn exif_iter_gps(path: &str) {
         let buf = read_sample(path).unwrap();
         let (_, data) = extract_exif_data(&buf).unwrap();
         let data = data
             .and_then(|x| buf.subslice_range(x))
-            .map(|x| Input::from_vec(buf, x))
+            .map(|x| Input::from_vec_range(buf, x))
             .unwrap();
-        let mut parser = ExifParser::new(data);
+        let parser = ExifParser::new(data);
         let iter = parser.parse_iter().unwrap();
         let gps = iter.parse_gps_info().unwrap().unwrap();
         assert_eq!(gps.format_iso6709(), "+22.53113+114.02148/");
+    }
+
+    #[test_case("exif.jpg")]
+    fn clone_exif_iter_to_thread(path: &str) {
+        use std::fmt::Write;
+        let buf = read_sample(path).unwrap();
+        let (_, data) = extract_exif_data(&buf).unwrap();
+        let data = data
+            .and_then(|x| buf.subslice_range(x))
+            .map(|x| Input::from_vec_range(buf, x))
+            .unwrap();
+        let parser = ExifParser::new(data);
+        let iter = parser.parse_iter().unwrap();
+        let iter2 = iter.clone();
+
+        let mut expect = String::new();
+        open_sample(&format!("{path}.txt"))
+            .unwrap()
+            .read_to_string(&mut expect)
+            .unwrap();
+
+        let jh = thread::spawn(move || {
+            let mut result = String::new();
+            for res in iter2 {
+                writeln!(&mut result, "{res:?}").unwrap();
+            }
+            result
+        });
+
+        let mut result = String::new();
+        for res in iter {
+            writeln!(&mut result, "{res:?}").unwrap();
+        }
+
+        assert_eq!(result.trim(), expect.trim());
+        assert_eq!(jh.join().unwrap().trim(), expect.trim());
     }
 }

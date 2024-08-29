@@ -20,6 +20,7 @@ pub fn open_sample(path: &str) -> Result<File, std::io::Error> {
     File::open(p)
 }
 
+#[allow(unused)]
 pub fn open_sample_w(path: &str) -> Result<File, std::io::Error> {
     let p = Path::new(path);
     let p = if p.is_absolute() {
@@ -30,6 +31,7 @@ pub fn open_sample_w(path: &str) -> Result<File, std::io::Error> {
     File::create(p)
 }
 
+#[allow(deprecated)]
 pub fn sorted_exif_entries(exif: &Exif) -> Vec<String> {
     let mut entries = exif
         .get_values(&[

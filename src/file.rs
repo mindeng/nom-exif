@@ -1,4 +1,12 @@
+use nom::{bytes::complete, multi::many0, IResult};
 use std::fmt::Display;
+use FileFormat::*;
+
+use crate::{
+    bbox::BoxHolder,
+    heif,
+    jpeg::{self, check_jpeg},
+};
 
 const HEIF_FTYPS: &[&[u8]] = &[
     b"heic", // the usual HEIF images
@@ -21,7 +29,7 @@ const MP4_BRAND_NAMES: &[&str] = &[
 const QT_BRAND_NAMES: &[&str] = &["qt  ", "mqt "];
 
 #[allow(unused)]
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileFormat {
     Jpeg,
     Heif,
@@ -37,10 +45,44 @@ pub enum FileFormat {
     MP4,
 }
 
-use nom::{bytes::complete, multi::many0};
-use FileFormat::*;
+impl FileFormat {
+    pub(crate) fn extract_exif_data<'a>(
+        &self,
+        input: &'a [u8],
+    ) -> IResult<&'a [u8], Option<&'a [u8]>> {
+        match self {
+            Jpeg => jpeg::extract_exif_data(input),
+            Heif => heif::extract_exif_data(input),
+            QuickTime => {
+                nom::error::context("no exif data in QuickTime file", nom::combinator::fail)(input)
+            }
+            MP4 => nom::error::context("no exif data in MP4 file", nom::combinator::fail)(input),
+        }
+    }
 
-use crate::{bbox::BoxHolder, jpeg::check_jpeg};
+    pub(crate) fn check(&self, input: &[u8]) -> crate::Result<()> {
+        match self {
+            Jpeg => check_jpeg(input),
+            Heif => check_heif(input),
+            QuickTime => {
+                let ff = check_qt_mp4(input)?;
+                if ff == *self {
+                    Ok(())
+                } else {
+                    Err("not a QuickTime file".into())
+                }
+            }
+            MP4 => {
+                let ff = check_qt_mp4(input)?;
+                if ff == *self {
+                    Ok(())
+                } else {
+                    Err("not a MP4 file".into())
+                }
+            }
+        }
+    }
+}
 
 // Parse the input buffer and detect its file type
 impl TryFrom<&[u8]> for FileFormat {
@@ -49,8 +91,8 @@ impl TryFrom<&[u8]> for FileFormat {
     fn try_from(input: &[u8]) -> Result<Self, Self::Error> {
         if check_jpeg(input).is_ok() {
             Ok(Self::Jpeg)
-        } else if let Ok(ft) = check_heif(input) {
-            Ok(ft)
+        } else if check_heif(input).is_ok() {
+            Ok(Self::Heif)
         } else {
             check_qt_mp4(input)
         }
@@ -68,25 +110,25 @@ impl Display for FileFormat {
     }
 }
 
-pub fn check_heif(input: &[u8]) -> crate::Result<FileFormat> {
+pub(crate) fn check_heif(input: &[u8]) -> crate::Result<()> {
     let (ftyp, Some(major_brand)) = get_ftyp_and_major_brand(input)? else {
         return Err("invalid ISOBMFF file; ftyp not found".into());
     };
 
     if HEIF_FTYPS.contains(&major_brand) {
-        Ok(FileFormat::Heif)
+        Ok(())
     } else {
         // Check compatible brands
         let compatible_brands = get_compatible_brands(ftyp.body_data())?;
         if HEIF_FTYPS.iter().any(|x| compatible_brands.contains(x)) {
-            Ok(FileFormat::Heif)
+            Ok(())
         } else {
             Err(format!("unsupported HEIF/HEIC file; major brand: {major_brand:?}").into())
         }
     }
 }
 
-pub fn check_qt_mp4(input: &[u8]) -> crate::Result<FileFormat> {
+pub(crate) fn check_qt_mp4(input: &[u8]) -> crate::Result<FileFormat> {
     let (ftyp, Some(major_brand)) = get_ftyp_and_major_brand(input)? else {
         // ftyp is None, assume it's a MOV file extracted from HEIC
         return Ok(FileFormat::QuickTime);
@@ -126,7 +168,7 @@ pub fn check_qt_mp4(input: &[u8]) -> crate::Result<FileFormat> {
     .into())
 }
 
-pub fn get_ftyp_and_major_brand(input: &[u8]) -> crate::Result<(BoxHolder, Option<&[u8]>)> {
+fn get_ftyp_and_major_brand(input: &[u8]) -> crate::Result<(BoxHolder, Option<&[u8]>)> {
     let (_, bbox) = BoxHolder::parse(input).map_err(|_| "parse ftyp failed")?;
 
     if bbox.box_type() == "ftyp" {
@@ -147,7 +189,7 @@ pub fn get_ftyp_and_major_brand(input: &[u8]) -> crate::Result<(BoxHolder, Optio
     }
 }
 
-pub fn get_compatible_brands(body: &[u8]) -> crate::Result<Vec<&[u8]>> {
+fn get_compatible_brands(body: &[u8]) -> crate::Result<Vec<&[u8]>> {
     let Ok((_, brands)) = many0(complete::take::<usize, &[u8], nom::error::Error<&[u8]>>(
         4_usize,
     ))(body) else {

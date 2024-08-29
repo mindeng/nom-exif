@@ -1,15 +1,9 @@
-use crate::{input::Input, slice::SubsliceRange as _};
-use std::{
-    cmp,
-    io::{Read, Seek},
-};
+use crate::{exif::read_exif, file::FileFormat};
+use std::io::{Read, Seek};
 
-use nom::{bytes::streaming, combinator::fail, number, sequence::tuple, IResult, Needed};
+use nom::{bytes::streaming, combinator::fail, number, sequence::tuple, IResult};
 
-use crate::{
-    error::convert_parse_error,
-    exif::{check_exif_header, parse_exif, Exif},
-};
+use crate::exif::{check_exif_header, input_to_exif, Exif};
 
 /// Analyze the byte stream in the `reader` as a JPEG file, attempting to
 /// extract Exif data it may contain.
@@ -46,45 +40,9 @@ use crate::{
 ///     .collect::<Vec<_>>()
 /// );
 /// ```
-pub fn parse_jpeg_exif<R: Read>(mut reader: R) -> crate::Result<Option<Exif>> {
-    const INIT_BUF_SIZE: usize = 4096;
-    const GROW_BUF_SIZE: usize = 4096;
-
-    let mut buf = Vec::with_capacity(INIT_BUF_SIZE);
-
-    let n = reader
-        .by_ref()
-        .take(INIT_BUF_SIZE as u64)
-        .read_to_end(buf.as_mut())?;
-    if n == 0 {
-        Err("invalid JPEG file; file is empty")?;
-    }
-
-    check_jpeg(&buf)?;
-
-    let exif_data = loop {
-        let to_read = match extract_exif_data(&buf[..]) {
-            Ok((_, res)) => break res,
-            Err(nom::Err::Incomplete(needed)) => match needed {
-                Needed::Unknown => GROW_BUF_SIZE,
-                Needed::Size(n) => cmp::max(n.get(), GROW_BUF_SIZE),
-            },
-            Err(err) => return Err(convert_parse_error(err, "parse JPEG exif failed")),
-        };
-        buf.reserve(to_read);
-        let n = reader
-            .by_ref()
-            .take(to_read as u64)
-            .read_to_end(buf.as_mut())?;
-        if n == 0 {
-            Err("parse JPEG exif failed; not enough bytes")?;
-        }
-    };
-
-    exif_data
-        .and_then(|x| buf.subslice_range(x))
-        .map(|x| Input::from_vec(buf, x))
-        .map(parse_exif)
+pub fn parse_jpeg_exif<R: Read>(reader: R) -> crate::Result<Option<Exif>> {
+    read_exif(reader, Some(FileFormat::Jpeg))?
+        .map(input_to_exif)
         .transpose()
 }
 
@@ -272,6 +230,7 @@ mod tests {
     use test_case::test_case;
 
     #[test_case("exif.jpg")]
+    #[allow(deprecated)]
     fn jpeg(path: &str) {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 

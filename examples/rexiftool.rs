@@ -1,7 +1,7 @@
 use std::{error::Error, ffi::OsStr, fs::File, path::Path};
 
 use clap::Parser;
-use nom_exif::ExifTag::{self, *};
+use nom_exif::parse_exif;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -11,117 +11,6 @@ struct Cli {
     #[arg(short, long)]
     json: bool,
 }
-
-const TAGS: &[ExifTag] = &[
-    Make,
-    Model,
-    Orientation,
-    ImageWidth,
-    ImageHeight,
-    ISOSpeedRatings,
-    ShutterSpeedValue,
-    ExposureTime,
-    FNumber,
-    ExifImageWidth,
-    ExifImageHeight,
-    DateTimeOriginal,
-    CreateDate,
-    ModifyDate,
-    OffsetTimeOriginal,
-    OffsetTime,
-    GPSLatitudeRef,
-    GPSLatitude,
-    GPSLongitudeRef,
-    GPSLongitude,
-    GPSAltitudeRef,
-    GPSAltitude,
-    GPSVersionID,
-    // sub ifd
-    ExifOffset,
-    GPSInfo,
-    ImageDescription,
-    XResolution,
-    YResolution,
-    ResolutionUnit,
-    Software,
-    HostComputer,
-    WhitePoint,
-    PrimaryChromaticities,
-    YCbCrCoefficients,
-    ReferenceBlackWhite,
-    Copyright,
-    ExposureProgram,
-    SpectralSensitivity,
-    OECF,
-    SensitivityType,
-    ExifVersion,
-    ApertureValue,
-    BrightnessValue,
-    ExposureBiasValue,
-    MaxApertureValue,
-    SubjectDistance,
-    MeteringMode,
-    LightSource,
-    Flash,
-    FocalLength,
-    SubjectArea,
-    MakerNote,
-    // UserComment,
-    FlashPixVersion,
-    ColorSpace,
-    RelatedSoundFile,
-    FlashEnergy,
-    FocalPlaneXResolution,
-    FocalPlaneYResolution,
-    FocalPlaneResolutionUnit,
-    SubjectLocation,
-    ExposureIndex,
-    SensingMethod,
-    FileSource,
-    SceneType,
-    CFAPattern,
-    CustomRendered,
-    ExposureMode,
-    WhiteBalanceMode,
-    DigitalZoomRatio,
-    FocalLengthIn35mmFilm,
-    SceneCaptureType,
-    GainControl,
-    Contrast,
-    Saturation,
-    Sharpness,
-    DeviceSettingDescription,
-    SubjectDistanceRange,
-    ImageUniqueID,
-    LensSpecification,
-    LensMake,
-    LensModel,
-    Gamma,
-    GPSTimeStamp,
-    GPSSatellites,
-    GPSStatus,
-    GPSMeasureMode,
-    GPSDOP,
-    GPSSpeedRef,
-    GPSSpeed,
-    GPSTrackRef,
-    GPSTrack,
-    GPSImgDirectionRef,
-    GPSImgDirection,
-    GPSMapDatum,
-    GPSDestLatitudeRef,
-    GPSDestLatitude,
-    GPSDestLongitudeRef,
-    GPSDestLongitude,
-    GPSDestBearingRef,
-    GPSDestBearing,
-    GPSDestDistanceRef,
-    GPSDestDistance,
-    GPSProcessingMethod,
-    GPSAreaInformation,
-    GPSDateStamp,
-    GPSDifferential,
-];
 
 #[cfg(feature = "json_dump")]
 const FEATURE_JSON_DUMP_ON: bool = true;
@@ -144,25 +33,22 @@ fn main() -> Result<(), Box<dyn Error>> {
     let extension = extension.to_lowercase();
     let mut reader = File::open(&cli.file)?;
     let values = match extension.as_ref() {
-        "jpg" | "jpeg" => {
-            let exif = nom_exif::parse_jpeg_exif(&mut reader)?;
-            let Some(exif) = exif else {
+        "jpg" | "jpeg" | "heic" | "heif" => {
+            let iter = parse_exif(&mut reader, None)?;
+            let Some(iter) = iter else {
+                println!("Exif data not found in {}.", &cli.file);
                 return Ok(());
             };
-            exif.get_values(TAGS)
-                .into_iter()
-                .map(|x| (x.0.to_string(), x.1))
-                .collect::<Vec<_>>()
-        }
-        "heic" | "heif" => {
-            let exif = nom_exif::parse_heif_exif(&mut reader)?;
-            let Some(exif) = exif else {
-                return Ok(());
-            };
-            exif.get_values(TAGS)
-                .into_iter()
-                .map(|x| (x.0.to_string(), x.1))
-                .collect::<Vec<_>>()
+            iter.filter_map(|x| {
+                let v = x.take_value().ok()?;
+                Some((
+                    x.tag()
+                        .map(|x| x.to_string())
+                        .unwrap_or_else(|| format!("0x{:04x}", x.tag_code())),
+                    v,
+                ))
+            })
+            .collect::<Vec<_>>()
         }
         "mov" | "mp4" => {
             let meta = nom_exif::parse_metadata(&mut reader)?;

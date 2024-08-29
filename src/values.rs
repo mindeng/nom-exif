@@ -6,10 +6,7 @@ use nom::number::Endianness;
 #[cfg(feature = "json_dump")]
 use serde::{Deserialize, Serialize, Serializer};
 
-use crate::{
-    exif::ifd::{self, Error},
-    ExifTag,
-};
+use crate::{exif::ifd::Error, ExifTag};
 
 /// Represent a parsed entry value.
 #[derive(Debug, Clone, PartialEq)]
@@ -254,6 +251,20 @@ impl EntryValue {
         }
     }
 
+    pub fn as_u16(&self) -> Option<u16> {
+        match self {
+            EntryValue::U16(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    pub fn as_i16(&self) -> Option<i16> {
+        match self {
+            EntryValue::I16(v) => Some(*v),
+            _ => None,
+        }
+    }
+
     pub fn as_u32(&self) -> Option<u32> {
         match self {
             EntryValue::U32(v) => Some(*v),
@@ -265,6 +276,38 @@ impl EntryValue {
         match self {
             EntryValue::I32(v) => Some(*v),
             _ => None,
+        }
+    }
+
+    pub fn as_urational(&self) -> Option<URational> {
+        if let EntryValue::URational(v) = self {
+            Some(*v)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_irational(&self) -> Option<IRational> {
+        if let EntryValue::IRational(v) = self {
+            Some(*v)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_urational_array(&self) -> Option<&[URational]> {
+        if let EntryValue::URationalArray(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_irational_array(&self) -> Option<&[IRational]> {
+        if let EntryValue::IRationalArray(v) = self {
+            Some(v)
+        } else {
+            None
         }
     }
 }
@@ -286,6 +329,7 @@ impl EntryValue {
 /// See: [Exif](https://www.media.mit.edu/pia/Research/deepview/exif.html).
 #[repr(u16)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(unused)]
 pub(crate) enum DataFormat {
     U8 = 1,
     Text = 2,
@@ -313,12 +357,12 @@ impl DataFormat {
 }
 
 impl TryFrom<u16> for DataFormat {
-    type Error = ifd::Error;
+    type Error = Error;
     fn try_from(v: u16) -> Result<Self, Self::Error> {
         if v >= Self::U8 as u16 && v <= Self::F64 as u16 {
             Ok(unsafe { std::mem::transmute::<u16, Self>(v) })
         } else {
-            Err(ifd::Error::InvalidData(format!("data format {v}")))
+            Err(Error::InvalidData(format!("data format {v}")))
         }
     }
 }
@@ -526,9 +570,9 @@ where
     }
 }
 
-impl From<URational> for IRational {
-    fn from(value: URational) -> Self {
-        Self(value.0 as i32, value.1 as i32)
+impl From<IRational> for URational {
+    fn from(value: IRational) -> Self {
+        Self(value.0 as u32, value.1 as u32)
     }
 }
 
@@ -730,16 +774,15 @@ pub(crate) fn decode_rational<T: TryFromBytes>(
     data: &[u8],
     endian: Endianness,
 ) -> Result<Rational<T>, Error> {
-    let data = data;
     if data.len() < 8 {
-        return Err(Error::InvalidData(format!(
-            "data is too small to decode a rational"
-        )));
+        return Err(Error::InvalidData(
+            "data is too small to decode a rational".to_string(),
+        ));
     }
 
     let numerator = T::try_from_bytes(data, endian)?;
     let denominator = T::try_from_bytes(&data[4..], endian)?; // Safe-slice
-    return Ok(Rational::<T>(numerator, denominator));
+    Ok(Rational::<T>(numerator, denominator))
 }
 
 #[cfg(test)]
