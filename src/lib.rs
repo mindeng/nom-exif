@@ -5,7 +5,7 @@
 //! Supporting both *sync* and *async* interfaces. The interface design is
 //! simple and easy to use.
 //!
-//! # Key Features
+//! ## Key Features
 //!
 //! - Supports both *sync* and *async* interfaces.
 //!
@@ -41,7 +41,7 @@
 //!   - MOV
 //!   - MP4
 //!
-//! # Sync API usage
+//! ## Sync API usage
 //!
 //! ```rust
 //! use nom_exif::*;
@@ -59,8 +59,8 @@
 //!     assert_eq!(entry.take_value()?.as_str().unwrap(), "Apple");
 //!
 //!     // You can also iterate it in a `for` loop. Clone it first so we won't
-//!     // consume the original one. Note that the cloned `ExifIter` will start from
-//!     // the first entry.
+//!     // consume the original one. Note that the new cloned `ExifIter` will
+//!     // always start from the first entry.
 //!
 //!     for entry in iter.clone() {
 //!         if entry.tag().unwrap() == ExifTag::Make {
@@ -83,7 +83,7 @@
 //! }
 //! ```
 //!
-//! # Async API usage
+//! ## Async API usage
 //!
 //! You can safely and cheaply clone an [`ExifIter`] in multiple tasks/threads
 //! concurrently, since it use `Arc` to share the underlying memory.
@@ -126,6 +126,9 @@
 //! #[cfg(not(feature = "async"))]
 //! fn main() {}
 //! ```
+//!
+//! For more usage details, please refer to the [API
+//! documentation](https://docs.rs/nom-exif/latest/nom_exif/).
 
 pub use heif::parse_heif_exif;
 pub use jpeg::parse_jpeg_exif;

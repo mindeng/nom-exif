@@ -19,6 +19,13 @@ use super::{
 };
 
 /// An iterator version of [`Exif`].
+///
+/// You can safely and cheaply clone an [`ExifIter`] in multiple tasks/threads
+/// concurrently, since it use `Arc` to share the underlying memory.
+///
+/// Note that a new cloned `ExifIter` which is cloned by `clone()` method
+/// (*NOT* `cloned()`) will always be reset to the first entry, no matter what
+/// the original iterator state was.
 #[derive(Debug)]
 pub struct ExifIter<'a> {
     // Use Arc to make sure we won't clone the owned data.
