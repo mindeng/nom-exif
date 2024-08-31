@@ -76,6 +76,8 @@ impl<'a> ExifIter<'a> {
 
     /// Try to find and parse gps information.
     ///
+    /// Calling this method won't affect the iterator's state.
+    ///
     /// Returns:
     ///
     /// - An `Ok<Some<GPSInfo>>` if gps info is found and parsed successfully.
