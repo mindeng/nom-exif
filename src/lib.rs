@@ -41,7 +41,7 @@
 //!   - MOV
 //!   - MP4
 //!
-//! ## Sync API usage
+//! ## Sync API Usage
 //!
 //! ```rust
 //! use nom_exif::*;
@@ -61,7 +61,6 @@
 //!     // You can also iterate it in a `for` loop. Clone it first so we won't
 //!     // consume the original one. Note that the new cloned `ExifIter` will
 //!     // always start from the first entry.
-//!
 //!     for entry in iter.clone() {
 //!         if entry.tag().unwrap() == ExifTag::Make {
 //!             assert_eq!(entry.take_result()?.as_str().unwrap(), "Apple");
@@ -81,11 +80,7 @@
 //!         res.join(", "),
 //!         "Make(0x010f) => Apple, Model(0x0110) => iPhone 12 Pro"
 //!     );
-//!
-//!     // `ExifIter` provides a convenience method for parsing gps information
-//!     let gps_info = iter.parse_gps_info().unwrap().unwrap();
-//!     assert_eq!(gps_info.format_iso6709(), "+43.29013+084.22713+1595.950/");
-//!
+//!     
 //!     // An `ExifIter` can be easily converted to an `Exif`
 //!     let exif: Exif = iter.into();
 //!     assert_eq!(
@@ -96,8 +91,19 @@
 //! }
 //! ```
 //!
-//! ## Async API usage
+//! ## Async API Usage
 //!
+//! Enable `async` feature flag for nom-exif in your `Cargo.toml`:
+//!
+//! ```toml
+//! [dependencies]
+//! nom-exif = { version = "1", features = ["async"] }
+//! ```
+//!
+//! Since parsing process is a CPU-bound task, you may want to move the job to
+//! a separated thread (better to use rayon crate). There is a simple example
+//! below.
+//!     
 //! You can safely and cheaply clone an [`ExifIter`] in multiple tasks/threads
 //! concurrently, since it use `Arc` to share the underlying memory.
 //!
@@ -120,9 +126,6 @@
 //!         }
 //!     }
 //!
-//!     // Since parsing process is a CPU-bound task, we can move the job to a
-//!     // separated thread (better to use rayon crate).
-//!
 //!     // Convert an `ExifIter` into an `Exif` in a separated thread.
 //!     let exif = spawn_blocking(move || {
 //!         let exif: Exif = iter.into();
@@ -138,6 +141,25 @@
 //!
 //! #[cfg(not(feature = "async"))]
 //! fn main() {}
+//! ```
+//!
+//! ## GPS Info
+//!
+//! `ExifIter` provides a convenience method for parsing gps information.
+//! (`Exif` also provides a `get_gps_info` mthod).
+//!     
+//! ```rust
+//! use nom_exif::*;
+//! use std::fs::File;
+//!
+//! fn main() -> Result<()> {
+//!     let f = File::open("./testdata/exif.heic")?;
+//!     let iter = parse_exif(f, None)?.unwrap();
+//!
+//!     let gps_info = iter.parse_gps_info()?.unwrap();
+//!     assert_eq!(gps_info.format_iso6709(), "+43.29013+084.22713+1595.950/");
+//!     Ok(())
+//! }
 //! ```
 //!
 //! For more usage details, please refer to the [API
