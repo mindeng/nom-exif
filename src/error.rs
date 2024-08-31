@@ -8,7 +8,7 @@ pub enum Error {
     /// `NotFound` has been deprecated, please don't check this error in your
     /// code (use "_" to ommit it if you are using match statement).
     ///
-    /// The crate won't return this error anymore. It will be deleted in next
+    /// The parser won't return this error anymore. It will be deleted in next
     /// major version.
     #[deprecated(since = "1.5.0", note = "won't return this error anymore")]
     #[error("exif/metadata not found")]

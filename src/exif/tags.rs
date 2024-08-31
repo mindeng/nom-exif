@@ -21,10 +21,10 @@ impl ExifTagCode {
     /// Get recognized Exif tag, maybe return [`ExifTag::Unknown`] if it's
     /// unrecognized (you can get raw tag code via [`Self::code`] in this
     /// case).
-    pub(crate) fn tag(&self) -> ExifTag {
+    pub(crate) fn tag(&self) -> Option<ExifTag> {
         match self {
-            ExifTagCode::Tag(t) => t.to_owned(),
-            ExifTagCode::Code(_) => ExifTag::Unknown,
+            ExifTagCode::Tag(t) => Some(t.to_owned()),
+            ExifTagCode::Code(_) => None,
         }
     }
 
@@ -57,12 +57,20 @@ impl Debug for ExifTagCode {
     }
 }
 
-/// Defines recognized Exif tags. Represents by [`ExifTag::Unknown`] if the tag
-/// code is not recognized.
+/// Defines recognized Exif tags. All tags will be parsed, This enum definition
+/// is just for ease of use. You can always get the entry value by raw tag code
+/// which is an `u16` value, See [`crate::ParsedExifEntry::tag_code`] and
+/// [`crate::Exif::get_by_tag_code`].
 #[allow(unused)]
 #[cfg_attr(feature = "json_dump", derive(Serialize, Deserialize))]
 #[derive(Debug, Eq, PartialEq, Hash, Clone, Copy)]
 pub enum ExifTag {
+    /// `Unknown` has been deprecated, please don't use this variant in your
+    /// code (use "_" to ommit it if you are using match statement).
+    ///
+    /// The parser won't return this variant anymore. It will be deleted in
+    /// next major version.
+    #[deprecated(since = "1.5.0", note = "won't return this variant anymore")]
     Unknown = 0x0000_ffff,
 
     Make = 0x0000_010f,
@@ -194,6 +202,7 @@ impl ExifTag {
 impl Display for ExifTag {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            #[allow(deprecated)]
             ExifTag::Unknown => write!(f, "Unknown(0x{:04x})", self.code()),
             ExifTag::Make => write!(f, "Make(0x{:04x})", self.code()),
             ExifTag::Model => write!(f, "Model(0x{:04x})", self.code()),
@@ -335,6 +344,7 @@ impl TryFrom<u16> for ExifTag {
     type Error = crate::Error;
     fn try_from(v: u16) -> Result<Self, Self::Error> {
         match v {
+            #[allow(deprecated)]
             x if x == ExifTag::Unknown.code() => Ok(ExifTag::Unknown),
             x if x == ExifTag::Make.code() => Ok(ExifTag::Make),
             x if x == ExifTag::Model.code() => Ok(ExifTag::Model),

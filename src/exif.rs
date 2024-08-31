@@ -1,4 +1,4 @@
-pub use exif_iter::ExifIter;
+pub use exif_iter::{ExifIter, ParsedExifEntry};
 pub use gps::{GPSInfo, LatLng};
 pub use parser::Exif;
 pub use tags::ExifTag;

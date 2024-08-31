@@ -17,7 +17,7 @@ use crate::{
 };
 
 use super::{
-    exif_iter::{ExifIter, ImageFileDirectoryIter, ParsedEntry},
+    exif_iter::{ExifIter, ImageFileDirectoryIter, ParsedExifEntry},
     ifd::ParsedImageFileDirectory,
 };
 
@@ -134,6 +134,10 @@ impl Exif {
     ///
     /// - If you want to handle parsing error, please consider to use
     ///   [`ExifIter`].
+    ///
+    /// - If you have any custom defined tag which does not exist in
+    ///   [`ExifTag`], you can always get the entry value by a raw tag code,
+    ///   see [`Self::get_by_tag_code`].
     pub fn get(&self, tag: ExifTag) -> Option<&EntryValue> {
         self.get_by_tag_code(tag.code())
     }
@@ -191,7 +195,7 @@ impl Exif {
         Ok(self.gps_info.clone())
     }
 
-    fn put(&mut self, res: ParsedEntry) {
+    fn put(&mut self, res: ParsedExifEntry) {
         while self.ifds.len() < res.ifd_index() + 1 {
             self.ifds.push(ParsedImageFileDirectory::new());
         }

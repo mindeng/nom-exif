@@ -81,7 +81,7 @@ impl<'a> ExifIter<'a> {
     /// - An `Err` if gps info is found but parsing failed.
     pub fn parse_gps_info(&self) -> crate::Result<Option<GPSInfo>> {
         let mut iter = self.shallow_clone();
-        let Some(gps) = iter.find(|x| x.tag.tag() == ExifTag::GPSInfo) else {
+        let Some(gps) = iter.find(|x| x.tag.tag().is_some_and(|t| t == ExifTag::GPSInfo)) else {
             return Ok(None);
         };
 
@@ -122,14 +122,14 @@ impl Default for ExifIter<'static> {
 }
 
 /// Represents a parsed IFD entry.
-pub struct ParsedEntry {
+pub struct ParsedExifEntry {
     // 0: ifd0, 1: ifd1
     ifd: usize,
     tag: ExifTagCode,
     res: RefCell<Option<crate::Result<EntryValue>>>,
 }
 
-impl ParsedEntry {
+impl ParsedExifEntry {
     /// Get the IFD index value where this entry is located.
     /// - 0: ifd0 (main image)
     /// - 1: ifd1 (thumbnail)
@@ -140,7 +140,11 @@ impl ParsedEntry {
     /// Get recognized Exif tag of this entry, maybe return `None` if the tag
     /// is unrecognized.
     ///
-    /// **Note**: You can always get raw tag code via [`Self::tag_code`].
+    /// If you have any custom defined tag which does not exist in [`ExifTag`],
+    /// then you should use [`Self::tag_code`] to get the raw tag code.
+    ///
+    /// **Note**: You can always get the raw tag code via [`Self::tag_code`],
+    /// no matter if it's recognized.
     pub fn tag(&self) -> Option<ExifTag> {
         match self.tag {
             ExifTagCode::Tag(t) => Some(t),
@@ -149,6 +153,10 @@ impl ParsedEntry {
     }
 
     /// Get the raw tag code of this entry.
+    ///
+    /// In case you have some custom defined tags which doesn't exist in
+    /// [`ExifTag`], you can use this method to get the raw tag code of this
+    /// entry.
     pub fn tag_code(&self) -> u16 {
         self.tag.code()
     }
@@ -216,7 +224,7 @@ impl ParsedEntry {
     }
 }
 
-impl Debug for ParsedEntry {
+impl Debug for ParsedExifEntry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let value = match self.take_result() {
             Ok(v) => format!("{v}"),
@@ -233,7 +241,7 @@ impl Debug for ParsedEntry {
 const MAX_IFD_DEPTH: usize = 8;
 
 impl<'a> Iterator for ExifIter<'a> {
-    type Item = ParsedEntry;
+    type Item = ParsedExifEntry;
 
     fn next(&mut self) -> Option<Self::Item> {
         let endian = self.endian;
@@ -269,7 +277,7 @@ impl<'a> Iterator for ExifIter<'a> {
 
                         if is_subifd {
                             // Return sub-ifd as an entry
-                            return Some(ParsedEntry::make_ok(
+                            return Some(ParsedExifEntry::make_ok(
                                 idx,
                                 tag_code,
                                 EntryValue::U32(offset as u32),
@@ -277,12 +285,12 @@ impl<'a> Iterator for ExifIter<'a> {
                         }
                     }
                     IfdEntry::Entry(v) => {
-                        let res = Some(ParsedEntry::make_ok(ifd.ifd_idx, tag_code, v));
+                        let res = Some(ParsedExifEntry::make_ok(ifd.ifd_idx, tag_code, v));
                         self.ifds.push(ifd);
                         return res;
                     }
                     IfdEntry::Err(e) => {
-                        let res = Some(ParsedEntry::make_err(ifd.ifd_idx, tag_code, e));
+                        let res = Some(ParsedExifEntry::make_err(ifd.ifd_idx, tag_code, e));
                         self.ifds.push(ifd);
                         return res;
                     }
@@ -476,8 +484,11 @@ impl ImageFileDirectoryIter {
         let mut gps = GPSInfo::default();
         let mut has_data = false;
         for (tag, entry) in self {
+            let Some(tag) = tag.tag() else {
+                continue;
+            };
             has_data = true;
-            match tag.tag() {
+            match tag {
                 ExifTag::GPSLatitudeRef => {
                     if let Some(c) = entry.as_char() {
                         gps.latitude_ref = c;
@@ -622,7 +633,7 @@ impl Iterator for ImageFileDirectoryIter {
                 return None;
             } else {
                 return Some((
-                    ExifTagCode::Tag(ExifTag::Unknown),
+                    ExifTagCode::Code(0),
                     IfdEntry::Ifd {
                         idx: self.ifd_idx + 1,
                         offset,
