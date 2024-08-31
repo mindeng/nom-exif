@@ -195,7 +195,7 @@ impl Exif {
         while self.ifds.len() < res.ifd_index() + 1 {
             self.ifds.push(ParsedImageFileDirectory::new());
         }
-        if let Ok(v) = res.take_value() {
+        if let Some(v) = res.take_value() {
             self.ifds[res.ifd_index()].put(res.tag_code(), v);
         }
     }

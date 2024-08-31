@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 return Ok(());
             };
             iter.filter_map(|x| {
-                let v = x.take_value().ok()?;
+                let v = x.take_value()?;
                 Some((
                     x.tag()
                         .map(|x| x.to_string())

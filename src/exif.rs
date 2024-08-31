@@ -73,4 +73,21 @@ mod tests {
         let gps_info = iter.parse_gps_info().unwrap().unwrap();
         assert_eq!(gps_info.format_iso6709(), gps_str);
     }
+
+    #[test_case("exif.heic")]
+    fn tag_values(path: &str) {
+        let f = open_sample(path).unwrap();
+        let iter = parse_exif(f, None).unwrap().unwrap();
+        let tags = [ExifTag::Make, ExifTag::Model];
+        let res: Vec<String> = iter
+            .clone()
+            .filter(|e| e.tag().is_some_and(|t| tags.contains(&t)))
+            .filter(|e| e.has_value())
+            .map(|e| format!("{} => {}", e.tag().unwrap(), e.take_value().unwrap()))
+            .collect();
+        assert_eq!(
+            res.join(", "),
+            "Make(0x010f) => Apple, Model(0x0110) => iPhone 12 Pro"
+        );
+    }
 }

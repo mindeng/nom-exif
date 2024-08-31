@@ -63,7 +63,7 @@ fn main() -> Result<()> {
     assert_eq!(entry.ifd_index(), 0);
     assert_eq!(entry.tag().unwrap(), ExifTag::Make);
     assert_eq!(entry.tag_code(), 0x010f);
-    assert_eq!(entry.take_value()?.as_str().unwrap(), "Apple");
+    assert_eq!(entry.take_result()?.as_str().unwrap(), "Apple");
 
     // You can also iterate it in a `for` loop. Clone it first so we won't
     // consume the original one. Note that the new cloned `ExifIter` will
@@ -71,10 +71,23 @@ fn main() -> Result<()> {
 
     for entry in iter.clone() {
         if entry.tag().unwrap() == ExifTag::Make {
-            assert_eq!(entry.take_value()?.as_str().unwrap(), "Apple");
+            assert_eq!(entry.take_result()?.as_str().unwrap(), "Apple");
             break;
         }
     }
+
+    // filter, map & collect
+    let tags = [ExifTag::Make, ExifTag::Model];
+    let res: Vec<String> = iter
+        .clone()
+        .filter(|e| e.tag().is_some_and(|t| tags.contains(&t)))
+        .filter(|e| e.has_value())
+        .map(|e| format!("{} => {}", e.tag().unwrap(), e.take_value().unwrap()))
+        .collect();
+    assert_eq!(
+        res.join(", "),
+        "Make(0x010f) => Apple, Model(0x0110) => iPhone 12 Pro"
+    );
 
     // `ExifIter` provides a convenience method for parsing gps information
     let gps_info = iter.parse_gps_info().unwrap().unwrap();
@@ -109,7 +122,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for entry in iter.clone() {
         if entry.tag().unwrap() == ExifTag::Make {
-            assert_eq!(entry.take_value()?.as_str().unwrap(), "Apple");
+            assert_eq!(entry.take_result()?.as_str().unwrap(), "Apple");
             break;
         }
     }

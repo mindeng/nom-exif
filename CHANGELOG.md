@@ -13,12 +13,17 @@
 - `FileFormat`
 - `Exif::get`
 - `Exif::get_by_tag_code`
+- `EntryValue::URationalArray`
+- `EntryValue::IRationalArray`
+- `Error::InvalidEntry`
+- `Error::EntryHasBeenTaken`
 
 ### Changed
 
 - `Exif::get_values` deprecated
 - `Exif::get_value` deprecated
 - `Exif::get_value_by_tag_code` deprecated
+- `Error::NotFound` deprecated
 
 ## nom-exif v1.4.1
 

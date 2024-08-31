@@ -5,8 +5,9 @@ use chrono::{offset::LocalResult, DateTime, FixedOffset, Local, NaiveDateTime, T
 use nom::number::Endianness;
 #[cfg(feature = "json_dump")]
 use serde::{Deserialize, Serialize, Serializer};
+use thiserror::Error;
 
-use crate::{exif::ifd::Error, ExifTag};
+use crate::{ExifTag};
 
 /// Represent a parsed entry value.
 #[derive(Debug, Clone, PartialEq)]
@@ -43,6 +44,32 @@ pub(crate) struct EntryData<'a> {
     pub data_format: DataFormat,
     pub components_num: u32,
 }
+
+#[derive(Debug, Error)]
+pub(crate) enum EntryError {
+    #[error("Failed to parse IFD entry; size/offset is overflow")]
+    Overflow,
+
+    #[error("Failed to parse IFD entry; invalid data: {0}")]
+    InvalidData(String),
+
+    #[error("Failed to parse IFD entry; unsupported: {0}")]
+    Unsupported(String),
+}
+
+impl From<EntryError> for crate::Error {
+    fn from(value: EntryError) -> Self {
+        Self::InvalidEntry(value.into())
+    }
+}
+
+impl From<chrono::ParseError> for EntryError {
+    fn from(value: chrono::ParseError) -> Self {
+        EntryError::InvalidData(format!("invalid time format: {value}"))
+    }
+}
+
+use EntryError as Error;
 
 impl EntryData<'_> {
     // Ensure that the returned Vec is not empty.

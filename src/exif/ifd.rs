@@ -1,25 +1,5 @@
-use std::collections::HashMap;
-use thiserror::Error;
-
 use crate::EntryValue;
-
-#[derive(Debug, Error)]
-pub(crate) enum Error {
-    #[error("Failed to parse IFD entry; size/offset is overflow")]
-    Overflow,
-
-    #[error("Failed to parse IFD entry; invalid data: {0}")]
-    InvalidData(String),
-
-    #[error("Failed to parse IFD entry; unsupported: {0}")]
-    Unsupported(String),
-}
-
-impl From<Error> for crate::Error {
-    fn from(value: Error) -> Self {
-        Self::InvalidEntry(value.into())
-    }
-}
+use std::collections::HashMap;
 
 /// https://www.media.mit.edu/pia/Research/deepview/exif.html
 #[derive(Clone, Debug, PartialEq)]
@@ -47,11 +27,5 @@ impl ParsedImageFileDirectory {
 
     pub(crate) fn put(&mut self, code: u16, v: EntryValue) {
         self.entries.insert(code, ParsedIdfEntry { value: v });
-    }
-}
-
-impl From<chrono::ParseError> for Error {
-    fn from(value: chrono::ParseError) -> Self {
-        Error::InvalidData(format!("invalid time format: {value}"))
     }
 }

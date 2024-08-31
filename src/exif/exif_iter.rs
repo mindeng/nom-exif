@@ -8,15 +8,11 @@ use nom::{
 use crate::{
     input::{AssociatedInput, Input},
     slice::SliceChecked,
-    values::{DataFormat, EntryData, IRational, URational},
+    values::{DataFormat, EntryData, EntryError, IRational, URational},
     EntryValue, ExifTag,
 };
 
-use super::{
-    ifd::{self, Error},
-    tags::ExifTagCode,
-    GPSInfo,
-};
+use super::{tags::ExifTagCode, GPSInfo};
 
 /// An iterator version of [`Exif`].
 ///
@@ -89,7 +85,7 @@ impl<'a> ExifIter<'a> {
             return Ok(None);
         };
 
-        let offset = match gps.take_value() {
+        let offset = match gps.take_result() {
             Ok(v) => v.as_u32().unwrap() as usize,
             Err(e) => return Err(e),
         };
@@ -157,16 +153,49 @@ impl ParsedEntry {
         self.tag.code()
     }
 
-    /// Takes out the parsed entry value of this entry. If any error occurred
-    /// while parsing this entry, an Err is returned.
+    /// Returns true if there is an `EntryValue` in self.
+    ///
+    /// Both of the following situations may cause this method to return false:
+    /// - An error occurred while parsing this entry
+    /// - The value has been taken by calling [`Self::take_value`] or
+    ///   [`Self::take_result`] methods.
+    pub fn has_value(&self) -> bool {
+        self.res
+            .borrow()
+            .as_ref()
+            .map(|e| e.is_ok())
+            .is_some_and(|b| b)
+    }
+
+    /// Takes out the parsed entry value of this entry.
+    ///
+    /// **Note**: This method can only be called once! Once it has been called,
+    /// calling it again always returns `None`. You may want to check it by
+    /// calling [`Self::has_value`] before calling this method.
+    pub fn take_value(&self) -> Option<EntryValue> {
+        match self.res.take() {
+            Some(v) => v.ok(),
+            None => None,
+        }
+    }
+
+    /// Takes out the parsed result of this entry.
+    ///
+    /// Returns:
+    ///
+    /// - If any error occurred while parsing this entry, an
+    ///   Err([`crate::Error::InvalidEntry`]) is returned.
+    ///
+    /// - If the result has been taken, an
+    ///   Err([`crate::Error::EntryHasBeenTaken`]) is returned.
+    ///
+    /// - Otherwise, an Ok([`EntryValue`]) is returned.
     ///
     /// **Note**: This method can only be called once!
-    pub fn take_value(&self) -> crate::Result<EntryValue> {
+    pub fn take_result(&self) -> crate::Result<EntryValue> {
         match self.res.take() {
             Some(v) => v,
-            None => Err(crate::Error::InvalidEntry(
-                "entry value has been taken".into(),
-            )),
+            None => Err(crate::Error::EntryHasBeenTaken),
         }
     }
 
@@ -178,7 +207,7 @@ impl ParsedEntry {
         }
     }
 
-    fn make_err(ifd: usize, tag: ExifTagCode, e: ifd::Error) -> Self {
+    fn make_err(ifd: usize, tag: ExifTagCode, e: EntryError) -> Self {
         Self {
             ifd,
             tag,
@@ -189,7 +218,7 @@ impl ParsedEntry {
 
 impl Debug for ParsedEntry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let value = match self.take_value() {
+        let value = match self.take_result() {
             Ok(v) => format!("{v}"),
             Err(e) => format!("{e:?}"),
         };
@@ -364,7 +393,7 @@ impl ImageFileDirectoryIter {
             let start = value_or_offset as usize;
             let end = start + size;
             let Some(data) = self.input.slice_checked(start..end) else {
-                return (tag, IfdEntry::Err(Error::Overflow));
+                return (tag, IfdEntry::Err(EntryError::Overflow));
             };
 
             // Is `start` should be greater than or equal to `pos + ENTRY_SIZE` ?
@@ -382,7 +411,7 @@ impl ImageFileDirectoryIter {
                     },
                 );
             } else {
-                return (tag, IfdEntry::Err(Error::Overflow));
+                return (tag, IfdEntry::Err(EntryError::Overflow));
             }
         }
 
@@ -513,7 +542,7 @@ impl ImageFileDirectoryIter {
 pub(crate) enum IfdEntry {
     Ifd { idx: usize, offset: usize }, // ifd index
     Entry(EntryValue),
-    Err(Error),
+    Err(EntryError),
 }
 
 impl IfdEntry {
