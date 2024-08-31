@@ -1,5 +1,25 @@
 # Changelog
 
+## nom-exif v1.5.0
+
+[v1.4.1..v1.5.0](https://github.com/mindeng/nom-exif/compare/v1.4.1..v1.5.0)
+
+### Added
+
+- `parse_exif`
+- `parse_exif_async`
+- `ExifIter`
+- `GPSInfo`
+- `FileFormat`
+- `Exif::get`
+- `Exif::get_by_tag_code`
+
+### Changed
+
+- `Exif::get_values` deprecated
+- `Exif::get_value` deprecated
+- `Exif::get_value_by_tag_code` deprecated
+
 ## nom-exif v1.4.1
 
 [v1.4.0..v1.4.1](https://github.com/mindeng/nom-exif/compare/v1.4.0..v1.4.1)
