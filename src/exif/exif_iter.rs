@@ -14,7 +14,7 @@ use crate::{
 
 use super::{tags::ExifTagCode, GPSInfo};
 
-/// An iterator version of [`Exif`].
+/// An iterator version of [`crate::Exif`].
 ///
 /// You can safely and cheaply clone an [`ExifIter`] in multiple tasks/threads
 /// concurrently, since it use `Arc` to share the underlying memory.
