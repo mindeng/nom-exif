@@ -1,5 +1,17 @@
 # Changelog
 
+## nom-exif v1.5.1
+
+[v1.5.0..v1.5.1](https://github.com/mindeng/nom-exif/compare/v1.5.0..v1.5.1)
+
+### Added
+
+- `ParsedExifEntry`
+
+### Changed
+
+- `ExifTag::Unknown`
+
 ## nom-exif v1.5.0
 
 [v1.4.1..v1.5.0](https://github.com/mindeng/nom-exif/compare/v1.4.1..v1.5.0)
