@@ -61,8 +61,8 @@ impl Debug for ExifTagCode {
 /// defined here. This enum definition is just for ease of use.
 ///
 /// You can always get the entry value by raw tag code which is an `u16` value.
-/// See [`crate::ParsedExifEntry::tag_code`] and
-/// [`crate::Exif::get_by_tag_code`].
+/// See [`tag_code`](crate::ParsedExifEntry::tag_code) and
+/// [`get_by_tag_code`](crate::Exif::get_by_tag_code).
 #[allow(unused)]
 #[cfg_attr(feature = "json_dump", derive(Serialize, Deserialize))]
 #[derive(Debug, Eq, PartialEq, Hash, Clone, Copy)]

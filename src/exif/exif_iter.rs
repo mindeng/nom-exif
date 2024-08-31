@@ -14,7 +14,7 @@ use crate::{
 
 use super::{tags::ExifTagCode, GPSInfo};
 
-/// An iterator version of [`crate::Exif`].
+/// An iterator version of [`Exif`](crate::Exif).
 ///
 /// You can safely and cheaply clone an [`ExifIter`] in multiple tasks/threads
 /// concurrently, since it use `Arc` to share the underlying memory.
@@ -192,10 +192,10 @@ impl ParsedExifEntry {
     /// Returns:
     ///
     /// - If any error occurred while parsing this entry, an
-    ///   Err([`crate::Error::InvalidEntry`]) is returned.
+    ///   Err([`InvalidEntry`](crate::Error::InvalidEntry)) is returned.
     ///
     /// - If the result has been taken, an
-    ///   Err([`crate::Error::EntryHasBeenTaken`]) is returned.
+    ///   Err([`EntryHasBeenTaken`](crate::Error::EntryHasBeenTaken)) is returned.
     ///
     /// - Otherwise, an Ok([`EntryValue`]) is returned.
     ///

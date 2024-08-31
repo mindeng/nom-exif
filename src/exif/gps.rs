@@ -1,6 +1,7 @@
 use crate::values::{IRational, URational};
 
-/// Represents gps information stored in [`crate::ExifTag::GPSInfo`] subIFD.
+/// Represents gps information stored in [`GPSInfo`](crate::ExifTag::GPSInfo)
+/// subIFD.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct GPSInfo {
     /// N, S
