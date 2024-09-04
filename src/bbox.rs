@@ -21,7 +21,7 @@ pub use meta::MetaBox;
 pub use mvhd::MvhdBox;
 pub use tkhd::parse_video_tkhd_in_moov;
 
-const MAX_BODY_LEN: usize = 100 * 1024 * 1024;
+const MAX_BODY_LEN: usize = 2000 * 1024 * 1024;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -49,7 +49,6 @@ pub struct BoxHeader {
 }
 
 impl BoxHeader {
-    #[tracing::instrument(skip_all)]
     pub fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], BoxHeader> {
         let (remain, size) = number::streaming::be_u32(input)?;
 
@@ -74,21 +73,6 @@ impl BoxHeader {
         assert!(header_size == 8 || header_size == 16);
 
         if box_size < header_size as u64 {
-            return fail(remain);
-        }
-
-        if box_size > (MAX_BODY_LEN + header_size) as u64 {
-            let box_type = box_type
-                .chars()
-                .map(|c| {
-                    if c.is_ascii_graphic() {
-                        c.as_char()
-                    } else {
-                        '*'
-                    }
-                })
-                .collect::<String>();
-            tracing::error!(?box_type, ?box_size, "Box is too big");
             return fail(remain);
         }
 
@@ -142,6 +126,10 @@ impl FullBoxHeader {
                 flags,
             },
         ))
+    }
+
+    pub fn body_size(&self) -> u64 {
+        self.box_size - self.header_size as u64
     }
 }
 
@@ -289,6 +277,7 @@ pub trait ParseBox<O> {
 
 /// auto implements parse_box for each Box which implements ParseBody
 impl<O, T: ParseBody<O>> ParseBox<O> for T {
+    #[tracing::instrument(skip_all)]
     fn parse_box(input: &[u8]) -> IResult<&[u8], O> {
         let (remain, header) = FullBoxHeader::parse(input)?;
         assert_eq!(input.len(), header.header_size + remain.len());
@@ -300,8 +289,12 @@ impl<O, T: ParseBody<O>> ParseBox<O> for T {
         );
 
         // limit parsing size
-        let body_len = (header.box_size - header.header_size as u64) as usize;
-        let (remain, data) = complete::take(body_len)(remain)?;
+        let box_size = header.body_size() as usize;
+        if box_size > MAX_BODY_LEN {
+            tracing::error!(?header.box_type, ?box_size, "Box is too big");
+            return fail(remain);
+        }
+        let (remain, data) = complete::take(box_size)(remain)?;
         assert_eq!(input.len(), header.header_size + data.len() + remain.len());
 
         let (rem, bbox) = Self::parse_body(data, header)?;
