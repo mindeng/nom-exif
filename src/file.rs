@@ -1,5 +1,5 @@
 use nom::{bytes::complete, multi::many0, IResult};
-use std::fmt::Display;
+use std::{fmt::Display, io::Read};
 use FileFormat::*;
 
 use crate::{
@@ -46,6 +46,17 @@ pub enum FileFormat {
 }
 
 impl FileFormat {
+    pub fn try_from_read<T: Read>(reader: T) -> crate::Result<Self> {
+        const BUF_SIZE: usize = 4096;
+        let mut buf = Vec::with_capacity(BUF_SIZE);
+        let n = reader.take(BUF_SIZE as u64).read_to_end(buf.as_mut())?;
+        if n == 0 {
+            Err("file is empty")?;
+        }
+
+        buf.as_slice().try_into()
+    }
+
     pub(crate) fn extract_exif_data<'a>(
         &self,
         input: &'a [u8],
