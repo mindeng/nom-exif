@@ -1,4 +1,4 @@
-use nom::{bytes::complete, multi::many0, IResult};
+use nom::{bytes::complete, multi::many0, number, IResult};
 use std::{fmt::Display, io::Read};
 use FileFormat::*;
 
@@ -28,6 +28,8 @@ const MP4_BRAND_NAMES: &[&str] = &[
 
 const QT_BRAND_NAMES: &[&str] = &["qt  ", "mqt "];
 
+const EBML_HEADER_TAG: u32 = 0x1A45DFA3;
+
 #[allow(unused)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileFormat {
@@ -43,6 +45,31 @@ pub enum FileFormat {
     // in that atom.
     QuickTime,
     MP4,
+
+    EBML,
+}
+
+// Parse the input buffer and detect its file type
+impl TryFrom<&[u8]> for FileFormat {
+    type Error = crate::Error;
+
+    fn try_from(input: &[u8]) -> Result<Self, Self::Error> {
+        if check_jpeg(input).is_ok() {
+            return Ok(Self::Jpeg);
+        }
+        if check_heif(input).is_ok() {
+            return Ok(Self::Heif);
+        }
+        if let Ok(ff) = check_qt_mp4(input) {
+            return Ok(ff);
+        };
+
+        if check_ebml(input).is_ok() {
+            Ok(Self::EBML)
+        } else {
+            Err(crate::Error::UnrecognizedFileFormat)
+        }
+    }
 }
 
 impl FileFormat {
@@ -68,6 +95,7 @@ impl FileFormat {
                 nom::error::context("no exif data in QuickTime file", nom::combinator::fail)(input)
             }
             MP4 => nom::error::context("no exif data in MP4 file", nom::combinator::fail)(input),
+            EBML => nom::error::context("no exif data in EBML file", nom::combinator::fail)(input),
         }
     }
 
@@ -91,21 +119,7 @@ impl FileFormat {
                     Err("not a MP4 file".into())
                 }
             }
-        }
-    }
-}
-
-// Parse the input buffer and detect its file type
-impl TryFrom<&[u8]> for FileFormat {
-    type Error = crate::Error;
-
-    fn try_from(input: &[u8]) -> Result<Self, Self::Error> {
-        if check_jpeg(input).is_ok() {
-            Ok(Self::Jpeg)
-        } else if check_heif(input).is_ok() {
-            Ok(Self::Heif)
-        } else {
-            check_qt_mp4(input)
+            EBML => check_ebml(input),
         }
     }
 }
@@ -117,8 +131,17 @@ impl Display for FileFormat {
             Heif => "HEIF/HEIC".fmt(f),
             QuickTime => "QuickTime".fmt(f),
             MP4 => "MP4".fmt(f),
+            EBML => "EBML".fmt(f),
         }
     }
+}
+
+pub(crate) fn check_ebml(input: &[u8]) -> crate::Result<()> {
+    let (_, tag) = number::complete::be_u32(input)?;
+    if tag == EBML_HEADER_TAG {
+        return Ok(());
+    }
+    Err("not an EBML file".into())
 }
 
 pub(crate) fn check_heif(input: &[u8]) -> crate::Result<()> {

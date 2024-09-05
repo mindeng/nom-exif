@@ -22,9 +22,17 @@ pub enum Error {
 
     #[error("parsed entry result has been taken")]
     EntryHasBeenTaken,
+
+    #[error("unrecognized file format")]
+    UnrecognizedFileFormat,
+
+    #[error("unsupported file format: {0}")]
+    UnsupportedFileFormat(FileFormat),
 }
 
 use Error::*;
+
+use crate::FileFormat;
 
 impl From<io::Error> for Error {
     fn from(value: io::Error) -> Self {
