@@ -1,5 +1,19 @@
 # Changelog
 
+## nom-exif v1.5.2
+
+[v1.5.1..v1.5.2](https://github.com/mindeng/nom-exif/compare/v1.5.1..v1.5.2)
+
+### Fixed
+
+- Bug fixed: "Box is too big" error when parsing some mov/mp4 files
+
+  No need to limit box body size when parsing/traveling box headers, only need
+  to do that limitation when parsing box body (this restriction is necessary
+  for the robustness of the program). Additionally, I also changed the size
+  limit on the box body to a more reasonable value.
+
+
 ## nom-exif v1.5.1
 
 [v1.5.0..v1.5.1](https://github.com/mindeng/nom-exif/compare/v1.5.0..v1.5.1)

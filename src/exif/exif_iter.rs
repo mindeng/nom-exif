@@ -14,7 +14,8 @@ use crate::{
 
 use super::{tags::ExifTagCode, GPSInfo};
 
-/// An iterator version of [`Exif`](crate::Exif).
+/// An iterator version of [`Exif`](crate::Exif). Use [`ParsedExifEntry`] as
+/// iterator items.
 ///
 /// You can safely and cheaply clone an [`ExifIter`] in multiple tasks/threads
 /// concurrently, since it use `Arc` to share the underlying memory.
@@ -121,7 +122,7 @@ impl Default for ExifIter<'static> {
     }
 }
 
-/// Represents a parsed IFD entry.
+/// Represents a parsed IFD entry. Used as iterator items in [`ExifIter`].
 pub struct ParsedExifEntry {
     // 0: ifd0, 1: ifd1
     ifd: usize,
