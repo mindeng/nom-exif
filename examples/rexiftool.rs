@@ -61,7 +61,7 @@ fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
 
     let values = match ff {
         FileFormat::Jpeg | FileFormat::Heif => {
-            let iter = parse_exif(&mut reader, None)?;
+            let iter = parse_exif(&mut reader, Some(ff))?;
             let Some(iter) = iter else {
                 println!("Exif data not found in {}.", &cli.file);
                 return Ok(());
