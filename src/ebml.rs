@@ -1,4 +1,5 @@
-pub use parser::parse_ebml;
+pub use webm::parse_webm;
 
-mod parser;
+mod element;
 mod vint;
+mod webm;
