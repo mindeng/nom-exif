@@ -46,7 +46,7 @@ pub enum FileFormat {
     QuickTime,
     MP4,
 
-    EBML,
+    WEBM,
 }
 
 // Parse the input buffer and detect its file type
@@ -64,8 +64,8 @@ impl TryFrom<&[u8]> for FileFormat {
             return Ok(ff);
         };
 
-        if check_ebml(input).is_ok() {
-            Ok(Self::EBML)
+        if check_webm(input).is_ok() {
+            Ok(Self::WEBM)
         } else {
             Err(crate::Error::UnrecognizedFileFormat)
         }
@@ -95,7 +95,7 @@ impl FileFormat {
                 nom::error::context("no exif data in QuickTime file", nom::combinator::fail)(input)
             }
             MP4 => nom::error::context("no exif data in MP4 file", nom::combinator::fail)(input),
-            EBML => nom::error::context("no exif data in EBML file", nom::combinator::fail)(input),
+            WEBM => nom::error::context("no exif data in WEBM file", nom::combinator::fail)(input),
         }
     }
 
@@ -119,7 +119,7 @@ impl FileFormat {
                     Err("not a MP4 file".into())
                 }
             }
-            EBML => check_ebml(input),
+            WEBM => check_webm(input),
         }
     }
 }
@@ -131,17 +131,17 @@ impl Display for FileFormat {
             Heif => "HEIF/HEIC".fmt(f),
             QuickTime => "QuickTime".fmt(f),
             MP4 => "MP4".fmt(f),
-            EBML => "EBML".fmt(f),
+            WEBM => "WEBM".fmt(f),
         }
     }
 }
 
-pub(crate) fn check_ebml(input: &[u8]) -> crate::Result<()> {
+pub(crate) fn check_webm(input: &[u8]) -> crate::Result<()> {
     let (_, tag) = number::complete::be_u32(input)?;
-    if tag == EBML_HEADER_TAG {
-        return Ok(());
+    if tag != EBML_HEADER_TAG {
+        return Err("not an EBML file".into());
     }
-    Err("not an EBML file".into())
+    Ok(())
 }
 
 pub(crate) fn check_heif(input: &[u8]) -> crate::Result<()> {

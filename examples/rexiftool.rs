@@ -83,6 +83,9 @@ fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
                 .map(|x| (x.0.to_string(), x.1))
                 .collect::<Vec<_>>()
         }
+        FileFormat::WEBM => {
+            return Err(format!("unsupported file format: {ff}").into());
+        }
     };
 
     if cli.json {

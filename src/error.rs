@@ -26,13 +26,11 @@ pub enum Error {
     #[error("unrecognized file format")]
     UnrecognizedFileFormat,
 
-    #[error("unsupported file format: {0}")]
-    UnsupportedFileFormat(FileFormat),
+    // #[error("unsupported file format: {0}")]
+    // UnsupportedFileFormat(FileFormat),
 }
 
 use Error::*;
-
-use crate::FileFormat;
 
 impl From<io::Error> for Error {
     fn from(value: io::Error) -> Self {
