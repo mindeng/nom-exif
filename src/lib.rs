@@ -165,6 +165,7 @@
 //! For more usage details, please refer to the [API
 //! documentation](https://docs.rs/nom-exif/latest/nom_exif/).
 
+pub use ebml::parse_ebml;
 pub use heif::parse_heif_exif;
 pub use jpeg::parse_jpeg_exif;
 pub use mov::{parse_metadata, parse_mov_metadata};

@@ -20,6 +20,7 @@ regex = { version = "1.10" }
 chrono = "0.4"
 tracing = { version = "0.1.40" }
 tokio = { version = "1.40.0", features = ["fs", "io-util"], optional = true }
+bytes = "1.7.1"
 
 [features]
 # default = ["async"]

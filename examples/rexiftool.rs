@@ -6,7 +6,7 @@ use std::{
 };
 
 use clap::Parser;
-use nom_exif::{parse_exif, FileFormat};
+use nom_exif::{parse_ebml, parse_exif, FileFormat};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Registry};
 
 #[derive(Parser, Debug)]
@@ -84,7 +84,9 @@ fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
                 .collect::<Vec<_>>()
         }
         FileFormat::WEBM => {
-            return Err(format!("unsupported file format: {ff}").into());
+            let res = parse_ebml(&mut reader)?;
+            println!("{:?}", res);
+            Vec::new()
         }
     };
 
