@@ -101,7 +101,16 @@ pub(crate) fn parse_ebml_doc_type(cursor: &mut Cursor<&[u8]>) -> Result<String, 
     cursor.consume(header.data_size);
 
     // get doc type
-    let mut cur = Cursor::new(&cursor.get_ref()[pos..pos + header.data_size]);
+    match parse_ebml_head_data(&cursor.get_ref()[pos..pos + header.data_size]) {
+        Ok(x) => Ok(x),
+        // Don't bubble Need error to caller here
+        Err(ParseEBMLFailed::Need(_)) => Err(ParseEBMLFailed::NotEBMLFile),
+        Err(e) => Err(e),
+    }
+}
+
+fn parse_ebml_head_data(input: &[u8]) -> Result<String, ParseEBMLFailed> {
+    let mut cur = Cursor::new(input);
     while cur.has_remaining() {
         let h = next_element_header(&mut cur)?;
 
@@ -111,7 +120,6 @@ pub(crate) fn parse_ebml_doc_type(cursor: &mut Cursor<&[u8]>) -> Result<String, 
             return Ok(s);
         }
     }
-
     Err(ParseEBMLFailed::NotEBMLFile)
 }
 
@@ -127,6 +135,27 @@ pub(crate) fn find_element_by_id(
     while cursor.has_remaining() {
         let header = next_element_header(cursor)?;
         if header.id == target_id {
+            return Ok(header);
+        }
+        if cursor.remaining() < header.data_size {
+            return Err(ParseEBMLFailed::Need(header.data_size - cursor.remaining()));
+        }
+
+        cursor.consume(header.data_size);
+    }
+    Err(ParseEBMLFailed::Need(1))
+}
+
+pub(crate) fn travel_while<F>(
+    cursor: &mut Cursor<&[u8]>,
+    mut predict: F,
+) -> Result<ElementHeader, ParseEBMLFailed>
+where
+    F: FnMut(&ElementHeader) -> bool,
+{
+    while cursor.has_remaining() {
+        let header = next_element_header(cursor)?;
+        if !predict(&header) {
             return Ok(header);
         }
         if cursor.remaining() < header.data_size {
