@@ -190,6 +190,7 @@ mod jpeg;
 mod mov;
 mod slice;
 mod values;
+mod video;
 
 #[cfg(test)]
 mod testkit;

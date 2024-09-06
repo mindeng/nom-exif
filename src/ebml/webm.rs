@@ -1,6 +1,8 @@
 use std::{
+    cmp::{max, min},
+    collections::HashMap,
     fmt::Debug,
-    io::{Cursor, Read},
+    io::{BufRead, Cursor, Read},
 };
 
 use bytes::Buf;
@@ -38,15 +40,15 @@ pub enum ParseWebmFailed {
     IOError(std::io::Error),
 }
 
+const INIT_BUF_SIZE: usize = 4096;
+const MIN_GROW_SIZE: usize = 4096;
+const MAX_GROW_SIZE: usize = 1000 * 4096;
+
 /// Refer to:
 /// - [Matroska Elements](https://www.matroska.org/technical/elements.html)
 /// - [EBML Specification](https://github.com/ietf-wg-cellar/ebml-specification/blob/master/specification.markdown)
 #[tracing::instrument(skip_all)]
 pub fn parse_webm<T: Read>(mut reader: T) -> Result<EBMLFileInfo, ParseWebmFailed> {
-    const INIT_BUF_SIZE: usize = 4096;
-    const MIN_GROW_SIZE: usize = 4096;
-    const MAX_GROW_SIZE: usize = 1000 * 4096;
-
     let mut buf = Vec::with_capacity(INIT_BUF_SIZE);
     let n = reader
         .by_ref()
@@ -57,21 +59,88 @@ pub fn parse_webm<T: Read>(mut reader: T) -> Result<EBMLFileInfo, ParseWebmFaile
         return Err(ParseWebmFailed::NotWebmFile);
     }
 
-    let (remain, doc_type) = parse_ebml_doc_type(&buf)?;
-    tracing::debug!(header_size = buf.len() - remain.len(), doc_type);
+    let mut cursor = Cursor::new(buf.as_ref());
+    let doc_type = parse_ebml_doc_type(&mut cursor)?;
+    tracing::debug!(doc_type);
 
-    let (remain, header) = next_element_header(remain)?;
+    let header = next_element_header(&mut cursor)?;
     tracing::debug!(segment_header = ?header);
     if header.id != TopElementId::Segment as u64 {
         return Err(ParseWebmFailed::NotWebmFile);
     }
 
-    let (remain, header) = find_element_by_id(remain, SegmentId::SeekHead as u64)?;
-    tracing::debug!(segment_header = ?header);
+    let pos = cursor.position() as usize;
+    let seeks = parse_and_read(reader, &mut buf, pos, parse_seeks)?;
 
-    parse_seek_head(&remain[..header.data_size])?;
+    if let Some(pos) = seeks.get(&(SegmentId::Info as u32)) {
+        parse_segment_info(&buf, *pos as usize)?;
+    }
 
     Ok(EBMLFileInfo { doc_type })
+}
+
+#[derive(Debug, Clone, Default)]
+struct SegmentInfo {
+    duration: f64,
+}
+
+#[tracing::instrument(skip(input))]
+fn parse_segment_info(input: &[u8], pos: usize) -> Result<SegmentInfo, ParseWebmFailed> {
+    let mut cursor = Cursor::new(&input[pos..]);
+    let header = next_element_header(&mut cursor)?;
+    tracing::debug!(segment_info_header = ?header);
+
+    Ok(SegmentInfo { duration: 0.0 })
+}
+
+fn parse_and_read<T: Read, O, F>(
+    mut reader: T,
+    buf: &mut Vec<u8>,
+    pos: usize,
+    parse: F,
+) -> Result<O, ParseWebmFailed>
+where
+    F: Fn(&[u8], usize) -> Result<O, ParseWebmFailed>,
+{
+    loop {
+        match parse(buf, pos) {
+            Ok(o) => return Ok(o),
+            Err(ParseWebmFailed::Need(i)) => {
+                assert!(i > 0);
+                let to_read = max(i, MIN_GROW_SIZE);
+                let to_read = min(to_read, MAX_GROW_SIZE);
+                tracing::debug!(to_read);
+                buf.reserve(to_read);
+                let n = reader
+                    .by_ref()
+                    .take(to_read as u64)
+                    .read_to_end(buf.as_mut())
+                    .map_err(ParseWebmFailed::IOError)?;
+                if n == 0 {
+                    return Err(ParseWebmFailed::InvalidWebmFile("no enough bytes".into()));
+                }
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
+
+fn parse_seeks(input: &[u8], pos: usize) -> Result<HashMap<u32, u64>, ParseWebmFailed> {
+    let mut cursor = Cursor::new(&input[pos..]);
+    // find SeekHead element
+    let header = find_element_by_id(&mut cursor, SegmentId::SeekHead as u64)?;
+    tracing::debug!(segment_header = ?header);
+    if cursor.remaining() < header.data_size {
+        return Err(ParseWebmFailed::Need(header.data_size - cursor.remaining()));
+    }
+
+    let header_pos = pos + cursor.position() as usize - header.header_size;
+    let mut cur = Cursor::new(&cursor.chunk()[..header.data_size]);
+    let mut seeks = parse_seek_head(&mut cur)?;
+    for (_, pos) in seeks.iter_mut() {
+        *pos += header_pos as u64;
+    }
+    Ok(seeks)
 }
 
 #[derive(Clone)]
@@ -95,17 +164,19 @@ impl Debug for SeekEntry {
 }
 
 #[tracing::instrument(skip_all)]
-fn parse_seek_head(input: &[u8]) -> Result<Vec<SeekEntry>, ParseWebmFailed> {
-    let mut entries = Vec::new();
-    let mut buf = Cursor::new(input);
-    while buf.has_remaining() {
-        match parse_seek_entry(&mut buf) {
+fn parse_seek_head(input: &mut Cursor<&[u8]>) -> Result<HashMap<u32, u64>, ParseWebmFailed> {
+    let mut entries = HashMap::new();
+    while input.has_remaining() {
+        match parse_seek_entry(input) {
             Ok(Some(entry)) => {
                 tracing::debug!(seek_entry=?entry);
-                entries.push(entry);
+                entries.insert(entry.seekId, entry.seekPosition);
             }
-            Ok(None) => {}
-            Err(_) => {}
+            Ok(None) => {
+                // tracing::debug!("Void or Crc32 Element");
+            }
+            Err(ParseWebmFailed::InvalidSeekEntry) => {}
+            Err(e) => return Err(e),
         };
     }
     Ok(entries)
@@ -118,21 +189,26 @@ fn parse_seek_entry(input: &mut Cursor<&[u8]>) -> Result<Option<SeekEntry>, Pars
 
     let id = VInt::as_u64_with_marker(input)?;
     let data_size = VInt::as_usize(input)?;
-    if id != SeekHeadId::Seek as u64 {
-        if id == EBMLGlobalId::Crc32 as u64 || id == EBMLGlobalId::Void as u64 {
-            input.advance(data_size);
-            return Ok(None);
-        }
-        return Err(ParseWebmFailed::InvalidSeekEntry);
-    }
-
     if input.remaining() < data_size {
         return Err(ParseWebmFailed::Need(data_size - input.remaining()));
     }
 
+    if id != SeekHeadId::Seek as u64 {
+        input.consume(data_size);
+        if id == EBMLGlobalId::Crc32 as u64 || id == EBMLGlobalId::Void as u64 {
+            return Ok(None);
+        }
+        tracing::debug!(
+            id = format!("0x{id:x}"),
+            "{}",
+            ParseWebmFailed::InvalidSeekEntry
+        );
+        return Err(ParseWebmFailed::InvalidSeekEntry);
+    }
+
     let pos = input.position() as usize;
+    input.consume(data_size);
     let mut buf = Cursor::new(&input.get_ref()[pos..pos + data_size]);
-    input.advance(data_size);
 
     while buf.has_remaining() {
         let id = VInt::as_u64_with_marker(&mut buf)?;

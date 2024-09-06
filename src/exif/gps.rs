@@ -51,11 +51,20 @@ impl GPSInfo {
                 "".to_string()
             } else {
                 format!(
-                    "{}{altitude:.3}",
-                    if self.altitude_ref == 0 { "+" } else { "-" }
+                    "{}{}CRSWGS_84",
+                    if self.altitude_ref == 0 { "+" } else { "-" },
+                    Self::format_float(altitude)
                 )
             }
         )
+    }
+
+    fn format_float(f: f64) -> String {
+        if f.fract() == 0.0 {
+            f.to_string()
+        } else {
+            format!("{f:.3}")
+        }
     }
 
     /// Returns an ISO 6709 geographic point location string such as
@@ -220,7 +229,7 @@ mod tests {
             altitude: Rational::<u32>(123, 1),
             ..Default::default()
         };
-        assert_eq!(above.format_iso6709(), "+40.68917-074.04444+123.000/");
+        assert_eq!(above.format_iso6709(), "+40.68917-074.04444+123CRSWGS_84/");
 
         let below = GPSInfo {
             latitude_ref: 'N',
@@ -239,6 +248,28 @@ mod tests {
             altitude: Rational::<u32>(123, 1),
             ..Default::default()
         };
-        assert_eq!(below.format_iso6709(), "+40.68917-074.04444-123.000/");
+        assert_eq!(below.format_iso6709(), "+40.68917-074.04444-123CRSWGS_84/");
+
+        let below = GPSInfo {
+            latitude_ref: 'N',
+            latitude: LatLng(
+                Rational::<u32>(40, 1),
+                Rational::<u32>(41, 1),
+                Rational::<u32>(21, 1),
+            ),
+            longitude_ref: 'W',
+            longitude: LatLng(
+                Rational::<u32>(74, 1),
+                Rational::<u32>(2, 1),
+                Rational::<u32>(40, 1),
+            ),
+            altitude_ref: 1,
+            altitude: Rational::<u32>(100, 3),
+            ..Default::default()
+        };
+        assert_eq!(
+            below.format_iso6709(),
+            "+40.68917-074.04444-33.333CRSWGS_84/"
+        );
     }
 }
