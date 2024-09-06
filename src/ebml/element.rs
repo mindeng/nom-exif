@@ -201,3 +201,48 @@ fn as_cstr(buf: &[u8]) -> String {
         .map(|b| (*b) as char)
         .collect::<String>()
 }
+
+pub(crate) fn get_as_u64(cursor: &mut Cursor<&[u8]>, size: usize) -> Option<u64> {
+    if cursor.remaining() < size {
+        return None;
+    }
+
+    let n = match size {
+        1 => cursor.get_u8() as u64,
+        2 => cursor.get_u16() as u64,
+        3 => {
+            let bytes = [0, cursor.get_u8(), cursor.get_u8(), cursor.get_u8()];
+            u32::from_be_bytes(bytes) as u64
+        }
+        4 => cursor.get_u32() as u64,
+        5..=8 => {
+            let mut buf = [0u8; 8];
+            cursor.read_exact(&mut buf[8 - size..]).ok()?;
+            u64::from_be_bytes(buf)
+        }
+        _ => return None,
+    };
+
+    Some(n)
+}
+
+pub(crate) fn get_as_f64(cursor: &mut Cursor<&[u8]>, size: usize) -> Option<f64> {
+    if cursor.remaining() < size {
+        return None;
+    }
+
+    let n = match size {
+        4 => {
+            let buf = [0u8; 4];
+            f32::from_be_bytes(buf) as f64
+        }
+        5..=8 => {
+            let mut buf = [0u8; 8];
+            cursor.read_exact(&mut buf[8 - size..]).ok()?;
+            f64::from_be_bytes(buf)
+        }
+        _ => return None,
+    };
+
+    Some(n)
+}

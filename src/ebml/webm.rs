@@ -6,10 +6,12 @@ use std::{
 };
 
 use bytes::Buf;
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use thiserror::Error;
 
 use crate::ebml::element::{
-    find_element_by_id, next_element_header, parse_ebml_doc_type, EBMLGlobalId, TopElementId,
+    find_element_by_id, get_as_f64, get_as_u64, next_element_header, parse_ebml_doc_type,
+    EBMLGlobalId, TopElementId,
 };
 
 use super::{
@@ -73,7 +75,8 @@ pub fn parse_webm<T: Read>(mut reader: T) -> Result<EBMLFileInfo, ParseWebmFaile
     let seeks = parse_and_read(reader, &mut buf, pos, parse_seeks)?;
 
     if let Some(pos) = seeks.get(&(SegmentId::Info as u32)) {
-        parse_segment_info(&buf, *pos as usize)?;
+        let info = parse_segment_info(&buf, *pos as usize)?;
+        tracing::debug!(?info);
     }
 
     Ok(EBMLFileInfo { doc_type })
@@ -81,7 +84,9 @@ pub fn parse_webm<T: Read>(mut reader: T) -> Result<EBMLFileInfo, ParseWebmFaile
 
 #[derive(Debug, Clone, Default)]
 struct SegmentInfo {
+    // in nano seconds
     duration: f64,
+    date: DateTime<Utc>,
 }
 
 #[tracing::instrument(skip(input))]
@@ -90,7 +95,47 @@ fn parse_segment_info(input: &[u8], pos: usize) -> Result<SegmentInfo, ParseWebm
     let header = next_element_header(&mut cursor)?;
     tracing::debug!(segment_info_header = ?header);
 
-    Ok(SegmentInfo { duration: 0.0 })
+    // timestamp in nanosecond = element value * TimestampScale
+    // By default, one segment tick represents one millisecond
+    let mut time_scale = 1_000_000;
+    let mut info = SegmentInfo::default();
+
+    let mut cursor = Cursor::new(&cursor.chunk()[..header.data_size]);
+    while cursor.has_remaining() {
+        let header = next_element_header(&mut cursor)?;
+        let id = TryInto::<InfoId>::try_into(header.id);
+        tracing::debug!(?header, "segment info sub-element");
+        if let Ok(id) = id {
+            match id {
+                InfoId::TimestampScale => {
+                    if let Some(v) = get_as_u64(&mut cursor, header.data_size) {
+                        time_scale = v;
+                    }
+                }
+                InfoId::Duration => {
+                    if let Some(v) = get_as_f64(&mut cursor, header.data_size) {
+                        info.duration = v * time_scale as f64;
+                    }
+                }
+                InfoId::Date => {
+                    if let Some(v) = get_as_u64(&mut cursor, header.data_size) {
+                        // webm date is a 2001 based timestamp
+                        let dt = NaiveDate::from_ymd_opt(2001, 1, 1)
+                            .unwrap()
+                            .and_hms_opt(0, 0, 0)
+                            .unwrap()
+                            .and_utc();
+                        let diff = dt - DateTime::from_timestamp_nanos(0);
+                        info.date = DateTime::from_timestamp_nanos(v as i64) + diff;
+                    }
+                }
+            }
+        } else {
+            cursor.consume(header.data_size);
+        }
+    }
+
+    Ok(info)
 }
 
 fn parse_and_read<T: Read, O, F>(
@@ -145,20 +190,20 @@ fn parse_seeks(input: &[u8], pos: usize) -> Result<HashMap<u32, u64>, ParseWebmF
 
 #[derive(Clone)]
 struct SeekEntry {
-    seekId: u32,
-    seekPosition: u64,
+    seek_id: u32,
+    seek_pos: u64,
 }
 
 impl Debug for SeekEntry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let id = self.seekId as u64;
+        let id = self.seek_id as u64;
         let s = TryInto::<TopElementId>::try_into(id)
             .map(|x| format!("{x:?}"))
             .or_else(|_| TryInto::<SegmentId>::try_into(id).map(|x| format!("{x:?}")))
             .unwrap_or_else(|_| format!("0x{:04x}", id));
         f.debug_struct("SeekEntry")
             .field("seekId", &s)
-            .field("seekPosition", &self.seekPosition.to_string())
+            .field("seekPosition", &self.seek_pos.to_string())
             .finish()
     }
 }
@@ -170,7 +215,7 @@ fn parse_seek_head(input: &mut Cursor<&[u8]>) -> Result<HashMap<u32, u64>, Parse
         match parse_seek_entry(input) {
             Ok(Some(entry)) => {
                 tracing::debug!(seek_entry=?entry);
-                entries.insert(entry.seekId, entry.seekPosition);
+                entries.insert(entry.seek_id, entry.seek_pos);
             }
             Ok(None) => {
                 // tracing::debug!("Void or Crc32 Element");
@@ -184,8 +229,8 @@ fn parse_seek_head(input: &mut Cursor<&[u8]>) -> Result<HashMap<u32, u64>, Parse
 
 fn parse_seek_entry(input: &mut Cursor<&[u8]>) -> Result<Option<SeekEntry>, ParseWebmFailed> {
     // 0xFF is an invalid ID
-    let mut seekId = INVALID_ELEMENT_ID as u32;
-    let mut seekPosition = 0u64;
+    let mut seek_id = INVALID_ELEMENT_ID as u32;
+    let mut seek_pos = 0u64;
 
     let id = VInt::as_u64_with_marker(input)?;
     let data_size = VInt::as_usize(input)?;
@@ -216,13 +261,13 @@ fn parse_seek_entry(input: &mut Cursor<&[u8]>) -> Result<Option<SeekEntry>, Pars
 
         match id {
             x if x == SeekHeadId::SeekId as u64 => {
-                seekId = VInt::as_u64_with_marker(&mut buf)? as u32;
+                seek_id = VInt::as_u64_with_marker(&mut buf)? as u32;
             }
             x if x == SeekHeadId::SeekPosition as u64 => {
                 if size == 8 {
-                    seekPosition = buf.get_u64();
+                    seek_pos = buf.get_u64();
                 } else if size == 4 {
-                    seekPosition = buf.get_u32() as u64;
+                    seek_pos = buf.get_u32() as u64;
                 } else {
                     return Err(ParseWebmFailed::InvalidSeekEntry);
                 }
@@ -232,19 +277,16 @@ fn parse_seek_entry(input: &mut Cursor<&[u8]>) -> Result<Option<SeekEntry>, Pars
             }
         }
 
-        if seekId != INVALID_ELEMENT_ID as u32 && seekPosition != 0 {
+        if seek_id != INVALID_ELEMENT_ID as u32 && seek_pos != 0 {
             break;
         }
     }
 
-    if seekId == INVALID_ELEMENT_ID as u32 || seekPosition == 0 {
+    if seek_id == INVALID_ELEMENT_ID as u32 || seek_pos == 0 {
         return Err(ParseWebmFailed::InvalidSeekEntry);
     }
 
-    Ok(Some(SeekEntry {
-        seekId,
-        seekPosition,
-    }))
+    Ok(Some(SeekEntry { seek_id, seek_pos }))
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -254,6 +296,27 @@ enum SegmentId {
     Tracks = 0x1654AE6B,
     Cluster = 0x1F43B675,
     Cues = 0x1C53BB6B,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum InfoId {
+    // Info IDs
+    TimestampScale = 0x2AD7B1,
+    Duration = 0x4489,
+    Date = 0x4461,
+}
+
+impl TryFrom<u64> for InfoId {
+    type Error = UnknowEbmlIDError;
+    fn try_from(v: u64) -> Result<Self, Self::Error> {
+        let id = match v {
+            x if x == Self::TimestampScale as u64 => Self::TimestampScale,
+            x if x == Self::Duration as u64 => Self::Duration,
+            x if x == Self::Date as u64 => Self::Date,
+            o => return Err(UnknowEbmlIDError(o)),
+        };
+        Ok(id)
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -273,11 +336,11 @@ impl TryFrom<u64> for SegmentId {
     type Error = UnknowEbmlIDError;
     fn try_from(v: u64) -> Result<Self, Self::Error> {
         let id = match v {
-            x if x == Self::SeekHead.code() as u64 => Self::SeekHead,
-            x if x == Self::Info.code() as u64 => Self::Info,
-            x if x == Self::Tracks.code() as u64 => Self::Tracks,
-            x if x == Self::Cluster.code() as u64 => Self::Cluster,
-            x if x == Self::Cues.code() as u64 => Self::Cues,
+            x if x == Self::SeekHead as u64 => Self::SeekHead,
+            x if x == Self::Info as u64 => Self::Info,
+            x if x == Self::Tracks as u64 => Self::Tracks,
+            x if x == Self::Cluster as u64 => Self::Cluster,
+            x if x == Self::Cues as u64 => Self::Cues,
             o => return Err(UnknowEbmlIDError(o)),
         };
         Ok(id)
@@ -289,6 +352,7 @@ impl Debug for ElementHeader {
         let s = TryInto::<TopElementId>::try_into(self.id)
             .map(|x| format!("{x:?}"))
             .or_else(|_| TryInto::<SegmentId>::try_into(self.id).map(|x| format!("{x:?}")))
+            .or_else(|_| TryInto::<InfoId>::try_into(self.id).map(|x| format!("{x:?}")))
             .unwrap_or_else(|_| format!("0x{:04x}", self.id));
         f.debug_struct("ElementHeader")
             .field("id", &s)
