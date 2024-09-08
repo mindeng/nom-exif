@@ -71,6 +71,7 @@ impl TryFrom<u64> for TopElementId {
     }
 }
 
+#[allow(unused)]
 #[derive(Debug, Clone, Copy)]
 enum EBMLHeaderId {
     Version = 0x4286,
@@ -129,11 +130,6 @@ fn parse_ebml_head_data(input: &[u8]) -> Result<String, ParseEBMLFailed> {
         }
     }
     Err(ParseEBMLFailed::NotEBMLFile)
-}
-
-struct Element<'a> {
-    id: u64,
-    data: &'a [u8],
 }
 
 pub(crate) fn find_element_by_id(
@@ -197,28 +193,6 @@ pub(crate) fn next_element_header(
     })
 }
 
-pub(crate) fn next_element_header_in_slice(input: &[u8]) -> Result<ElementHeader, ParseEBMLFailed> {
-    if input.is_empty() {
-        return Err(ParseEBMLFailed::Need(1));
-    }
-
-    let mut cursor = Cursor::new(input);
-    let id = VInt::as_u64_with_marker(&mut cursor)?;
-
-    if input.is_empty() {
-        return Err(ParseEBMLFailed::Need(1));
-    }
-
-    let data_size = VInt::as_usize(&mut cursor)?;
-    let header_size = cursor.position() as usize;
-
-    Ok(ElementHeader {
-        id,
-        data_size,
-        header_size,
-    })
-}
-
 fn get_cstr(cursor: &mut Cursor<&[u8]>, size: usize) -> Option<String> {
     if cursor.remaining() < size {
         return None;
@@ -230,13 +204,6 @@ fn get_cstr(cursor: &mut Cursor<&[u8]>, size: usize) -> Option<String> {
         .collect::<String>();
     cursor.consume(size);
     Some(s)
-}
-
-fn as_cstr(buf: &[u8]) -> String {
-    buf.iter()
-        .take_while(|b| **b != 0)
-        .map(|b| (*b) as char)
-        .collect::<String>()
 }
 
 pub(crate) fn get_as_u64(cursor: &mut Cursor<&[u8]>, size: usize) -> Option<u64> {

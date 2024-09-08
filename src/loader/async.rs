@@ -1,3 +1,4 @@
+#[cfg(feature = "async")]
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt};
 
 use super::{AsyncLoad, BufLoad, INIT_BUF_SIZE};
@@ -6,6 +7,7 @@ pub(crate) struct AsyncBufLoader<T> {
     inner: Inner<T>,
 }
 
+#[cfg(feature = "async")]
 impl<T: AsyncRead + Unpin> AsyncLoad for AsyncBufLoader<T> {
     #[inline]
     async fn read_buf(&mut self, n: usize) -> std::io::Result<usize> {
@@ -58,6 +60,7 @@ pub(crate) struct AsyncSeekBufLoader<T> {
     inner: Inner<T>,
 }
 
+#[cfg(feature = "async")]
 impl<T: AsyncRead + AsyncSeek + Unpin> AsyncLoad for AsyncSeekBufLoader<T> {
     #[inline]
     async fn read_buf(&mut self, n: usize) -> std::io::Result<usize> {
@@ -104,6 +107,7 @@ where
 }
 
 impl<T> AsyncSeekBufLoader<T> {
+    #[allow(unused)]
     pub fn new(reader: T) -> Self {
         Self {
             inner: Inner::new(reader),
@@ -125,6 +129,7 @@ impl<T> Inner<T> {
     }
 }
 
+#[cfg(feature = "async")]
 impl<T> Inner<T>
 where
     T: AsyncRead + Unpin,

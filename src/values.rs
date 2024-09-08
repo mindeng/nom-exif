@@ -48,30 +48,24 @@ pub(crate) struct EntryData<'a> {
 }
 
 #[derive(Debug, Error)]
-pub(crate) enum EntryError {
-    #[error("Failed to parse IFD entry; size/offset is overflow")]
-    Overflow,
+pub(crate) enum ParseEntryError {
+    #[error("size is too big")]
+    EntrySizeTooBig,
 
-    #[error("Failed to parse IFD entry; invalid data: {0}")]
+    #[error("data is invalid: {0}")]
     InvalidData(String),
 
-    #[error("Failed to parse IFD entry; unsupported: {0}")]
+    #[error("data format is unsupported (please file a bug): {0}")]
     Unsupported(String),
 }
 
-impl From<EntryError> for crate::Error {
-    fn from(value: EntryError) -> Self {
-        Self::InvalidEntry(value.into())
-    }
-}
-
-impl From<chrono::ParseError> for EntryError {
+impl From<chrono::ParseError> for ParseEntryError {
     fn from(value: chrono::ParseError) -> Self {
-        EntryError::InvalidData(format!("invalid time format: {value}"))
+        ParseEntryError::InvalidData(format!("invalid time format: {value}"))
     }
 }
 
-use EntryError as Error;
+use ParseEntryError as Error;
 
 impl EntryData<'_> {
     // Ensure that the returned Vec is not empty.

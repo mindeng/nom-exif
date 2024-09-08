@@ -140,6 +140,9 @@
 //!     );
 //!     Ok(())
 //! }
+//!
+//! #[cfg(not(feature = "async"))]
+//! fn main() {}
 //! ```
 //!
 //! ## GPS Info

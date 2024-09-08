@@ -27,6 +27,7 @@ use super::{
 
 #[derive(Debug, Clone, Default)]
 pub struct EbmlFileInfo {
+    #[allow(unused)]
     doc_type: String,
     segment_info: SegmentInfo,
     tracks_info: TracksInfo,
@@ -270,7 +271,7 @@ fn parse_segment_info(input: &[u8], pos: usize) -> Result<Option<SegmentInfo>, P
         Ok(x) => Ok(Some(x)),
         // Don't bubble Need error to caller here
         Err(ParsingError::Need(_)) => Ok(None),
-        Err(e) => Err(e.into()),
+        Err(e) => Err(e),
     }
 }
 
@@ -497,12 +498,6 @@ enum SeekHeadId {
     Seek = 0x4DBB,
     SeekId = 0x53AB,
     SeekPosition = 0x53AC,
-}
-
-impl SegmentId {
-    fn code(self) -> u32 {
-        self as u32
-    }
 }
 
 impl TryFrom<u64> for SegmentId {

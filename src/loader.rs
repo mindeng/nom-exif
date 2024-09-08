@@ -8,6 +8,7 @@ use crate::error::{ParsedError, ParsingError};
 mod sync;
 pub(crate) use sync::{BufLoader, SeekBufLoader};
 mod r#async;
+#[allow(unused)]
 pub(crate) use r#async::{AsyncBufLoader, AsyncSeekBufLoader};
 
 const INIT_BUF_SIZE: usize = 4096;
@@ -18,6 +19,7 @@ pub(crate) trait BufLoad {
     fn buf(&self) -> &Vec<u8>;
     fn buf_mut(&mut self) -> &mut Vec<u8>;
     fn into_vec(self) -> Vec<u8>;
+    #[allow(unused)]
     fn cursor<Idx>(&self, idx: Idx) -> Cursor<&[u8]>
     where
         Idx: std::slice::SliceIndex<[u8], Output = [u8]>,

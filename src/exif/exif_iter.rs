@@ -4,11 +4,12 @@ use nom::{
     number::{complete, Endianness},
     sequence::tuple,
 };
+use thiserror::Error;
 
 use crate::{
     input::{AssociatedInput, Input},
     slice::SliceChecked,
-    values::{DataFormat, EntryData, EntryError, IRational, URational},
+    values::{DataFormat, EntryData, IRational, ParseEntryError, URational},
     EntryValue, ExifTag,
 };
 
@@ -88,7 +89,7 @@ impl<'a> ExifIter<'a> {
 
         let offset = match gps.take_result() {
             Ok(v) => v.as_u32().unwrap() as usize,
-            Err(e) => return Err(e),
+            Err(e) => return Err(e.into()),
         };
 
         let data = &iter.input[..];
@@ -122,12 +123,22 @@ impl Default for ExifIter<'static> {
     }
 }
 
+#[derive(Debug, Error)]
+#[error("ifd entry error: {0}")]
+pub struct EntryError(ParseEntryError);
+
+impl From<EntryError> for crate::Error {
+    fn from(value: EntryError) -> Self {
+        Self::ParseFailed(value.into())
+    }
+}
+
 /// Represents a parsed IFD entry. Used as iterator items in [`ExifIter`].
 pub struct ParsedExifEntry {
     // 0: ifd0, 1: ifd1
     ifd: usize,
     tag: ExifTagCode,
-    res: RefCell<Option<crate::Result<EntryValue>>>,
+    res: RefCell<Option<Result<EntryValue, EntryError>>>,
 }
 
 impl ParsedExifEntry {
@@ -195,16 +206,14 @@ impl ParsedExifEntry {
     /// - If any error occurred while parsing this entry, an
     ///   Err([`InvalidEntry`](crate::Error::InvalidEntry)) is returned.
     ///
-    /// - If the result has been taken, an
-    ///   Err([`EntryHasBeenTaken`](crate::Error::EntryHasBeenTaken)) is returned.
-    ///
     /// - Otherwise, an Ok([`EntryValue`]) is returned.
     ///
-    /// **Note**: This method can only be called once!
-    pub fn take_result(&self) -> crate::Result<EntryValue> {
+    /// **Note**: This method can ONLY be called once! If you call it twice, it
+    /// will **panic** directly!
+    pub fn take_result(&self) -> Result<EntryValue, EntryError> {
         match self.res.take() {
             Some(v) => v,
-            None => Err(crate::Error::EntryHasBeenTaken),
+            None => panic!("take result of entry twice"),
         }
     }
 
@@ -216,11 +225,11 @@ impl ParsedExifEntry {
         }
     }
 
-    fn make_err(ifd: usize, tag: ExifTagCode, e: EntryError) -> Self {
+    fn make_err(ifd: usize, tag: ExifTagCode, e: ParseEntryError) -> Self {
         Self {
             ifd,
             tag,
-            res: RefCell::new(Some(Err(crate::Error::InvalidEntry(e.into())))),
+            res: RefCell::new(Some(Err(EntryError(e)))),
         }
     }
 }
@@ -402,7 +411,7 @@ impl ImageFileDirectoryIter {
             let start = value_or_offset as usize;
             let end = start + size;
             let Some(data) = self.input.slice_checked(start..end) else {
-                return (tag, IfdEntry::Err(EntryError::Overflow));
+                return (tag, IfdEntry::Err(ParseEntryError::EntrySizeTooBig));
             };
 
             // Is `start` should be greater than or equal to `pos + ENTRY_SIZE` ?
@@ -420,7 +429,7 @@ impl ImageFileDirectoryIter {
                     },
                 );
             } else {
-                return (tag, IfdEntry::Err(EntryError::Overflow));
+                return (tag, IfdEntry::Err(ParseEntryError::EntrySizeTooBig));
             }
         }
 
@@ -554,7 +563,7 @@ impl ImageFileDirectoryIter {
 pub(crate) enum IfdEntry {
     Ifd { idx: usize, offset: usize }, // ifd index
     Entry(EntryValue),
-    Err(EntryError),
+    Err(ParseEntryError),
 }
 
 impl IfdEntry {

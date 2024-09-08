@@ -107,6 +107,7 @@ impl FileFormat {
         }
     }
 
+    #[allow(unused)]
     pub(crate) fn check(&self, input: &[u8]) -> crate::Result<()> {
         match self {
             Jpeg => check_jpeg(input),

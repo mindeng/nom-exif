@@ -1,12 +1,11 @@
 use std::{
-    collections::{btree_map, BTreeMap, HashMap},
+    collections::{btree_map, BTreeMap},
     io::{Read, Seek},
     ops::Range,
 };
 
 use chrono::DateTime;
 use nom::{bytes::streaming, IResult};
-use thiserror::Error;
 
 use crate::{
     bbox::{
@@ -14,8 +13,8 @@ use crate::{
     },
     error::ParsingError,
     input::Input,
-    loader::{BufLoad, BufLoader, Load, SeekBufLoader},
-    video::{VideoInfo, VideoInfoTag},
+    loader::{Load, SeekBufLoader},
+    video::VideoInfoTag,
     EntryValue, FileFormat,
 };
 
@@ -279,55 +278,6 @@ fn extract_moov_body<L: Load>(mut loader: L) -> Result<Input<'static>, crate::Er
 
     tracing::debug!(?moov_body_range);
     Ok(Input::from_vec_range(loader.into_vec(), moov_body_range))
-}
-
-/// Due to the fact that metadata in MOV files is typically located at the end
-/// of the file, conventional parsing methods would require reading a
-/// significant amount of unnecessary data during the parsing process. This
-/// would impact the performance of the parsing program and consume more memory.
-///
-/// To address this issue, we have defined an `Error::Skip` enumeration type to
-/// inform the caller that certain bytes in the parsing process are not required
-/// and can be skipped directly. The specific method of skipping can be
-/// determined by the caller based on the situation. For example:
-///
-/// - For files, you can quickly skip using a `Seek` operation.
-///
-/// - For network byte streams, you may need to skip these bytes through read
-///   operations, or preferably, by designing an appropriate network protocol for
-///   skipping.
-///
-/// # `Error::Skip`
-///
-/// Please note that when the caller receives an `Error::Skip(n)` error, it
-/// should be understood as follows:
-///
-/// - The parsing program has already consumed all available data and needs to
-///   skip n bytes further.
-///
-/// - After skipping n bytes, it should continue to read subsequent data to fill
-///   the buffer and use it as input for the parsing function.
-///
-/// - The next time the parsing function is called (usually within a loop), the
-///   previously consumed data (including the skipped bytes) should be ignored,
-///   and only the newly read data should be passed in.
-///
-/// # `Error::Need`
-///
-/// Additionally, to simplify error handling, we have integrated
-/// `nom::Err::Incomplete` error into `Error::Need`. This allows us to use the
-/// same error type to notify the caller that we require more bytes to continue
-/// parsing.
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("skip {0} bytes")]
-    Skip(u64),
-
-    #[error("need {0} more bytes")]
-    Need(usize),
-
-    #[error("{0}")]
-    ParseFailed(crate::Error),
 }
 
 /// Parse the byte data of an ISOBMFF file and return the potential body data of
