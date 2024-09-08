@@ -71,7 +71,7 @@ fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
                 Some((
                     x.tag()
                         .map(|x| x.to_string())
-                        .unwrap_or_else(|| format!("0x{:04x}", x.tag_code())),
+                        .unwrap_or_else(|| format!("Unknown(0x{:04x})", x.tag_code())),
                     v,
                 ))
             })
