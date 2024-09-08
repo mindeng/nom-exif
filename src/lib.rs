@@ -110,7 +110,9 @@
 //! ```rust
 //! #[cfg(feature = "async")]
 //! use nom_exif::{parse_exif_async, ExifIter, Exif, ExifTag};
+//! #[cfg(feature = "async")]
 //! use tokio::task::spawn_blocking;
+//! #[cfg(feature = "async")]
 //! use tokio::fs::File;
 //!
 //! #[cfg(feature = "async")]
@@ -138,9 +140,6 @@
 //!     );
 //!     Ok(())
 //! }
-//!
-//! #[cfg(not(feature = "async"))]
-//! fn main() {}
 //! ```
 //!
 //! ## GPS Info
@@ -185,8 +184,8 @@ mod exif;
 mod file;
 mod heif;
 mod input;
-mod ioutil;
 mod jpeg;
+mod loader;
 mod mov;
 mod slice;
 mod values;

@@ -1,20 +1,21 @@
+use crate::error::ParsingError;
+use crate::loader::{BufLoad, BufLoader, Load};
+use crate::slice::SubsliceRange;
+use crate::{input::Input, FileFormat};
 pub use exif_iter::{ExifIter, ParsedExifEntry};
 pub use gps::{GPSInfo, LatLng};
 pub use parser::Exif;
 pub use tags::ExifTag;
 
+use std::io::Read;
+
 pub(crate) mod ifd;
-pub(crate) use io::read_exif;
 pub(crate) use parser::{check_exif_header, input_to_exif, input_to_iter};
 
 mod exif_iter;
 mod gps;
-mod io;
 mod parser;
 mod tags;
-
-use crate::file::FileFormat;
-use std::io::Read;
 
 /// Read exif data from `reader`, and build an [`ExifIter`] for it.
 ///
@@ -51,11 +52,70 @@ pub async fn parse_exif_async<T: AsyncRead + Unpin>(
     reader: T,
     format: Option<FileFormat>,
 ) -> crate::Result<Option<ExifIter<'static>>> {
-    use io::read_exif_async;
     read_exif_async(reader, format)
         .await?
         .map(input_to_iter)
         .transpose()
+}
+
+/// Read exif data from `reader`, if `format` is None, then guess the file
+/// format based on the read content.
+#[tracing::instrument(skip(read))]
+pub(crate) fn read_exif<T: Read>(
+    read: T,
+    format: Option<FileFormat>,
+) -> crate::Result<Option<Input<'static>>> {
+    let mut loader = BufLoader::new(read);
+    let ff = match format {
+        Some(ff) => ff,
+        None => loader.load_and_parse(|x| {
+            x.try_into()
+                .map_err(|_| ParsingError::Failed("unrecognized file format".to_string()))
+        })?,
+    };
+
+    let exif_data = loader.load_and_parse(|buf| match ff.extract_exif_data(buf) {
+        Ok((_, data)) => Ok(data.and_then(|x| buf.subslice_range(x))),
+        Err(e) => Err(e.into()),
+    })?;
+
+    Ok(exif_data.map(|x| Input::from_vec_range(loader.into_vec(), x)))
+}
+
+/// Read exif data from `reader`, if `format` is None, then guess the file
+/// format based on the read content.
+#[cfg(feature = "async")]
+#[tracing::instrument(skip(read))]
+pub(crate) async fn read_exif_async<T>(
+    read: T,
+    format: Option<FileFormat>,
+) -> crate::Result<Option<Input<'static>>>
+where
+    T: AsyncRead + std::marker::Unpin,
+{
+    use crate::loader::{AsyncBufLoader, AsyncLoad};
+
+    let mut loader = AsyncBufLoader::new(read);
+    let ff = match format {
+        Some(ff) => ff,
+        None => {
+            loader
+                .load_and_parse(|x| {
+                    x.try_into()
+                        .map_err(|_| ParsingError::Failed("unrecognized file format".to_string()))
+                })
+                .await?
+        }
+    };
+
+    let exif_data = loader
+        .load_and_parse(|buf| match ff.extract_exif_data(buf) {
+            Ok((_, data)) => Ok(data.and_then(|x| buf.subslice_range(x))),
+            Err(e) => Err(e.into()),
+        })
+        .await?;
+
+    Ok(exif_data.map(|x| Input::from_vec_range(loader.into_vec(), x)))
 }
 
 #[cfg(test)]

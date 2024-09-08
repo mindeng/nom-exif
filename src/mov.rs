@@ -13,7 +13,7 @@ use crate::{
     },
     error::ParsingError,
     input::Input,
-    ioutil::{BufLoader, Loader, ReadLoader, SeekReadLoader},
+    loader::{BufLoad, BufLoader, Load, SeekBufLoader},
     EntryValue,
 };
 
@@ -159,11 +159,11 @@ pub fn parse_mov_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(Strin
 
 #[tracing::instrument(skip_all)]
 fn extract_moov_body<R: Read + Seek>(read: R) -> Result<Input<'static>, crate::Error> {
-    let mut reader = SeekReadLoader::new(read);
-    let moov_body_range = reader.load_and_parse(extract_moov_body_from_buf)?;
+    let mut loader = SeekBufLoader::new(read);
+    let moov_body_range = loader.load_and_parse(extract_moov_body_from_buf)?;
 
     tracing::debug!(?moov_body_range);
-    Ok(Input::from_vec_range(reader.into_vec(), moov_body_range))
+    Ok(Input::from_vec_range(loader.into_vec(), moov_body_range))
 }
 
 /// Due to the fact that metadata in MOV files is typically located at the end

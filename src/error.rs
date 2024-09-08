@@ -14,13 +14,13 @@ pub enum Error {
     #[error("exif/metadata not found")]
     NotFound,
 
-    #[error("parse failed; {0}")]
+    #[error("parse failed: {0}")]
     ParseFailed(FallbackError),
 
     #[error("io error: {0}")]
     IOError(std::io::Error),
 
-    #[error("invalid entry; {0}")]
+    #[error("invalid entry: {0}")]
     InvalidEntry(FallbackError),
 
     #[error("parsed entry result has been taken")]
