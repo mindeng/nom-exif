@@ -5,35 +5,18 @@ type FallbackError = Box<dyn std::error::Error + Send + Sync>;
 
 #[derive(Debug, Error)]
 pub enum Error {
-    /// `NotFound` has been deprecated, please don't check this error in your
-    /// code (use "_" to ommit it if you are using match statement).
-    ///
-    /// The parser won't return this error anymore. It will be deleted in next
-    /// major version.
-    #[deprecated(since = "1.5.0", note = "won't return this error anymore")]
-    #[error("exif/metadata not found")]
-    NotFound,
-
     #[error("parse failed: {0}")]
     ParseFailed(FallbackError),
 
     #[error("io error: {0}")]
     IOError(std::io::Error),
 
-    #[error("invalid entry: {0}")]
-    InvalidEntry(FallbackError),
-
-    #[error("parsed entry result has been taken")]
-    EntryHasBeenTaken,
-
     #[error("unrecognized file format")]
     UnrecognizedFileFormat,
-    // #[error("unsupported file format: {0}")]
-    // UnsupportedFileFormat(FileFormat),
 }
 
 #[derive(Debug, Error)]
-pub enum ParsedError {
+pub(crate) enum ParsedError {
     #[error("no enough bytes")]
     NoEnoughBytes,
 
