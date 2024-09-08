@@ -65,7 +65,7 @@ mod tests {
 
     use super::*;
 
-    #[test_case("exif.heic", "+43.29013+084.22713+1595.950/")]
+    #[test_case("exif.heic", "+43.29013+084.22713+1595.950CRSWGS_84/")]
     #[test_case("exif.jpg", "+22.53113+114.02148/")]
     fn gps(path: &str, gps_str: &str) {
         let f = open_sample(path).unwrap();

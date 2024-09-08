@@ -1,12 +1,28 @@
-#[cfg(feature = "json_dump")]
-use serde::{Deserialize, Serialize};
+use std::{
+    collections::HashMap,
+    io::{Read, Seek},
+};
 
-#[cfg_attr(feature = "json_dump", derive(Serialize, Deserialize))]
-#[derive(Debug, Eq, PartialEq, Hash, Clone, Copy)]
-enum VideoTag {
-    Duration,
-    DateTimeOriginal,
+use crate::{EntryValue, GPSInfo};
+
+/// Try to keep the tag name consistent with [`crate::ExifTag`], and add some
+/// unique to video, such as `Duration`
+#[derive(Debug, Clone, PartialEq, Eq, Copy)]
+pub enum VideoInfoTag {
+    Make,
+    Model,
+    CreateDate,
     ImageWidth,
     ImageHeight,
-    GpsIso6709,
+    Duration,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct VideoInfo {
+    entries: HashMap<VideoInfoTag, EntryValue>,
+    gps_info: Option<GPSInfo>,
+}
+
+pub fn parse_video_info<R: Read + Seek>(reader: R) -> crate::Result<VideoInfo> {
+    Ok(VideoInfo::default())
 }

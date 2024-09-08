@@ -157,7 +157,7 @@
 //!     let iter = parse_exif(f, None)?.unwrap();
 //!
 //!     let gps_info = iter.parse_gps_info()?.unwrap();
-//!     assert_eq!(gps_info.format_iso6709(), "+43.29013+084.22713+1595.950/");
+//!     assert_eq!(gps_info.format_iso6709(), "+43.29013+084.22713+1595.950CRSWGS_84/");
 //!     Ok(())
 //! }
 //! ```
@@ -165,7 +165,6 @@
 //! For more usage details, please refer to the [API
 //! documentation](https://docs.rs/nom-exif/latest/nom_exif/).
 
-pub use ebml::parse_webm;
 pub use heif::parse_heif_exif;
 pub use jpeg::parse_jpeg_exif;
 pub use mov::{parse_metadata, parse_mov_metadata};
@@ -186,6 +185,7 @@ mod exif;
 mod file;
 mod heif;
 mod input;
+mod ioutil;
 mod jpeg;
 mod mov;
 mod slice;

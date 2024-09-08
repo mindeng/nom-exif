@@ -1,5 +1,4 @@
 use std::{
-    cmp,
     io::{Read, Seek},
     ops::Range,
 };
@@ -12,8 +11,9 @@ use crate::{
     bbox::{
         find_box, parse_video_tkhd_in_moov, travel_header, IlstBox, KeysBox, MvhdBox, ParseBox,
     },
-    file::{check_qt_mp4, FileFormat},
+    error::ParsingError,
     input::Input,
+    ioutil::{BufLoader, Loader, ReadLoader, SeekReadLoader},
     EntryValue,
 };
 
@@ -53,7 +53,7 @@ use crate::{
 /// ```
 #[tracing::instrument(skip_all)]
 pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, EntryValue)>> {
-    let (ft, moov_body) = extract_moov_body(reader)?;
+    let moov_body = extract_moov_body(reader)?;
 
     let (_, mut entries) = match parse_moov_body(&moov_body) {
         Ok((remain, Some(entries))) => (remain, entries),
@@ -63,23 +63,24 @@ pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, E
         }
     };
 
-    if ft == FileFormat::MP4 {
-        const LOCATION_KEY: &str = "com.apple.quicktime.location.ISO6709";
-
-        if !entries.iter().any(|x| x.0 == LOCATION_KEY) {
-            // Try to parse GPS location for MP4 files. For mp4 files, Android
-            // phones store GPS info in the `moov/udta/©xyz` atom.
-            let (_, bbox) = find_box(&moov_body, "udta/©xyz")?;
-            if let Some(bbox) = bbox {
-                if bbox.body_data().len() <= 4 {
-                    tracing::error!("Box body is too small.");
-                } else {
-                    let location = &bbox.body_data()[4..] // Safe-slice
-                        .iter()
-                        .map(|b| *b as char)
-                        .collect::<String>();
-                    entries.push((LOCATION_KEY.to_owned(), location.into()))
-                }
+    // If the LOCATION_KEY doesn't exist, then try to find GPS info from box
+    // `moov/udta/©xyz`. For mp4 files, Android phones store GPS info in that
+    // box.
+    const LOCATION_KEY: &str = "com.apple.quicktime.location.ISO6709";
+    if !entries.iter().any(|x| x.0 == LOCATION_KEY) {
+        let bbox = match find_box(&moov_body, "udta/©xyz") {
+            Ok((_, b)) => b,
+            Err(_) => None,
+        };
+        if let Some(bbox) = bbox {
+            if bbox.body_data().len() <= 4 {
+                tracing::error!("moov/udta/©xyz body is too small");
+            } else {
+                let location = &bbox.body_data()[4..] // Safe-slice
+                    .iter()
+                    .map(|b| *b as char)
+                    .collect::<String>();
+                entries.push((LOCATION_KEY.to_owned(), location.into()))
             }
         }
     }
@@ -157,56 +158,12 @@ pub fn parse_mov_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(Strin
 }
 
 #[tracing::instrument(skip_all)]
-fn extract_moov_body<R: Read + Seek>(
-    mut reader: R,
-) -> Result<(FileFormat, Input<'static>), crate::Error> {
-    const INIT_BUF_SIZE: usize = 4096;
-    const GROW_BUF_SIZE: usize = 4096;
-    let mut buf = Vec::with_capacity(INIT_BUF_SIZE);
+fn extract_moov_body<R: Read + Seek>(read: R) -> Result<Input<'static>, crate::Error> {
+    let mut reader = SeekReadLoader::new(read);
+    let moov_body_range = reader.load_and_parse(extract_moov_body_from_buf)?;
 
-    buf.reserve(INIT_BUF_SIZE);
-    let n = reader
-        .by_ref()
-        .take(INIT_BUF_SIZE as u64)
-        .read_to_end(buf.as_mut())?;
-    if n == 0 {
-        Err("file is empty")?;
-    }
-
-    let ft = check_qt_mp4(&buf)?;
-
-    let mut offset = 0;
-    let moov_body_range = loop {
-        let input = if offset > 0 { &buf[offset..] } else { &buf[..] }; // Safe-slice
-
-        let to_read = match extract_moov_body_from_buf(input) {
-            Ok(range) => break range.start + offset..range.end + offset,
-            Err(Error::Need(n)) => n,
-            Err(Error::Skip(n)) => {
-                tracing::debug!(?n, "skip");
-                reader.seek(std::io::SeekFrom::Current(n as i64))?;
-                offset = buf.len();
-                GROW_BUF_SIZE
-            }
-            Err(Error::ParseFailed(e)) => return Err(e),
-        };
-
-        tracing::debug!(?to_read, "to_read");
-        assert!(to_read > 0);
-
-        let to_read = cmp::max(GROW_BUF_SIZE, to_read);
-        buf.reserve(to_read);
-
-        let n = reader
-            .by_ref()
-            .take(to_read as u64)
-            .read_to_end(buf.as_mut())?;
-        if n == 0 {
-            Err("metadata not found")?;
-        }
-    };
-
-    Ok((ft, Input::from_vec_range(buf, moov_body_range)))
+    tracing::debug!(?moov_body_range);
+    Ok(Input::from_vec_range(reader.into_vec(), moov_body_range))
 }
 
 /// Due to the fact that metadata in MOV files is typically located at the end
@@ -263,17 +220,16 @@ pub enum Error {
 ///
 /// Regarding error handling, please refer to [Error] for more information.
 #[tracing::instrument(skip_all)]
-fn extract_moov_body_from_buf(input: &[u8]) -> Result<Range<usize>, Error> {
+fn extract_moov_body_from_buf(input: &[u8]) -> Result<Range<usize>, ParsingError> {
     // parse metadata from moov/meta/keys & moov/meta/ilst
     let remain = input;
 
     let convert_error = |e: nom::Err<_>, msg: &str| match e {
         nom::Err::Incomplete(needed) => match needed {
-            nom::Needed::Unknown => Error::Need(4096),
-            nom::Needed::Size(n) => Error::Need(n.get()),
+            nom::Needed::Unknown => ParsingError::Need(1),
+            nom::Needed::Size(n) => ParsingError::Need(n.get()),
         },
-        nom::Err::Error(_) => Error::ParseFailed(msg.into()),
-        nom::Err::Failure(_) => Error::ParseFailed(msg.into()),
+        nom::Err::Failure(_) | nom::Err::Error(_) => ParsingError::Failed(msg.to_string()),
     };
 
     let mut to_skip = 0;
@@ -286,7 +242,7 @@ fn extract_moov_body_from_buf(input: &[u8]) -> Result<Range<usize>, Error> {
             false
         } else if (remain.len() as u64) < h.body_size() {
             // stop travelling & skip unused box data
-            to_skip = h.body_size() - remain.len() as u64;
+            to_skip = h.body_size() as usize - remain.len();
             false
         } else {
             skipped += h.box_size as usize;
@@ -296,7 +252,7 @@ fn extract_moov_body_from_buf(input: &[u8]) -> Result<Range<usize>, Error> {
     .map_err(|e| convert_error(e, "search atom moov failed"))?;
 
     if to_skip > 0 {
-        return Err(Error::Skip(to_skip));
+        return Err(ParsingError::ClearAndSkip(to_skip));
     }
 
     let (_, body) = streaming::take(header.body_size())(remain)
@@ -414,25 +370,6 @@ mod tests {
 (\"com.apple.quicktime.location.ISO6709\", Text(\"+27.1281+100.2508+000.000/\"))
 (\"com.apple.quicktime.creationdate\", Text(\"2019-02-12T15:27:12+08:00\"))"
         );
-    }
-
-    #[test_case("compatible-brands.mov")]
-    fn mov_compatible_brands(path: &str) {
-        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
-
-        let buf = read_sample(path).unwrap();
-        tracing::info!(bytes = buf.len(), "File size.");
-        let ft = check_qt_mp4(&buf).unwrap();
-        assert_eq!(ft, FileFormat::QuickTime);
-    }
-
-    #[test_case("compatible-brands-fail.mov")]
-    fn mov_compatible_brands_fail(path: &str) {
-        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
-
-        let buf = read_sample(path).unwrap();
-        tracing::info!(bytes = buf.len(), "File size.");
-        check_qt_mp4(&buf).unwrap_err();
     }
 
     #[test_case("meta.mp4")]

@@ -1,14 +1,18 @@
-use nom::{bytes::complete, multi::many0, number, IResult};
-use std::{fmt::Display, io::Read};
+use nom::{bytes::complete, multi::many0, IResult};
+use std::{
+    fmt::Display,
+    io::{Cursor, Read},
+};
 use FileFormat::*;
 
 use crate::{
-    bbox::BoxHolder,
+    bbox::{travel_header, BoxHolder},
+    ebml::element::parse_ebml_doc_type,
     heif,
     jpeg::{self, check_jpeg},
 };
 
-const HEIF_FTYPS: &[&[u8]] = &[
+const HEIF_BRAND_NAMES: &[&[u8]] = &[
     b"heic", // the usual HEIF images
     b"heix", // 10bit images, or anything that uses h265 with range extension
     b"hevc", // 'hevx': brands for image sequences
@@ -28,12 +32,11 @@ const MP4_BRAND_NAMES: &[&str] = &[
 
 const QT_BRAND_NAMES: &[&str] = &["qt  ", "mqt "];
 
-const EBML_HEADER_TAG: u32 = 0x1A45DFA3;
-
 #[allow(unused)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileFormat {
     Jpeg,
+    /// heic, heif
     Heif,
 
     // Currently, there is not much difference between QuickTime and MP4 when
@@ -43,10 +46,12 @@ pub enum FileFormat {
     // `moov/udta/©xyz` atom is additionally checked and an attempt is made to
     // read GPS information from it, since Android phones store GPS information
     // in that atom.
+    /// mov
     QuickTime,
     MP4,
 
-    WEBM,
+    /// webm, mkv, mka, mk3d
+    Ebml,
 }
 
 // Parse the input buffer and detect its file type
@@ -55,17 +60,11 @@ impl TryFrom<&[u8]> for FileFormat {
 
     fn try_from(input: &[u8]) -> Result<Self, Self::Error> {
         if check_jpeg(input).is_ok() {
-            return Ok(Self::Jpeg);
-        }
-        if check_heif(input).is_ok() {
-            return Ok(Self::Heif);
-        }
-        if let Ok(ff) = check_qt_mp4(input) {
-            return Ok(ff);
-        };
-
-        if check_webm(input).is_ok() {
-            Ok(Self::WEBM)
+            Ok(Self::Jpeg)
+        } else if let Ok(ff) = check_bmff(input) {
+            Ok(ff)
+        } else if check_ebml(input).is_ok() {
+            Ok(Self::Ebml)
         } else {
             Err(crate::Error::UnrecognizedFileFormat)
         }
@@ -95,7 +94,7 @@ impl FileFormat {
                 nom::error::context("no exif data in QuickTime file", nom::combinator::fail)(input)
             }
             MP4 => nom::error::context("no exif data in MP4 file", nom::combinator::fail)(input),
-            WEBM => nom::error::context("no exif data in WEBM file", nom::combinator::fail)(input),
+            Ebml => nom::error::context("no exif data in EBML file", nom::combinator::fail)(input),
         }
     }
 
@@ -119,7 +118,7 @@ impl FileFormat {
                     Err("not a MP4 file".into())
                 }
             }
-            WEBM => check_webm(input),
+            Ebml => check_ebml(input),
         }
     }
 }
@@ -131,17 +130,77 @@ impl Display for FileFormat {
             Heif => "HEIF/HEIC".fmt(f),
             QuickTime => "QuickTime".fmt(f),
             MP4 => "MP4".fmt(f),
-            WEBM => "WEBM".fmt(f),
+            Ebml => "EBML".fmt(f),
         }
     }
 }
 
-pub(crate) fn check_webm(input: &[u8]) -> crate::Result<()> {
-    let (_, tag) = number::complete::be_u32(input)?;
-    if tag != EBML_HEADER_TAG {
-        return Err("not an EBML file".into());
-    }
+pub(crate) fn check_ebml(input: &[u8]) -> crate::Result<()> {
+    let mut cursor = Cursor::new(input);
+    parse_ebml_doc_type(&mut cursor)?;
     Ok(())
+}
+
+pub(crate) fn check_bmff(input: &[u8]) -> crate::Result<FileFormat> {
+    let (ftyp, Some(major_brand)) = get_ftyp_and_major_brand(input)? else {
+        if travel_header(input, |header, _| header.box_type != "mdat").is_ok() {
+            // ftyp is None, mdat box is found, assume it's a MOV file extracted from HEIC
+            return Ok(FileFormat::QuickTime);
+        }
+
+        return Err(crate::Error::UnrecognizedFileFormat);
+    };
+
+    // Check if it is a QuickTime file
+    if QT_BRAND_NAMES.iter().any(|v| v.as_bytes() == major_brand) {
+        return Ok(FileFormat::QuickTime);
+    }
+
+    // Check if it is a HEIF file
+    if HEIF_BRAND_NAMES.contains(&major_brand) {
+        return Ok(FileFormat::Heif);
+    }
+
+    // Check if it is a MP4 file
+    if MP4_BRAND_NAMES.iter().any(|v| v.as_bytes() == major_brand) {
+        return Ok(FileFormat::MP4);
+    }
+
+    // Check compatible brands
+    let compatible_brands = get_compatible_brands(ftyp.body_data())?;
+
+    if QT_BRAND_NAMES
+        .iter()
+        .any(|v| compatible_brands.iter().any(|x| v.as_bytes() == *x))
+    {
+        return Ok(FileFormat::QuickTime);
+    }
+
+    if HEIF_BRAND_NAMES
+        .iter()
+        .any(|x| compatible_brands.contains(x))
+    {
+        return Ok(FileFormat::Heif);
+    }
+
+    if MP4_BRAND_NAMES
+        .iter()
+        .any(|v| compatible_brands.iter().any(|x| v.as_bytes() == *x))
+    {
+        return Ok(FileFormat::MP4);
+    }
+
+    tracing::error!(
+        marjor_brand = major_brand.iter().map(|b| *b as char).collect::<String>(),
+        "unknown major brand",
+    );
+
+    if travel_header(input, |header, _| header.box_type != "mdat").is_ok() {
+        // find mdat box, assume it's a mp4 file
+        return Ok(FileFormat::MP4);
+    }
+
+    Err(crate::Error::UnrecognizedFileFormat)
 }
 
 pub(crate) fn check_heif(input: &[u8]) -> crate::Result<()> {
@@ -149,12 +208,15 @@ pub(crate) fn check_heif(input: &[u8]) -> crate::Result<()> {
         return Err("invalid ISOBMFF file; ftyp not found".into());
     };
 
-    if HEIF_FTYPS.contains(&major_brand) {
+    if HEIF_BRAND_NAMES.contains(&major_brand) {
         Ok(())
     } else {
         // Check compatible brands
         let compatible_brands = get_compatible_brands(ftyp.body_data())?;
-        if HEIF_FTYPS.iter().any(|x| compatible_brands.contains(x)) {
+        if HEIF_BRAND_NAMES
+            .iter()
+            .any(|x| compatible_brands.contains(x))
+        {
             Ok(())
         } else {
             Err(format!("unsupported HEIF/HEIC file; major brand: {major_brand:?}").into())
@@ -162,10 +224,15 @@ pub(crate) fn check_heif(input: &[u8]) -> crate::Result<()> {
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub(crate) fn check_qt_mp4(input: &[u8]) -> crate::Result<FileFormat> {
     let (ftyp, Some(major_brand)) = get_ftyp_and_major_brand(input)? else {
-        // ftyp is None, assume it's a MOV file extracted from HEIC
-        return Ok(FileFormat::QuickTime);
+        if travel_header(input, |header, _| header.box_type != "mdat").is_ok() {
+            // ftyp is None, mdat box is found, assume it's a MOV file extracted from HEIC
+            return Ok(FileFormat::QuickTime);
+        }
+
+        return Err(crate::Error::UnrecognizedFileFormat);
     };
 
     // Check if it is a QuickTime file
@@ -195,11 +262,17 @@ pub(crate) fn check_qt_mp4(input: &[u8]) -> crate::Result<FileFormat> {
         return Ok(FileFormat::MP4);
     }
 
-    Err(format!(
-        "unsupported video file; major brand: '{}'",
-        major_brand.iter().map(|b| *b as char).collect::<String>()
-    )
-    .into())
+    tracing::error!(
+        marjor_brand = major_brand.iter().map(|b| *b as char).collect::<String>(),
+        "unknown major brand",
+    );
+
+    if travel_header(input, |header, _| header.box_type != "mdat").is_ok() {
+        // find mdat box, assume it's a mp4 file
+        return Ok(FileFormat::MP4);
+    }
+
+    Err(crate::Error::UnrecognizedFileFormat)
 }
 
 fn get_ftyp_and_major_brand(input: &[u8]) -> crate::Result<(BoxHolder, Option<&[u8]>)> {
@@ -230,4 +303,30 @@ fn get_compatible_brands(body: &[u8]) -> crate::Result<Vec<&[u8]>> {
         return Err("get compatible brands failed".into());
     };
     Ok(brands)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test_case::test_case;
+
+    use crate::testkit::open_sample;
+
+    #[test_case("exif.heic", Heif)]
+    #[test_case("exif.jpg", Jpeg)]
+    #[test_case("meta.mov", QuickTime)]
+    #[test_case("meta.mp4", MP4)]
+    #[test_case("embedded-in-heic.mov", QuickTime)]
+    #[test_case("compatible-brands.mov", QuickTime)]
+    fn file_format(path: &str, expect: FileFormat) {
+        let f = open_sample(path).unwrap();
+        let ff = FileFormat::try_from_read(f).unwrap();
+        assert_eq!(ff, expect);
+    }
+
+    #[test_case("compatible-brands-fail.mov")]
+    fn file_format_error(path: &str) {
+        let f = open_sample(path).unwrap();
+        FileFormat::try_from_read(f).unwrap_err();
+    }
 }

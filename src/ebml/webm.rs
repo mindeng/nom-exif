@@ -6,7 +6,7 @@ use std::{
 };
 
 use bytes::Buf;
-use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use thiserror::Error;
 
 use crate::ebml::element::{
@@ -21,9 +21,11 @@ use super::{
     vint::{ParseVIntFailed, VInt},
 };
 
-#[derive(Debug, Clone)]
-pub struct EBMLFileInfo {
+#[derive(Debug, Clone, Default)]
+pub struct EbmlFileInfo {
     doc_type: String,
+    segment_info: SegmentInfo,
+    tracks_info: TracksInfo,
 }
 
 #[derive(Debug, Error)]
@@ -45,8 +47,8 @@ pub enum ParseWebmFailed {
 }
 
 const INIT_BUF_SIZE: usize = 4096;
-const MIN_GROW_SIZE: usize = 4096;
-const MAX_GROW_SIZE: usize = 1000 * 4096;
+const MIN_GROW_SIZE: usize = 2 * 4096;
+const MAX_GROW_SIZE: usize = 1024 * 4096;
 
 /// Parse EBML based files, e.g.: `.webm`, `.mkv`, etc.
 ///
@@ -54,7 +56,7 @@ const MAX_GROW_SIZE: usize = 1000 * 4096;
 /// - [Matroska Elements](https://www.matroska.org/technical/elements.html)
 /// - [EBML Specification](https://github.com/ietf-wg-cellar/ebml-specification/blob/master/specification.markdown)
 #[tracing::instrument(skip_all)]
-pub fn parse_webm<T: Read>(mut reader: T) -> Result<EBMLFileInfo, ParseWebmFailed> {
+pub(crate) fn parse_webm<T: Read>(mut reader: T) -> Result<EbmlFileInfo, ParseWebmFailed> {
     let mut buf = Vec::with_capacity(INIT_BUF_SIZE);
     let n = reader
         .by_ref()
@@ -76,18 +78,79 @@ pub fn parse_webm<T: Read>(mut reader: T) -> Result<EBMLFileInfo, ParseWebmFaile
     }
 
     let pos = cursor.position() as usize;
-    if let Ok(seeks) = parse_and_read(reader, &mut buf, pos, parse_seeks) {
-        if let Some(pos) = seeks.get(&(SegmentId::Info as u32)) {
-            let info = parse_segment_info(&buf, *pos as usize)?;
-            tracing::debug!(?info);
-        }
-        if let Some(pos) = seeks.get(&(SegmentId::Tracks as u32)) {
-            let tracks = parse_tracks_info(&buf, *pos as usize)?;
-            tracing::debug!(?tracks);
-        }
+
+    let mut file_info = EbmlFileInfo {
+        doc_type,
+        ..Default::default()
     };
 
-    Ok(EBMLFileInfo { doc_type })
+    if let Ok(seeks) = parse_and_read(reader.by_ref(), &mut buf, pos, parse_seeks) {
+        let info_seek = seeks.get(&(SegmentId::Info as u32)).cloned();
+        let tracks_seek = seeks.get(&(SegmentId::Tracks as u32)).cloned();
+        if let Some(pos) = info_seek {
+            let info = parse_and_read(reader.by_ref(), &mut buf, pos as usize, parse_segment_info)?;
+            tracing::debug!(?info);
+            if let Some(info) = info {
+                file_info.segment_info = info;
+            }
+        }
+        if let Some(pos) = tracks_seek {
+            let tracks =
+                parse_and_read(reader.by_ref(), &mut buf, pos as usize, parse_tracks_info)?;
+            tracing::debug!(?tracks);
+            if let Some(info) = tracks {
+                file_info.tracks_info = info;
+            }
+        }
+    } else {
+        // According to the specification, The first Info Element SHOULD occur
+        // before the first Tracks Element
+        let info = find_and_parse(
+            reader.by_ref(),
+            SegmentId::Info as u64,
+            &mut buf,
+            pos,
+            parse_segment_info,
+        )?;
+        tracing::debug!(?info);
+        if let Some(info) = info {
+            file_info.segment_info = info;
+        }
+
+        let track = find_and_parse(
+            reader.by_ref(),
+            SegmentId::Tracks as u64,
+            &mut buf,
+            pos,
+            parse_tracks_info,
+        )?;
+        tracing::debug!(?track);
+        if let Some(info) = track {
+            file_info.tracks_info = info;
+        }
+    }
+
+    Ok(file_info)
+}
+
+fn find_and_parse<T: Read, O, F>(
+    mut reader: T,
+    target_id: u64,
+    buf: &mut Vec<u8>,
+    pos: usize,
+    mut parse: F,
+) -> Result<O, ParseWebmFailed>
+where
+    F: FnMut(&[u8], usize) -> Result<O, ParseWebmFailed>,
+{
+    parse_and_read(reader.by_ref(), buf, pos, |data, pos| {
+        let mut cursor = Cursor::new(&data[pos..]);
+        let header = travel_while(&mut cursor, |h| h.id != target_id)?;
+        parse(
+            &data[pos + cursor.position() as usize - header.header_size..],
+            0,
+        )
+    })
 }
 
 #[derive(Debug, Clone, Default)]

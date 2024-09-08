@@ -19,7 +19,17 @@ pub enum ParseEBMLFailed {
     NotEBMLFile,
 
     #[error("invalid EBML file: {0}")]
-    InvalidEBMLFile(Box<dyn std::error::Error>),
+    InvalidEBMLFile(Box<dyn std::error::Error + Send + Sync>),
+}
+
+impl From<ParseEBMLFailed> for crate::Error {
+    fn from(e: ParseEBMLFailed) -> Self {
+        match e {
+            ParseEBMLFailed::Need(_) => Self::ParseFailed("no enough bytes".into()),
+            ParseEBMLFailed::NotEBMLFile => Self::ParseFailed(e.into()),
+            ParseEBMLFailed::InvalidEBMLFile(e) => Self::ParseFailed(e),
+        }
+    }
 }
 
 impl From<ParseVIntFailed> for ParseEBMLFailed {

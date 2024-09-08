@@ -17,6 +17,9 @@ pub enum Error {
     #[error("parse failed; {0}")]
     ParseFailed(FallbackError),
 
+    #[error("io error: {0}")]
+    IOError(std::io::Error),
+
     #[error("invalid entry; {0}")]
     InvalidEntry(FallbackError),
 
@@ -25,9 +28,48 @@ pub enum Error {
 
     #[error("unrecognized file format")]
     UnrecognizedFileFormat,
-
     // #[error("unsupported file format: {0}")]
     // UnsupportedFileFormat(FileFormat),
+}
+
+#[derive(Debug, Error)]
+pub enum ParsedError {
+    #[error("no enough bytes")]
+    NoEnoughBytes,
+
+    #[error("io error: {0}")]
+    IOError(std::io::Error),
+
+    #[error("{0}")]
+    Failed(String),
+}
+
+#[derive(Debug, Error)]
+pub enum ParsingError {
+    #[error("need more bytes: {0}")]
+    Need(usize),
+
+    #[error("clear and skip bytes: {0}")]
+    ClearAndSkip(usize),
+
+    #[error("{0}")]
+    Failed(String),
+}
+
+impl From<std::io::Error> for ParsedError {
+    fn from(value: std::io::Error) -> Self {
+        Self::IOError(value)
+    }
+}
+
+impl From<ParsedError> for crate::Error {
+    fn from(value: ParsedError) -> Self {
+        match value {
+            ParsedError::NoEnoughBytes => Self::ParseFailed(value.into()),
+            ParsedError::IOError(e) => Self::IOError(e),
+            ParsedError::Failed(e) => Self::ParseFailed(e.into()),
+        }
+    }
 }
 
 use Error::*;
@@ -70,4 +112,18 @@ pub(crate) fn convert_parse_error(e: nom::Err<nom::error::Error<&[u8]>>, message
     };
 
     s.into()
+}
+
+impl From<nom::Err<nom::error::Error<&[u8]>>> for ParsingError {
+    fn from(e: nom::Err<nom::error::Error<&[u8]>>) -> Self {
+        match e {
+            nom::Err::Incomplete(needed) => match needed {
+                nom::Needed::Unknown => ParsingError::Need(1),
+                nom::Needed::Size(n) => ParsingError::Need(n.get()),
+            },
+            nom::Err::Failure(e) | nom::Err::Error(e) => {
+                ParsingError::Failed(e.code.description().to_string())
+            }
+        }
+    }
 }

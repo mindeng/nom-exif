@@ -1,5 +1,4 @@
-pub use webm::parse_webm;
+pub(crate) mod element;
+pub(crate) mod webm;
 
-mod element;
 mod vint;
-mod webm;
