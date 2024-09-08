@@ -14,7 +14,7 @@ impl<T: Read> Load for BufLoader<T> {
 
     #[inline]
     fn skip(&mut self, n: usize) -> std::io::Result<()> {
-        println!("read to skip");
+        tracing::debug!("read to skip");
         match std::io::copy(
             &mut self.inner.read.by_ref().take(n as u64),
             &mut std::io::sink(),
@@ -79,7 +79,7 @@ impl<T: Read + Seek> Load for SeekBufLoader<T> {
 
     #[inline]
     fn skip(&mut self, n: usize) -> std::io::Result<()> {
-        println!("seek to skip");
+        tracing::debug!("seek to skip");
         self.inner
             .read
             .seek(std::io::SeekFrom::Current(n as i64))

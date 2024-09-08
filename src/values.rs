@@ -1,13 +1,15 @@
 use std::{fmt::Display, string::FromUtf8Error};
 
-use chrono::{offset::LocalResult, DateTime, FixedOffset, Local, NaiveDateTime, TimeZone as _};
+use chrono::{
+    offset::LocalResult, DateTime, FixedOffset, Local, NaiveDateTime, Offset, TimeZone as _, Utc,
+};
 
 use nom::number::Endianness;
 #[cfg(feature = "json_dump")]
 use serde::{Deserialize, Serialize, Serializer};
 use thiserror::Error;
 
-use crate::{ExifTag};
+use crate::ExifTag;
 
 /// Represent a parsed entry value.
 #[derive(Debug, Clone, PartialEq)]
@@ -474,6 +476,19 @@ where
         })
         .collect::<Vec<String>>()
         .join(", ")
+}
+
+impl From<DateTime<Utc>> for EntryValue {
+    fn from(value: DateTime<Utc>) -> Self {
+        assert_eq!(value.offset().fix(), FixedOffset::east_opt(0).unwrap());
+        EntryValue::Time(value.fixed_offset())
+    }
+}
+
+impl From<DateTime<FixedOffset>> for EntryValue {
+    fn from(value: DateTime<FixedOffset>) -> Self {
+        EntryValue::Time(value)
+    }
 }
 
 impl From<u8> for EntryValue {

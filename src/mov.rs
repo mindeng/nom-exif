@@ -1,4 +1,5 @@
 use std::{
+    collections::{btree_map, BTreeMap, HashMap},
     io::{Read, Seek},
     ops::Range,
 };
@@ -14,7 +15,8 @@ use crate::{
     error::ParsingError,
     input::Input,
     loader::{BufLoad, BufLoader, Load, SeekBufLoader},
-    EntryValue,
+    video::{VideoInfo, VideoInfoTag},
+    EntryValue, FileFormat,
 };
 
 /// Analyze the byte stream in the `reader` as a MOV/MP4 file, attempting to
@@ -53,7 +55,23 @@ use crate::{
 /// ```
 #[tracing::instrument(skip_all)]
 pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, EntryValue)>> {
-    let moov_body = extract_moov_body(reader)?;
+    let mut loader = SeekBufLoader::new(reader);
+    let ff = FileFormat::try_from_load(&mut loader)?;
+    match ff {
+        FileFormat::Jpeg | FileFormat::Heif => {
+            return Err(crate::error::Error::ParseFailed(
+                "can not parse metadata from an image".into(),
+            ));
+        }
+        FileFormat::QuickTime | FileFormat::MP4 => (),
+        FileFormat::Ebml => {
+            return Err(crate::error::Error::ParseFailed(
+                "please use parse_video_info() to parse *.webm, *.mkv files".into(),
+            ))
+        }
+    };
+
+    let moov_body = extract_moov_body(loader)?;
 
     let (_, mut entries) = match parse_moov_body(&moov_body) {
         Ok((remain, Some(entries))) => (remain, entries),
@@ -63,11 +81,34 @@ pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, E
         }
     };
 
-    // If the LOCATION_KEY doesn't exist, then try to find GPS info from box
+    let map: BTreeMap<VideoInfoTag, EntryValue> = map_qt_tag_to_video_tag(entries.clone());
+    let mut extras = parse_mvhd_tkhd(&moov_body);
+
+    const CREATIONDATE_KEY: &str = "com.apple.quicktime.creationdate";
+    if map.contains_key(&VideoInfoTag::CreateDate) {
+        extras.remove(&VideoInfoTag::CreateDate);
+        let date = map.get(&VideoInfoTag::CreateDate);
+        if let Some(pos) = entries.iter().position(|x| x.0 == CREATIONDATE_KEY) {
+            if let Some(date) = date {
+                entries[pos] = (CREATIONDATE_KEY.to_string(), date.clone());
+            } else {
+                entries.remove(pos);
+            }
+        }
+    }
+
+    entries.extend(extras.into_iter().map(|(k, v)| match k {
+        VideoInfoTag::ImageWidth => ("width".to_string(), v),
+        VideoInfoTag::ImageHeight => ("height".to_string(), v),
+        VideoInfoTag::Duration => ("duration".to_string(), v),
+        VideoInfoTag::CreateDate => (CREATIONDATE_KEY.to_string(), v),
+        _ => unreachable!(),
+    }));
+
+    // If the GPSInfo doesn't exist, then try to find GPS info from box
     // `moov/udta/©xyz`. For mp4 files, Android phones store GPS info in that
     // box.
-    const LOCATION_KEY: &str = "com.apple.quicktime.location.ISO6709";
-    if !entries.iter().any(|x| x.0 == LOCATION_KEY) {
+    if !map.contains_key(&VideoInfoTag::GPSInfo) {
         let bbox = match find_box(&moov_body, "udta/©xyz") {
             Ok((_, b)) => b,
             Err(_) => None,
@@ -80,40 +121,121 @@ pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, E
                     .iter()
                     .map(|b| *b as char)
                     .collect::<String>();
-                entries.push((LOCATION_KEY.to_owned(), location.into()))
+                const LOCATION_KEY: &str = "com.apple.quicktime.location.ISO6709";
+                entries.push((LOCATION_KEY.to_string(), location.into()));
             }
         }
     }
 
-    const CREATIONDATE_KEY: &str = "com.apple.quicktime.creationdate";
-    if let Some(pos) = entries.iter().position(|x| x.0 == CREATIONDATE_KEY) {
-        if let EntryValue::Text(ref s) = entries[pos].1 {
-            if let Ok(t) = DateTime::parse_from_str(s, "%+") {
-                let _ = std::mem::replace(
-                    &mut entries[pos],
-                    (CREATIONDATE_KEY.to_string(), EntryValue::Time(t)),
-                );
-            }
-        }
-    }
+    Ok(entries)
+}
 
-    let (_, bbox) = find_box(&moov_body, "mvhd")?;
-    if let Some(bbox) = bbox {
+#[tracing::instrument(skip_all)]
+pub(crate) fn parse_qt<L: Load>(loader: L) -> crate::Result<BTreeMap<VideoInfoTag, EntryValue>> {
+    let moov_body = extract_moov_body(loader)?;
+
+    let (_, entries) = match parse_moov_body(&moov_body) {
+        Ok((remain, Some(entries))) => (remain, entries),
+        Ok((remain, None)) => (remain, Vec::new()),
+        Err(_) => {
+            return Err("invalid moov body".into());
+        }
+    };
+
+    let mut entries: BTreeMap<VideoInfoTag, EntryValue> = map_qt_tag_to_video_tag(entries);
+    let extras = parse_mvhd_tkhd(&moov_body);
+    if entries.contains_key(&VideoInfoTag::CreateDate) {
+        entries.remove(&VideoInfoTag::CreateDate);
+    }
+    entries.extend(extras);
+
+    Ok(entries)
+}
+
+fn parse_mvhd_tkhd(moov_body: &[u8]) -> BTreeMap<VideoInfoTag, EntryValue> {
+    let mut entries = BTreeMap::new();
+    if let Ok((_, Some(bbox))) = find_box(moov_body, "mvhd") {
         if let Ok((_, mvhd)) = MvhdBox::parse_box(bbox.data) {
-            entries.push(("duration".to_owned(), mvhd.duration_ms().into()));
+            entries.insert(VideoInfoTag::Duration, mvhd.duration_ms().into());
 
-            if !entries.iter().any(|x| x.0 == CREATIONDATE_KEY) {
-                entries.push((
-                    CREATIONDATE_KEY.to_owned(),
-                    EntryValue::Time(mvhd.creation_time()),
-                ));
-            }
+            entries.insert(
+                VideoInfoTag::CreateDate,
+                EntryValue::Time(mvhd.creation_time()),
+            );
         }
     }
 
-    if let Ok(Some(tkhd)) = parse_video_tkhd_in_moov(&moov_body) {
-        entries.push(("width".to_owned(), tkhd.width.into()));
-        entries.push(("height".to_owned(), tkhd.height.into()));
+    if let Ok(Some(tkhd)) = parse_video_tkhd_in_moov(moov_body) {
+        entries.insert(VideoInfoTag::ImageWidth, tkhd.width.into());
+        entries.insert(VideoInfoTag::ImageHeight, tkhd.height.into());
+    }
+
+    entries
+}
+
+fn map_qt_tag_to_video_tag(
+    entries: Vec<(String, EntryValue)>,
+) -> BTreeMap<VideoInfoTag, EntryValue> {
+    entries
+        .into_iter()
+        .filter_map(|(k, v)| {
+            if k == "com.apple.quicktime.creationdate" {
+                if let EntryValue::Text(ref s) = v {
+                    if let Ok(t) = DateTime::parse_from_str(s, "%+") {
+                        return Some((VideoInfoTag::CreateDate, EntryValue::Time(t)));
+                    }
+                }
+                None
+            } else if k == "com.apple.quicktime.make" {
+                Some((VideoInfoTag::Make, v))
+            } else if k == "com.apple.quicktime.model" {
+                Some((VideoInfoTag::Model, v))
+            } else if k == "com.apple.quicktime.software" {
+                Some((VideoInfoTag::Software, v))
+            } else if k == "com.apple.quicktime.location.ISO6709" {
+                Some((VideoInfoTag::GPSInfo, v))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+#[tracing::instrument(skip_all)]
+pub(crate) fn parse_mp4<L: Load>(loader: L) -> crate::Result<BTreeMap<VideoInfoTag, EntryValue>> {
+    let moov_body = extract_moov_body(loader)?;
+
+    let (_, entries) = match parse_moov_body(&moov_body) {
+        Ok((remain, Some(entries))) => (remain, entries),
+        Ok((remain, None)) => (remain, Vec::new()),
+        Err(_) => {
+            return Err("invalid moov body".into());
+        }
+    };
+
+    let mut entries: BTreeMap<VideoInfoTag, EntryValue> = map_qt_tag_to_video_tag(entries);
+    let extras = parse_mvhd_tkhd(&moov_body);
+    entries.extend(extras);
+
+    // If the GPSInfo doesn't exist, then try to find GPS info from box
+    // `moov/udta/©xyz`. For mp4 files, Android phones store GPS info in that
+    // box.
+    if let btree_map::Entry::Vacant(e) = entries.entry(VideoInfoTag::GPSInfo) {
+        let bbox = match find_box(&moov_body, "udta/©xyz") {
+            Ok((_, b)) => b,
+            Err(_) => None,
+        };
+        if let Some(bbox) = bbox {
+            if bbox.body_data().len() <= 4 {
+                tracing::error!("moov/udta/©xyz body is too small");
+            } else {
+                let location = &bbox.body_data()[4..] // Safe-slice
+                    .iter()
+                    .map(|b| *b as char)
+                    .collect::<String>();
+                e.insert(location.into());
+            }
+        }
     }
 
     Ok(entries)
@@ -158,8 +280,7 @@ pub fn parse_mov_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(Strin
 }
 
 #[tracing::instrument(skip_all)]
-fn extract_moov_body<R: Read + Seek>(read: R) -> Result<Input<'static>, crate::Error> {
-    let mut loader = SeekBufLoader::new(read);
+fn extract_moov_body<L: Load>(mut loader: L) -> Result<Input<'static>, crate::Error> {
     let moov_body_range = loader.load_and_parse(extract_moov_body_from_buf)?;
 
     tracing::debug!(?moov_body_range);
@@ -383,11 +504,11 @@ mod tests {
                 .map(|x| format!("{x:?}"))
                 .collect::<Vec<_>>()
                 .join("\n"),
-            "(\"com.apple.quicktime.location.ISO6709\", Text(\"+27.2939+112.6932/\"))
+            "(\"com.apple.quicktime.creationdate\", Time(2024-02-03T07:05:38+00:00))
 (\"duration\", U32(1063))
-(\"com.apple.quicktime.creationdate\", Time(2024-02-03T07:05:38+00:00))
 (\"width\", U32(1920))
-(\"height\", U32(1080))"
+(\"height\", U32(1080))
+(\"com.apple.quicktime.location.ISO6709\", Text(\"+27.2939+112.6932/\"))"
         );
     }
 

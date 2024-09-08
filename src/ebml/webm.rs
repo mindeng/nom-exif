@@ -15,6 +15,7 @@ use crate::{
     },
     error::{ParsedError, ParsingError},
     loader::Load,
+    video::{VideoInfo, VideoInfoTag},
 };
 
 use super::{
@@ -29,6 +30,20 @@ pub struct EbmlFileInfo {
     doc_type: String,
     segment_info: SegmentInfo,
     tracks_info: TracksInfo,
+}
+
+impl From<EbmlFileInfo> for VideoInfo {
+    fn from(value: EbmlFileInfo) -> Self {
+        let mut info = VideoInfo::default();
+        info.put(VideoInfoTag::CreateDate, value.segment_info.date.into());
+        info.put(
+            VideoInfoTag::Duration,
+            (value.segment_info.duration / 1000.0 / 1000.0).into(),
+        );
+        info.put(VideoInfoTag::ImageWidth, value.tracks_info.width.into());
+        info.put(VideoInfoTag::ImageHeight, value.tracks_info.height.into());
+        info
+    }
 }
 
 #[derive(Debug, Error)]
@@ -143,8 +158,8 @@ pub(crate) fn parse_webm<T: Load>(mut loader: T) -> Result<EbmlFileInfo, ParsedE
 
 #[derive(Debug, Clone, Default)]
 struct TracksInfo {
-    width: usize,
-    height: usize,
+    width: u32,
+    height: u32,
 }
 
 #[tracing::instrument(skip(input))]
@@ -210,7 +225,7 @@ fn parse_video_track(input: &[u8]) -> Result<VideoTrackInfo, ParseWebmFailed> {
     let header = travel_while(&mut cursor, |h| h.id != TracksId::PixelWidth as u64)?;
     tracing::debug!(?header, "video track width element");
     if let Some(v) = get_as_u64(&mut cursor, header.data_size) {
-        info.width = v as usize;
+        info.width = v as u32;
     }
 
     // search from beginning
@@ -218,7 +233,7 @@ fn parse_video_track(input: &[u8]) -> Result<VideoTrackInfo, ParseWebmFailed> {
     let header = travel_while(&mut cursor, |h| h.id != TracksId::PixelHeight as u64)?;
     tracing::debug!(?header, "video track height element");
     if let Some(v) = get_as_u64(&mut cursor, header.data_size) {
-        info.height = v as usize;
+        info.height = v as u32;
     }
 
     Ok(info)
@@ -226,8 +241,8 @@ fn parse_video_track(input: &[u8]) -> Result<VideoTrackInfo, ParseWebmFailed> {
 
 #[derive(Debug, Clone, Default)]
 struct VideoTrackInfo {
-    width: usize,
-    height: usize,
+    width: u32,
+    height: u32,
 }
 
 #[derive(Debug, Clone, Default)]

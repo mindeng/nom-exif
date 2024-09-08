@@ -8,8 +8,10 @@ use FileFormat::*;
 use crate::{
     bbox::{travel_header, BoxHolder},
     ebml::element::parse_ebml_doc_type,
+    error::{ParsedError, ParsingError},
     heif,
     jpeg::{self, check_jpeg},
+    loader::Load,
 };
 
 const HEIF_BRAND_NAMES: &[&[u8]] = &[
@@ -81,6 +83,13 @@ impl FileFormat {
         }
 
         buf.as_slice().try_into()
+    }
+
+    pub(crate) fn try_from_load<T: Load>(loader: &mut T) -> Result<Self, ParsedError> {
+        loader.load_and_parse(|x| {
+            x.try_into()
+                .map_err(|_| ParsingError::Failed("unrecognized file format".to_string()))
+        })
     }
 
     pub(crate) fn extract_exif_data<'a>(
