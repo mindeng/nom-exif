@@ -1,3 +1,7 @@
+use std::str::FromStr;
+
+use iso6709parse::{parse_string_representation, ISO6709Coord};
+
 use crate::values::{IRational, URational};
 
 /// Represents gps information stored in [`GPSInfo`](crate::ExifTag::GPSInfo)
@@ -146,6 +150,52 @@ impl<'a> FromIterator<&'a IRational> for LatLng {
             (*values.next().unwrap()).into(),
             (*values.next().unwrap()).into(),
         )
+    }
+}
+
+pub struct InvalidISO6709Coord;
+
+impl FromStr for GPSInfo {
+    type Err = InvalidISO6709Coord;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let info: Self = parse_string_representation(s).map_err(|_| InvalidISO6709Coord)?;
+        Ok(info)
+    }
+}
+
+impl From<ISO6709Coord> for GPSInfo {
+    fn from(v: ISO6709Coord) -> Self {
+        // let latitude = self.latitude.0.as_float()
+        //     + self.latitude.1.as_float() / 60.0
+        //     + self.latitude.2.as_float() / 3600.0;
+
+        Self {
+            latitude_ref: if v.lat >= 0.0 { 'N' } else { 'S' },
+            latitude: v.lat.into(),
+            longitude_ref: if v.lon >= 0.0 { 'E' } else { 'W' },
+            longitude: v.lon.into(),
+            altitude_ref: v
+                .altitude
+                .map(|x| if x >= 0.0 { 0 } else { 1 })
+                .unwrap_or(0),
+            altitude: v
+                .altitude
+                .map(|x| ((x * 1000.0).trunc() as u32, 1000).into())
+                .unwrap_or_default(),
+            ..Default::default()
+        }
+    }
+}
+
+impl From<f64> for LatLng {
+    fn from(v: f64) -> Self {
+        let mins = v.fract() * 60.0;
+        [
+            (v.trunc() as u32, 1),
+            (mins.trunc() as u32, 1),
+            ((mins.fract() * 100.0).trunc() as u32, 100),
+        ]
+        .into()
     }
 }
 

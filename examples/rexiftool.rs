@@ -6,7 +6,7 @@ use std::{
 };
 
 use clap::Parser;
-use nom_exif::{parse_exif, parse_webm, FileFormat};
+use nom_exif::{parse_exif, parse_video_info, FileFormat};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Registry};
 
 #[derive(Parser, Debug)]
@@ -77,15 +77,11 @@ fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
             })
             .collect::<Vec<_>>()
         }
-        FileFormat::QuickTime | FileFormat::MP4 => {
-            let meta = nom_exif::parse_metadata(&mut reader)?;
-            meta.into_iter()
-                .map(|x| (x.0.to_string(), x.1))
+        FileFormat::QuickTime | FileFormat::MP4 | FileFormat::Ebml => {
+            let info = parse_video_info(&mut reader)?;
+            info.into_iter()
+                .map(|x| (x.0.to_owned(), x.1))
                 .collect::<Vec<_>>()
-        }
-        FileFormat::WEBM => {
-            let res = parse_webm(&mut reader)?;
-            Vec::new()
         }
     };
 
@@ -105,7 +101,7 @@ fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
         );
     } else {
         values.iter().for_each(|x| {
-            println!("{:<40}=> {}", x.0, x.1);
+            println!("{:<32}=> {}", x.0, x.1);
         });
     }
 

@@ -108,22 +108,10 @@ pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, E
     // If the GPSInfo doesn't exist, then try to find GPS info from box
     // `moov/udta/©xyz`. For mp4 files, Android phones store GPS info in that
     // box.
-    if !map.contains_key(&VideoInfoTag::GPSInfo) {
-        let bbox = match find_box(&moov_body, "udta/©xyz") {
-            Ok((_, b)) => b,
-            Err(_) => None,
-        };
-        if let Some(bbox) = bbox {
-            if bbox.body_data().len() <= 4 {
-                tracing::error!("moov/udta/©xyz body is too small");
-            } else {
-                let location = &bbox.body_data()[4..] // Safe-slice
-                    .iter()
-                    .map(|b| *b as char)
-                    .collect::<String>();
-                const LOCATION_KEY: &str = "com.apple.quicktime.location.ISO6709";
-                entries.push((LOCATION_KEY.to_string(), location.into()));
-            }
+    if !map.contains_key(&VideoInfoTag::GpsIso6709) {
+        if let Some(gps) = parse_mp4_gps(&moov_body) {
+            const LOCATION_KEY: &str = "com.apple.quicktime.location.ISO6709";
+            entries.push((LOCATION_KEY.to_string(), gps.into()));
         }
     }
 
@@ -180,12 +168,9 @@ fn map_qt_tag_to_video_tag(
         .into_iter()
         .filter_map(|(k, v)| {
             if k == "com.apple.quicktime.creationdate" {
-                if let EntryValue::Text(ref s) = v {
-                    if let Ok(t) = DateTime::parse_from_str(s, "%+") {
-                        return Some((VideoInfoTag::CreateDate, EntryValue::Time(t)));
-                    }
-                }
-                None
+                v.as_str()
+                    .and_then(|s| DateTime::parse_from_str(s, "%+").ok())
+                    .map(|t| (VideoInfoTag::CreateDate, EntryValue::Time(t)))
             } else if k == "com.apple.quicktime.make" {
                 Some((VideoInfoTag::Make, v))
             } else if k == "com.apple.quicktime.model" {
@@ -193,7 +178,7 @@ fn map_qt_tag_to_video_tag(
             } else if k == "com.apple.quicktime.software" {
                 Some((VideoInfoTag::Software, v))
             } else if k == "com.apple.quicktime.location.ISO6709" {
-                Some((VideoInfoTag::GPSInfo, v))
+                Some((VideoInfoTag::GpsIso6709, v))
             } else {
                 None
             }
@@ -220,25 +205,34 @@ pub(crate) fn parse_mp4<L: Load>(loader: L) -> crate::Result<BTreeMap<VideoInfoT
     // If the GPSInfo doesn't exist, then try to find GPS info from box
     // `moov/udta/©xyz`. For mp4 files, Android phones store GPS info in that
     // box.
-    if let btree_map::Entry::Vacant(e) = entries.entry(VideoInfoTag::GPSInfo) {
-        let bbox = match find_box(&moov_body, "udta/©xyz") {
-            Ok((_, b)) => b,
-            Err(_) => None,
-        };
-        if let Some(bbox) = bbox {
-            if bbox.body_data().len() <= 4 {
-                tracing::error!("moov/udta/©xyz body is too small");
-            } else {
-                let location = &bbox.body_data()[4..] // Safe-slice
-                    .iter()
-                    .map(|b| *b as char)
-                    .collect::<String>();
-                e.insert(location.into());
-            }
+    if let btree_map::Entry::Vacant(e) = entries.entry(VideoInfoTag::GpsIso6709) {
+        if let Some(gps) = parse_mp4_gps(&moov_body) {
+            e.insert(gps.into());
         }
     }
 
     Ok(entries)
+}
+
+/// Try to find GPS info from box `moov/udta/©xyz`. For mp4 files, Android
+/// phones store GPS info in that box.
+fn parse_mp4_gps(moov_body: &[u8]) -> Option<String> {
+    let bbox = match find_box(moov_body, "udta/©xyz") {
+        Ok((_, b)) => b,
+        Err(_) => None,
+    };
+    if let Some(bbox) = bbox {
+        if bbox.body_data().len() <= 4 {
+            tracing::error!("moov/udta/©xyz body is too small");
+        } else {
+            let location = bbox.body_data()[4..] // Safe-slice
+                .iter()
+                .map(|b| *b as char)
+                .collect::<String>();
+            return Some(location);
+        }
+    }
+    None
 }
 
 /// Analyze the byte stream in the `reader` as a MOV file, attempting to extract
