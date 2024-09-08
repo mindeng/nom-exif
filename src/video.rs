@@ -3,7 +3,7 @@ use std::{
     io::{Read, Seek},
 };
 
-use crate::{EntryValue, GPSInfo};
+use crate::{ebml::webm::parse_webm, loader::SeekBufLoader, EntryValue, GPSInfo};
 
 /// Try to keep the tag name consistent with [`crate::ExifTag`], and add some
 /// unique to video, such as `Duration`
@@ -24,5 +24,7 @@ pub struct VideoInfo {
 }
 
 pub fn parse_video_info<R: Read + Seek>(reader: R) -> crate::Result<VideoInfo> {
+    let loader = SeekBufLoader::new(reader);
+    parse_webm(loader)?;
     Ok(VideoInfo::default())
 }

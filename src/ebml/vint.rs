@@ -1,4 +1,4 @@
-use std::io::{Cursor, Read};
+use std::io::Cursor;
 
 use bytes::Buf;
 use thiserror::Error;
@@ -34,7 +34,7 @@ impl VInt {
         reserve_marker: bool,
     ) -> Result<(&[u8], u64), ParseVIntFailed> {
         if data.is_empty() {
-            return Err(ParseVIntFailed::InvalidVInt("data is empty"));
+            return Err(ParseVIntFailed::Need(1));
         }
 
         let n = data[0].leading_zeros() as usize + 1;

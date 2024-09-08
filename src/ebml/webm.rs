@@ -1,17 +1,20 @@
 use std::{
-    cmp::{max, min},
     collections::HashMap,
     fmt::Debug,
-    io::{BufRead, Cursor, Read},
+    io::{BufRead, Cursor},
 };
 
 use bytes::Buf;
 use chrono::{DateTime, NaiveDate, Utc};
 use thiserror::Error;
 
-use crate::ebml::element::{
-    find_element_by_id, get_as_f64, get_as_u64, next_element_header, parse_ebml_doc_type,
-    EBMLGlobalId, TopElementId,
+use crate::{
+    ebml::element::{
+        find_element_by_id, get_as_f64, get_as_u64, next_element_header, parse_ebml_doc_type,
+        EBMLGlobalId, TopElementId,
+    },
+    error::{ParsedError, ParsingError},
+    loader::Load,
 };
 
 use super::{
@@ -41,14 +44,7 @@ pub enum ParseWebmFailed {
 
     #[error("invalid seek entry")]
     InvalidSeekEntry,
-
-    #[error("read WEBM file failed: {0}")]
-    IOError(std::io::Error),
 }
-
-const INIT_BUF_SIZE: usize = 4096;
-const MIN_GROW_SIZE: usize = 2 * 4096;
-const MAX_GROW_SIZE: usize = 1024 * 4096;
 
 /// Parse EBML based files, e.g.: `.webm`, `.mkv`, etc.
 ///
@@ -56,39 +52,43 @@ const MAX_GROW_SIZE: usize = 1024 * 4096;
 /// - [Matroska Elements](https://www.matroska.org/technical/elements.html)
 /// - [EBML Specification](https://github.com/ietf-wg-cellar/ebml-specification/blob/master/specification.markdown)
 #[tracing::instrument(skip_all)]
-pub(crate) fn parse_webm<T: Read>(mut reader: T) -> Result<EbmlFileInfo, ParseWebmFailed> {
-    let mut buf = Vec::with_capacity(INIT_BUF_SIZE);
-    let n = reader
-        .by_ref()
-        .take(INIT_BUF_SIZE as u64)
-        .read_to_end(buf.as_mut())
-        .map_err(ParseWebmFailed::IOError)?;
-    if n == 0 {
-        return Err(ParseWebmFailed::NotWebmFile);
-    }
+pub(crate) fn parse_webm<T: Load>(mut loader: T) -> Result<EbmlFileInfo, ParsedError> {
+    let mut pos: usize = 0;
+    let doc_type = loader.load_and_parse(|input| {
+        tracing::debug!(len = input.len(), "buf size");
+        let mut cursor = Cursor::new(input);
+        let doc_type = parse_ebml_doc_type(&mut cursor)?;
+        pos = cursor.position() as usize;
+        Ok(doc_type)
+    })?;
 
-    let mut cursor = Cursor::new(buf.as_ref());
-    let doc_type = parse_ebml_doc_type(&mut cursor)?;
-    tracing::debug!(doc_type);
+    tracing::debug!(doc_type, pos);
 
-    let header = next_element_header(&mut cursor)?;
-    tracing::debug!(segment_header = ?header);
-    if header.id != TopElementId::Segment as u64 {
-        return Err(ParseWebmFailed::NotWebmFile);
-    }
-
-    let pos = cursor.position() as usize;
+    let at = pos;
+    let pos = loader.load_and_parse_at(
+        |input, at| {
+            let mut cursor = Cursor::new(&input[at..]);
+            let header = next_element_header(&mut cursor)?;
+            tracing::debug!(segment_header = ?header);
+            if header.id != TopElementId::Segment as u64 {
+                return Err(ParseWebmFailed::NotWebmFile.into());
+            }
+            pos = at + cursor.position() as usize;
+            Ok(pos)
+        },
+        at,
+    )?;
 
     let mut file_info = EbmlFileInfo {
         doc_type,
         ..Default::default()
     };
 
-    if let Ok(seeks) = parse_and_read(reader.by_ref(), &mut buf, pos, parse_seeks) {
+    if let Ok(seeks) = loader.load_and_parse_at(parse_seeks, pos) {
         let info_seek = seeks.get(&(SegmentId::Info as u32)).cloned();
         let tracks_seek = seeks.get(&(SegmentId::Tracks as u32)).cloned();
         if let Some(pos) = info_seek {
-            let info = parse_and_read(reader.by_ref(), &mut buf, pos as usize, parse_segment_info)?;
+            let info = loader.load_and_parse_at(parse_segment_info, pos as usize)?;
             tracing::debug!(?info);
             if let Some(info) = info {
                 file_info.segment_info = info;
@@ -96,7 +96,7 @@ pub(crate) fn parse_webm<T: Read>(mut reader: T) -> Result<EbmlFileInfo, ParseWe
         }
         if let Some(pos) = tracks_seek {
             let tracks =
-                parse_and_read(reader.by_ref(), &mut buf, pos as usize, parse_tracks_info)?;
+                loader.load_and_parse_at(|x, at| Ok(parse_tracks_info(x, at)?), pos as usize)?;
             tracing::debug!(?tracks);
             if let Some(info) = tracks {
                 file_info.tracks_info = info;
@@ -105,24 +105,32 @@ pub(crate) fn parse_webm<T: Read>(mut reader: T) -> Result<EbmlFileInfo, ParseWe
     } else {
         // According to the specification, The first Info Element SHOULD occur
         // before the first Tracks Element
-        let info = find_and_parse(
-            reader.by_ref(),
-            SegmentId::Info as u64,
-            &mut buf,
+        let info: Option<SegmentInfo> = loader.load_and_parse_at(
+            |x, at| {
+                let mut cursor = Cursor::new(&x[at..]);
+                let header = travel_while(&mut cursor, |h| h.id != SegmentId::Info as u64)?;
+                parse_segment_info(
+                    &x[at + cursor.position() as usize - header.header_size..],
+                    0,
+                )
+            },
             pos,
-            parse_segment_info,
         )?;
         tracing::debug!(?info);
         if let Some(info) = info {
             file_info.segment_info = info;
         }
 
-        let track = find_and_parse(
-            reader.by_ref(),
-            SegmentId::Tracks as u64,
-            &mut buf,
+        let track = loader.load_and_parse_at(
+            |x, at| {
+                let mut cursor = Cursor::new(&x[at..]);
+                let header = travel_while(&mut cursor, |h| h.id != SegmentId::Tracks as u64)?;
+                Ok(parse_tracks_info(
+                    &x[at + cursor.position() as usize - header.header_size..],
+                    0,
+                )?)
+            },
             pos,
-            parse_tracks_info,
         )?;
         tracing::debug!(?track);
         if let Some(info) = track {
@@ -131,26 +139,6 @@ pub(crate) fn parse_webm<T: Read>(mut reader: T) -> Result<EbmlFileInfo, ParseWe
     }
 
     Ok(file_info)
-}
-
-fn find_and_parse<T: Read, O, F>(
-    mut reader: T,
-    target_id: u64,
-    buf: &mut Vec<u8>,
-    pos: usize,
-    mut parse: F,
-) -> Result<O, ParseWebmFailed>
-where
-    F: FnMut(&[u8], usize) -> Result<O, ParseWebmFailed>,
-{
-    parse_and_read(reader.by_ref(), buf, pos, |data, pos| {
-        let mut cursor = Cursor::new(&data[pos..]);
-        let header = travel_while(&mut cursor, |h| h.id != target_id)?;
-        parse(
-            &data[pos + cursor.position() as usize - header.header_size..],
-            0,
-        )
-    })
 }
 
 #[derive(Debug, Clone, Default)]
@@ -250,28 +238,28 @@ struct SegmentInfo {
 }
 
 #[tracing::instrument(skip(input))]
-fn parse_segment_info(input: &[u8], pos: usize) -> Result<Option<SegmentInfo>, ParseWebmFailed> {
+fn parse_segment_info(input: &[u8], pos: usize) -> Result<Option<SegmentInfo>, ParsingError> {
     if pos >= input.len() {
-        return Err(ParseWebmFailed::Need(pos - input.len() + 1));
+        return Err(ParsingError::Need(pos - input.len() + 1));
     }
     let mut cursor = Cursor::new(&input[pos..]);
     let header = next_element_header(&mut cursor)?;
     tracing::debug!(segment_info_header = ?header);
 
     if cursor.remaining() < header.data_size {
-        return Err(ParseWebmFailed::Need(header.data_size - cursor.remaining()));
+        return Err(ParsingError::Need(header.data_size - cursor.remaining()));
     }
 
     let mut cursor = Cursor::new(&cursor.chunk()[..header.data_size]);
     match parse_segment_info_body(&mut cursor) {
         Ok(x) => Ok(Some(x)),
         // Don't bubble Need error to caller here
-        Err(ParseWebmFailed::Need(_)) => Ok(None),
-        Err(e) => Err(e),
+        Err(ParsingError::Need(_)) => Ok(None),
+        Err(e) => Err(e.into()),
     }
 }
 
-fn parse_segment_info_body(cursor: &mut Cursor<&[u8]>) -> Result<SegmentInfo, ParseWebmFailed> {
+fn parse_segment_info_body(cursor: &mut Cursor<&[u8]>) -> Result<SegmentInfo, ParsingError> {
     // timestamp in nanosecond = element value * TimestampScale
     // By default, one segment tick represents one millisecond
     let mut time_scale = 1_000_000;
@@ -315,44 +303,13 @@ fn parse_segment_info_body(cursor: &mut Cursor<&[u8]>) -> Result<SegmentInfo, Pa
     Ok(info)
 }
 
-fn parse_and_read<T: Read, O, F>(
-    mut reader: T,
-    buf: &mut Vec<u8>,
-    pos: usize,
-    mut parse: F,
-) -> Result<O, ParseWebmFailed>
-where
-    F: FnMut(&[u8], usize) -> Result<O, ParseWebmFailed>,
-{
-    loop {
-        match parse(buf, pos) {
-            Ok(o) => return Ok(o),
-            Err(ParseWebmFailed::Need(i)) => {
-                tracing::debug!(need = i, "need more bytes");
-                let to_read = max(i, MIN_GROW_SIZE);
-                let to_read = min(to_read, MAX_GROW_SIZE);
-                buf.reserve(to_read);
-                let n = reader
-                    .by_ref()
-                    .take(to_read as u64)
-                    .read_to_end(buf.as_mut())
-                    .map_err(ParseWebmFailed::IOError)?;
-                if n == 0 {
-                    return Err(ParseWebmFailed::InvalidWebmFile("no enough bytes".into()));
-                }
-            }
-            Err(e) => return Err(e),
-        }
-    }
-}
-
-fn parse_seeks(input: &[u8], pos: usize) -> Result<HashMap<u32, u64>, ParseWebmFailed> {
+fn parse_seeks(input: &[u8], pos: usize) -> Result<HashMap<u32, u64>, ParsingError> {
     let mut cursor = Cursor::new(&input[pos..]);
     // find SeekHead element
     let header = find_element_by_id(&mut cursor, SegmentId::SeekHead as u64)?;
     tracing::debug!(segment_header = ?header);
     if cursor.remaining() < header.data_size {
-        return Err(ParseWebmFailed::Need(header.data_size - cursor.remaining()));
+        return Err(ParsingError::Need(header.data_size - cursor.remaining()));
     }
 
     let header_pos = pos + cursor.position() as usize - header.header_size;
@@ -566,9 +523,20 @@ impl Debug for ElementHeader {
 impl From<ParseEBMLFailed> for ParseWebmFailed {
     fn from(value: ParseEBMLFailed) -> Self {
         match value {
-            ParseEBMLFailed::Need(i) => ParseWebmFailed::Need(i),
-            ParseEBMLFailed::NotEBMLFile => ParseWebmFailed::NotWebmFile,
-            ParseEBMLFailed::InvalidEBMLFile(e) => ParseWebmFailed::InvalidWebmFile(e),
+            ParseEBMLFailed::Need(i) => Self::Need(i),
+            ParseEBMLFailed::NotEBMLFile => Self::NotWebmFile,
+            ParseEBMLFailed::InvalidEBMLFile(e) => Self::InvalidWebmFile(e),
+        }
+    }
+}
+
+impl From<ParseEBMLFailed> for ParsingError {
+    fn from(value: ParseEBMLFailed) -> Self {
+        match value {
+            ParseEBMLFailed::Need(i) => ParsingError::Need(i),
+            ParseEBMLFailed::NotEBMLFile | ParseEBMLFailed::InvalidEBMLFile(_) => {
+                ParsingError::Failed(value.to_string())
+            }
         }
     }
 }
@@ -576,8 +544,28 @@ impl From<ParseEBMLFailed> for ParseWebmFailed {
 impl From<ParseVIntFailed> for ParseWebmFailed {
     fn from(value: ParseVIntFailed) -> Self {
         match value {
-            ParseVIntFailed::InvalidVInt(e) => ParseWebmFailed::InvalidWebmFile(e.into()),
-            ParseVIntFailed::Need(i) => ParseWebmFailed::Need(i),
+            ParseVIntFailed::InvalidVInt(e) => Self::InvalidWebmFile(e.into()),
+            ParseVIntFailed::Need(i) => Self::Need(i),
+        }
+    }
+}
+
+impl From<ParseVIntFailed> for ParsingError {
+    fn from(value: ParseVIntFailed) -> Self {
+        match value {
+            ParseVIntFailed::InvalidVInt(_) => Self::Failed(value.to_string()),
+            ParseVIntFailed::Need(i) => Self::Need(i),
+        }
+    }
+}
+
+impl From<ParseWebmFailed> for ParsingError {
+    fn from(value: ParseWebmFailed) -> Self {
+        match value {
+            ParseWebmFailed::NotWebmFile
+            | ParseWebmFailed::InvalidWebmFile(_)
+            | ParseWebmFailed::InvalidSeekEntry => Self::Failed(value.to_string()),
+            ParseWebmFailed::Need(n) => Self::Need(n),
         }
     }
 }

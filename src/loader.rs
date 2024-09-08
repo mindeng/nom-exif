@@ -68,6 +68,7 @@ pub(crate) trait Load: BufLoad {
                     if n == 0 {
                         return Err(ParsedError::NoEnoughBytes);
                     }
+                    tracing::debug!(actual_read = n, "has been read");
                 }
                 Err(ParsingError::Failed(s)) => return Err(ParsedError::Failed(s)),
             }

@@ -93,10 +93,8 @@ pub(crate) enum EBMLGlobalId {
 
 /// Refer to [EBML header
 /// elements](https://github.com/ietf-wg-cellar/ebml-specification/blob/master/specification.markdown#ebml-header-elements)
-#[tracing::instrument(skip_all)]
 pub(crate) fn parse_ebml_doc_type(cursor: &mut Cursor<&[u8]>) -> Result<String, ParseEBMLFailed> {
     let header = next_element_header(cursor)?;
-    tracing::debug!(?header);
 
     if header.id != TopElementId::Ebml as u64 {
         return Err(ParseEBMLFailed::NotEBMLFile);

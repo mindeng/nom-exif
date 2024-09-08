@@ -167,6 +167,7 @@
 pub use heif::parse_heif_exif;
 pub use jpeg::parse_jpeg_exif;
 pub use mov::{parse_metadata, parse_mov_metadata};
+pub use video::parse_video_info;
 
 #[cfg(feature = "async")]
 pub use exif::parse_exif_async;
