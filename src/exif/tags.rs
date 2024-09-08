@@ -67,14 +67,6 @@ impl Debug for ExifTagCode {
 #[cfg_attr(feature = "json_dump", derive(Serialize, Deserialize))]
 #[derive(Debug, Eq, PartialEq, Hash, Clone, Copy)]
 pub enum ExifTag {
-    /// `Unknown` has been deprecated, please don't use this variant in your
-    /// code (use "_" to ommit it if you are using match statement).
-    ///
-    /// The parser won't return this variant anymore. It will be deleted in
-    /// next major version.
-    #[deprecated(since = "1.5.0", note = "won't return this variant anymore")]
-    Unknown = 0x0000_ffff,
-
     Make = 0x0000_010f,
     Model = 0x0000_0110,
     Orientation = 0x0000_0112,
@@ -204,8 +196,6 @@ impl ExifTag {
 impl Display for ExifTag {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            #[allow(deprecated)]
-            ExifTag::Unknown => write!(f, "Unknown(0x{:04x})", self.code()),
             ExifTag::Make => write!(f, "Make(0x{:04x})", self.code()),
             ExifTag::Model => write!(f, "Model(0x{:04x})", self.code()),
             ExifTag::Orientation => write!(f, "Orientation(0x{:04x})", self.code()),
@@ -346,8 +336,6 @@ impl TryFrom<u16> for ExifTag {
     type Error = crate::Error;
     fn try_from(v: u16) -> Result<Self, Self::Error> {
         match v {
-            #[allow(deprecated)]
-            x if x == ExifTag::Unknown.code() => Ok(ExifTag::Unknown),
             x if x == ExifTag::Make.code() => Ok(ExifTag::Make),
             x if x == ExifTag::Model.code() => Ok(ExifTag::Model),
             x if x == ExifTag::Orientation.code() => Ok(ExifTag::Orientation),
