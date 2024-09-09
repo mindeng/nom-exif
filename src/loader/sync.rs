@@ -4,6 +4,27 @@ use crate::skip::Skip;
 
 use super::{BufLoad, Load, INIT_BUF_SIZE};
 
+/// Loads bytes from `R` using an internally maintained buffer.
+///
+/// Since Rust doesn't currently support
+/// [specialization](https://rust-lang.github.io/rfcs/1210-impl-specialization.html)
+/// , so the struct have to let user to tell it if the reader supports `Seek`,
+/// in the following way:
+///
+/// - `let loader = BufLoader::<SkipRead, _>::new(reader);` means the `reader`
+///   doesn't support `Seek`.
+///   
+/// - `let loader = BufLoader::<SkipSeek, _>::new(reader);` means the `reader`
+///   supports `Seek`.
+///
+/// Performance impact:
+///
+/// - If the reader supports `Seek`, the parser will use `Seek` to achieve
+///   efficient positioning operations in the byte stream.
+///
+/// - Otherwise, the parser will fallback to skip certain bytes through Read.
+///   This may have a certain impact on performance when processing certain large
+///   files. For example, *.mov files place metadata at the end of the file.
 pub(crate) struct BufLoader<S, R> {
     inner: Inner<S, R>,
 }
@@ -19,6 +40,7 @@ impl<S: Skip<R>, R: Read> Load for BufLoader<S, R> {
         if S::skip_by_seek(&mut self.inner.read, n as u64)? {
             Ok(())
         } else {
+            // S::skip(&mut self.inner.read, n as u64)
             self.inner.skip_by_read(n)
         }
     }
@@ -31,7 +53,7 @@ impl<S, R: Read> BufLoad for BufLoader<S, R> {
     }
 
     #[inline]
-    fn buf(&self) -> &Vec<u8> {
+    fn buf(&self) -> &[u8] {
         &self.inner.buf
     }
 
@@ -98,8 +120,16 @@ where
     #[inline]
     fn skip_by_read(&mut self, n: usize) -> std::io::Result<()> {
         self.buf.reserve(n);
-        assert!(self.buf.capacity() - self.buf.len() >= n);
-        let start = self.buf.len();
-        self.read.read_exact(&mut self.buf[start..start + n])
+        match (&mut self.read).take(n as u64).read_to_end(&mut self.buf) {
+            Ok(x) => {
+                if x == n {
+                    self.buf.clear();
+                    Ok(())
+                } else {
+                    Err(std::io::ErrorKind::UnexpectedEof.into())
+                }
+            }
+            Err(e) => Err(e),
+        }
     }
 }

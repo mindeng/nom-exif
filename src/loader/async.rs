@@ -31,7 +31,7 @@ impl<S, T> BufLoad for AsyncBufLoader<S, T> {
     }
 
     #[inline]
-    fn buf(&self) -> &Vec<u8> {
+    fn buf(&self) -> &[u8] {
         &self.inner.buf
     }
 
@@ -93,11 +93,11 @@ where
 
     #[inline]
     async fn skip_by_read(&mut self, n: usize) -> std::io::Result<()> {
-        self.buf.reserve(n);
-        let start = self.buf.len();
-        match self.read.read_exact(&mut self.buf[start..start + n]).await {
+        self.buf.resize(n, 0);
+        match self.read.read_exact(&mut self.buf[..n]).await {
             Ok(x) => {
                 if x == n {
+                    self.buf.clear();
                     Ok(())
                 } else {
                     Err(std::io::ErrorKind::UnexpectedEof.into())

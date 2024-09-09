@@ -1,6 +1,7 @@
 //! nom-exif is an Exif/metadata parsing library written in pure Rust with
-//! [nom](https://github.com/rust-bakery/nom), both JPEG/HEIF/HEIC images and
-//! MOV/MP4 videos are supported.
+//! [nom](https://github.com/rust-bakery/nom). Both images
+//! (jpeg/heif/heic/jpg/png/tiff etc.) and videos/audios
+//! (mov/mp4/3gp/webm/mkv/mka, etc.) are supported.
 //!
 //! Supporting both *sync* and *async* interfaces. The interface design is
 //! simple and easy to use.
@@ -34,12 +35,14 @@
 //!
 //! ## Supported File Types
 //!
-//! - Images
-//!   - JPEG
-//!   - HEIF/HEIC
-//! - Videos
-//!   - MOV
-//!   - MP4
+//! - Image
+//!   - *.heic, *.heif, etc.
+//!   - *.jpg, *.jpeg, etc.
+//!   - *.png
+//!   - *.tiff
+//! - Video/Audio
+//!   - ISO base media file format (ISOBMFF): *.mp4, *.mov, *.3gp, etc.
+//!   - Matroska based file format: *.webm, *.mkv, *.mka, etc.
 //!
 //! ## Sync API Usage
 //!
@@ -160,17 +163,29 @@
 //!
 //!     let gps_info = iter.parse_gps_info()?.unwrap();
 //!     assert_eq!(gps_info.format_iso6709(), "+43.29013+084.22713+1595.950CRSWGS_84/");
+//!     assert_eq!(gps_info.latitude_ref, 'N');
+//!     assert_eq!(gps_info.longitude_ref, 'E');
+//!     assert_eq!(
+//!         gps_info.latitude,
+//!         [(43, 1), (17, 1), (2446, 100)].into(),
+//!     );
 //!     Ok(())
 //! }
 //! ```
+//!
+//! ## Video
+//!
+//! Please refer to: [`parse_track_info`](crate::parse_track_info).
 //!
 //! For more usage details, please refer to the [API
 //! documentation](https://docs.rs/nom-exif/latest/nom_exif/).
 
 pub use heif::parse_heif_exif;
 pub use jpeg::parse_jpeg_exif;
+#[allow(deprecated)]
 pub use mov::{parse_metadata, parse_mov_metadata};
-pub use video::parse_video_info;
+pub use skip::{SkipRead, SkipSeek};
+pub use video::{parse_track_info, TrackInfo, TrackInfoTag};
 
 #[cfg(feature = "async")]
 pub use exif::parse_exif_async;

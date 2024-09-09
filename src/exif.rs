@@ -20,7 +20,14 @@ mod tags;
 
 /// Read exif data from `reader`, and build an [`ExifIter`] for it.
 ///
-/// If `format` is None, then guess the file format based on the read content.
+/// If `format` is None, the parser will detect the file format automatically.
+///
+/// Currently supported file formats are:
+///
+/// - *.heic, *.heif, etc.
+/// - *.jpg, *.jpeg, etc.
+/// - *.png
+/// - *.tiff
 ///
 /// All entries are lazy-parsed. That is, only when you iterate over
 /// [`ExifIter`] will the IFD entries be parsed one by one.
@@ -59,8 +66,8 @@ pub async fn parse_exif_async<T: AsyncRead + Unpin>(
         .transpose()
 }
 
-/// Read exif data from `reader`, if `format` is None, then guess the file
-/// format based on the read content.
+/// Read exif data from `reader`, if `format` is None, the parser will detect
+/// the file format automatically.
 #[tracing::instrument(skip(read))]
 pub(crate) fn read_exif<R: Read>(
     read: R,

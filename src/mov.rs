@@ -15,10 +15,13 @@ use crate::{
     input::Input,
     loader::{BufLoader, Load},
     skip::SkipSeek,
-    video::VideoInfoTag,
+    video::TrackInfoTag,
     EntryValue, FileFormat,
 };
 
+/// *Deprecated*: please use [`parse_track_info`](crate::parse_track_info)
+/// instead.
+///
 /// Analyze the byte stream in the `reader` as a MOV/MP4 file, attempting to
 /// extract any possible metadata it may contain, and return it in the form of
 /// key-value pairs.
@@ -53,6 +56,7 @@ use crate::{
 /// ("height", U32(1280))"#,
 /// );
 /// ```
+#[deprecated(since = "2.0.0")]
 #[tracing::instrument(skip_all)]
 pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, EntryValue)>> {
     let mut loader = BufLoader::<SkipSeek, _>::new(reader);
@@ -81,13 +85,13 @@ pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, E
         }
     };
 
-    let map: BTreeMap<VideoInfoTag, EntryValue> = map_qt_tag_to_video_tag(entries.clone());
+    let map: BTreeMap<TrackInfoTag, EntryValue> = map_qt_tag_to_video_tag(entries.clone());
     let mut extras = parse_mvhd_tkhd(&moov_body);
 
     const CREATIONDATE_KEY: &str = "com.apple.quicktime.creationdate";
-    if map.contains_key(&VideoInfoTag::CreateDate) {
-        extras.remove(&VideoInfoTag::CreateDate);
-        let date = map.get(&VideoInfoTag::CreateDate);
+    if map.contains_key(&TrackInfoTag::CreateDate) {
+        extras.remove(&TrackInfoTag::CreateDate);
+        let date = map.get(&TrackInfoTag::CreateDate);
         if let Some(pos) = entries.iter().position(|x| x.0 == CREATIONDATE_KEY) {
             if let Some(date) = date {
                 entries[pos] = (CREATIONDATE_KEY.to_string(), date.clone());
@@ -98,17 +102,17 @@ pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, E
     }
 
     entries.extend(extras.into_iter().map(|(k, v)| match k {
-        VideoInfoTag::ImageWidth => ("width".to_string(), v),
-        VideoInfoTag::ImageHeight => ("height".to_string(), v),
-        VideoInfoTag::Duration => ("duration".to_string(), v),
-        VideoInfoTag::CreateDate => (CREATIONDATE_KEY.to_string(), v),
+        TrackInfoTag::ImageWidth => ("width".to_string(), v),
+        TrackInfoTag::ImageHeight => ("height".to_string(), v),
+        TrackInfoTag::Duration => ("duration".to_string(), v),
+        TrackInfoTag::CreateDate => (CREATIONDATE_KEY.to_string(), v),
         _ => unreachable!(),
     }));
 
     // If the GPSInfo doesn't exist, then try to find GPS info from box
     // `moov/udta/©xyz`. For mp4 files, Android phones store GPS info in that
     // box.
-    if !map.contains_key(&VideoInfoTag::GpsIso6709) {
+    if !map.contains_key(&TrackInfoTag::GpsIso6709) {
         if let Some(gps) = parse_mp4_gps(&moov_body) {
             const LOCATION_KEY: &str = "com.apple.quicktime.location.ISO6709";
             entries.push((LOCATION_KEY.to_string(), gps.into()));
@@ -119,7 +123,7 @@ pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, E
 }
 
 #[tracing::instrument(skip_all)]
-pub(crate) fn parse_qt<L: Load>(loader: L) -> crate::Result<BTreeMap<VideoInfoTag, EntryValue>> {
+pub(crate) fn parse_qt<L: Load>(loader: L) -> crate::Result<BTreeMap<TrackInfoTag, EntryValue>> {
     let moov_body = extract_moov_body(loader)?;
 
     let (_, entries) = match parse_moov_body(&moov_body) {
@@ -130,32 +134,32 @@ pub(crate) fn parse_qt<L: Load>(loader: L) -> crate::Result<BTreeMap<VideoInfoTa
         }
     };
 
-    let mut entries: BTreeMap<VideoInfoTag, EntryValue> = map_qt_tag_to_video_tag(entries);
+    let mut entries: BTreeMap<TrackInfoTag, EntryValue> = map_qt_tag_to_video_tag(entries);
     let extras = parse_mvhd_tkhd(&moov_body);
-    if entries.contains_key(&VideoInfoTag::CreateDate) {
-        entries.remove(&VideoInfoTag::CreateDate);
+    if entries.contains_key(&TrackInfoTag::CreateDate) {
+        entries.remove(&TrackInfoTag::CreateDate);
     }
     entries.extend(extras);
 
     Ok(entries)
 }
 
-fn parse_mvhd_tkhd(moov_body: &[u8]) -> BTreeMap<VideoInfoTag, EntryValue> {
+fn parse_mvhd_tkhd(moov_body: &[u8]) -> BTreeMap<TrackInfoTag, EntryValue> {
     let mut entries = BTreeMap::new();
     if let Ok((_, Some(bbox))) = find_box(moov_body, "mvhd") {
         if let Ok((_, mvhd)) = MvhdBox::parse_box(bbox.data) {
-            entries.insert(VideoInfoTag::Duration, mvhd.duration_ms().into());
+            entries.insert(TrackInfoTag::Duration, mvhd.duration_ms().into());
 
             entries.insert(
-                VideoInfoTag::CreateDate,
+                TrackInfoTag::CreateDate,
                 EntryValue::Time(mvhd.creation_time()),
             );
         }
     }
 
     if let Ok(Some(tkhd)) = parse_video_tkhd_in_moov(moov_body) {
-        entries.insert(VideoInfoTag::ImageWidth, tkhd.width.into());
-        entries.insert(VideoInfoTag::ImageHeight, tkhd.height.into());
+        entries.insert(TrackInfoTag::ImageWidth, tkhd.width.into());
+        entries.insert(TrackInfoTag::ImageHeight, tkhd.height.into());
     }
 
     entries
@@ -163,22 +167,22 @@ fn parse_mvhd_tkhd(moov_body: &[u8]) -> BTreeMap<VideoInfoTag, EntryValue> {
 
 fn map_qt_tag_to_video_tag(
     entries: Vec<(String, EntryValue)>,
-) -> BTreeMap<VideoInfoTag, EntryValue> {
+) -> BTreeMap<TrackInfoTag, EntryValue> {
     entries
         .into_iter()
         .filter_map(|(k, v)| {
             if k == "com.apple.quicktime.creationdate" {
                 v.as_str()
                     .and_then(|s| DateTime::parse_from_str(s, "%+").ok())
-                    .map(|t| (VideoInfoTag::CreateDate, EntryValue::Time(t)))
+                    .map(|t| (TrackInfoTag::CreateDate, EntryValue::Time(t)))
             } else if k == "com.apple.quicktime.make" {
-                Some((VideoInfoTag::Make, v))
+                Some((TrackInfoTag::Make, v))
             } else if k == "com.apple.quicktime.model" {
-                Some((VideoInfoTag::Model, v))
+                Some((TrackInfoTag::Model, v))
             } else if k == "com.apple.quicktime.software" {
-                Some((VideoInfoTag::Software, v))
+                Some((TrackInfoTag::Software, v))
             } else if k == "com.apple.quicktime.location.ISO6709" {
-                Some((VideoInfoTag::GpsIso6709, v))
+                Some((TrackInfoTag::GpsIso6709, v))
             } else {
                 None
             }
@@ -187,7 +191,7 @@ fn map_qt_tag_to_video_tag(
 }
 
 #[tracing::instrument(skip_all)]
-pub(crate) fn parse_mp4<L: Load>(loader: L) -> crate::Result<BTreeMap<VideoInfoTag, EntryValue>> {
+pub(crate) fn parse_mp4<L: Load>(loader: L) -> crate::Result<BTreeMap<TrackInfoTag, EntryValue>> {
     let moov_body = extract_moov_body(loader)?;
 
     let (_, entries) = match parse_moov_body(&moov_body) {
@@ -198,14 +202,14 @@ pub(crate) fn parse_mp4<L: Load>(loader: L) -> crate::Result<BTreeMap<VideoInfoT
         }
     };
 
-    let mut entries: BTreeMap<VideoInfoTag, EntryValue> = map_qt_tag_to_video_tag(entries);
+    let mut entries: BTreeMap<TrackInfoTag, EntryValue> = map_qt_tag_to_video_tag(entries);
     let extras = parse_mvhd_tkhd(&moov_body);
     entries.extend(extras);
 
     // If the GPSInfo doesn't exist, then try to find GPS info from box
     // `moov/udta/©xyz`. For mp4 files, Android phones store GPS info in that
     // box.
-    if let btree_map::Entry::Vacant(e) = entries.entry(VideoInfoTag::GpsIso6709) {
+    if let btree_map::Entry::Vacant(e) = entries.entry(TrackInfoTag::GpsIso6709) {
         if let Some(gps) = parse_mp4_gps(&moov_body) {
             e.insert(gps.into());
         }
@@ -235,6 +239,9 @@ fn parse_mp4_gps(moov_body: &[u8]) -> Option<String> {
     None
 }
 
+/// *Deprecated*: please use [`parse_track_info`](crate::parse_track_info)
+/// instead.
+///
 /// Analyze the byte stream in the `reader` as a MOV file, attempting to extract
 /// any possible metadata it may contain, and return it in the form of key-value
 /// pairs.
@@ -270,6 +277,7 @@ fn parse_mp4_gps(moov_body: &[u8]) -> Option<String> {
 /// );
 /// ```
 pub fn parse_mov_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, EntryValue)>> {
+    #[allow(deprecated)]
     parse_metadata(reader)
 }
 
@@ -311,6 +319,7 @@ fn extract_moov_body_from_buf(input: &[u8]) -> Result<Range<usize>, ParsingError
             to_skip = h.body_size() as usize - remain.len();
             false
         } else {
+            // body has been read, so just consume it
             skipped += h.box_size as usize;
             true
         }
@@ -387,6 +396,7 @@ fn tz_iso_8601_to_rfc3339(s: String) -> String {
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
     use crate::testkit::*;

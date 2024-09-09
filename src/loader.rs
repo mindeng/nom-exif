@@ -18,7 +18,7 @@ const MIN_GROW_SIZE: usize = 2 * 4096;
 const MAX_GROW_SIZE: usize = 10 * 4096;
 
 pub(crate) trait BufLoad {
-    fn buf(&self) -> &Vec<u8>;
+    fn buf(&self) -> &[u8];
     fn buf_mut(&mut self) -> &mut Vec<u8>;
     fn into_vec(self) -> Vec<u8>;
     #[allow(unused)]
@@ -55,7 +55,7 @@ pub(crate) trait Load: BufLoad {
         }
 
         loop {
-            match parse(self.buf().as_ref(), at) {
+            match parse(self.buf(), at) {
                 Ok(o) => return Ok(o),
                 Err(ParsingError::ClearAndSkip(n)) => {
                     tracing::debug!(n, "clear and skip bytes");
@@ -102,7 +102,7 @@ pub(crate) trait AsyncLoad: BufLoad {
         }
 
         loop {
-            match parse(self.buf().as_ref(), at) {
+            match parse(self.buf(), at) {
                 Ok(o) => return Ok(o),
                 Err(ParsingError::ClearAndSkip(n)) => {
                     tracing::debug!(n, "clear and skip bytes");

@@ -3,9 +3,28 @@ use std::io::{self, Read, Seek};
 #[cfg(feature = "async")]
 use tokio::io::{AsyncRead, AsyncSeek, AsyncSeekExt};
 
-pub(crate) trait Skip<R> {
+/// Use `SkipSeek` as a generic parameter for some interfaces, so tell the
+/// parser to use `Seek` to implement [`Skip`] operations. For more
+/// information, please refer to:
+/// [`parse_track_info`](crate::parse_track_info).
+pub struct SkipSeek(());
+
+/// Use `SkipRead` as a generic parameter for some interfaces, so tell the
+/// parser to use `Read` to implement [`Skip`] operations. For more
+/// information, please refer to:
+/// [`parse_track_info`](crate::parse_track_info).
+pub struct SkipRead(());
+
+/// Abstracts the operation of skipping some bytes.
+///
+/// The user specifies the parser's `Skip` behavior using [`SkipSeek`] or
+/// [`SkipRead`].
+///
+/// For more information, please refer to:
+/// [`parse_track_info`](crate::parse_track_info).
+#[allow(unused)]
+pub trait Skip<R> {
     /// Skip the given number of bytes.
-    #[allow(unused)]
     fn skip(reader: &mut R, skip: u64) -> io::Result<()>;
 
     /// Skip the given number of bytes. If seek is not implemented by `reader`,
@@ -25,9 +44,6 @@ pub(crate) trait AsyncSkip<R> {
     /// thereby reusing the caller's own buffer.
     async fn skip_by_seek(reader: &mut R, skip: u64) -> io::Result<bool>;
 }
-
-pub struct SkipRead;
-pub struct SkipSeek;
 
 impl<R: Read> Skip<R> for SkipRead {
     #[inline]
@@ -75,10 +91,16 @@ impl<R: AsyncRead> AsyncSkip<R> for SkipRead {
 impl<R: AsyncSeek + Unpin> AsyncSkip<R> for SkipSeek {
     #[inline]
     async fn skip_by_seek(reader: &mut R, skip: u64) -> io::Result<bool> {
-        reader
-            .seek(std::io::SeekFrom::Current(skip as i64))
-            .await
-            .map(|_| true)
+        match reader.seek(std::io::SeekFrom::Current(skip as i64)).await {
+            Ok(n) => {
+                if n == skip {
+                    Ok(true)
+                } else {
+                    Err(std::io::ErrorKind::UnexpectedEof.into())
+                }
+            }
+            Err(e) => Err(e),
+        }
     }
 }
 

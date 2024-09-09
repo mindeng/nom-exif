@@ -16,7 +16,7 @@ use crate::{
     },
     error::{ParsedError, ParsingError},
     loader::Load,
-    video::{VideoInfo, VideoInfoTag},
+    video::{TrackInfo, TrackInfoTag},
 };
 
 use super::{
@@ -34,18 +34,18 @@ pub struct EbmlFileInfo {
     tracks_info: TracksInfo,
 }
 
-impl From<EbmlFileInfo> for VideoInfo {
+impl From<EbmlFileInfo> for TrackInfo {
     fn from(value: EbmlFileInfo) -> Self {
-        let mut info = VideoInfo::default();
+        let mut info = TrackInfo::default();
         if let Some(date) = value.segment_info.date {
-            info.put(VideoInfoTag::CreateDate, date.into());
+            info.put(TrackInfoTag::CreateDate, date.into());
         }
         info.put(
-            VideoInfoTag::Duration,
+            TrackInfoTag::Duration,
             (value.segment_info.duration / 1000.0 / 1000.0).into(),
         );
-        info.put(VideoInfoTag::ImageWidth, value.tracks_info.width.into());
-        info.put(VideoInfoTag::ImageHeight, value.tracks_info.height.into());
+        info.put(TrackInfoTag::ImageWidth, value.tracks_info.width.into());
+        info.put(TrackInfoTag::ImageHeight, value.tracks_info.height.into());
         info
     }
 }

@@ -1,22 +1,21 @@
 use std::{
-    collections::BTreeMap,
+    collections::{btree_map::IntoIter, BTreeMap},
     fmt::Display,
-    io::{Read, Seek},
-    str::FromStr,
+    io::Read,
 };
 
 use crate::{
     ebml::webm::parse_webm,
     loader::BufLoader,
     mov::{parse_mp4, parse_qt},
-    skip::SkipSeek,
+    skip::Skip,
     EntryValue, FileFormat, GPSInfo,
 };
 
 /// Try to keep the tag name consistent with [`crate::ExifTag`], and add some
-/// unique to video, such as `Duration`
+/// unique to video/audio, such as `Duration`
 #[derive(Debug, Clone, PartialEq, Eq, Copy, PartialOrd, Ord)]
-pub(crate) enum VideoInfoTag {
+pub enum TrackInfoTag {
     Make,
     Model,
     Software,
@@ -27,44 +26,79 @@ pub(crate) enum VideoInfoTag {
     GpsIso6709,
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct VideoInfo {
-    entries: BTreeMap<VideoInfoTag, EntryValue>,
-    gps_info: Option<GPSInfo>,
-}
-
-impl VideoInfo {
-    pub fn get_value_by_name(&self, name: &str) -> Option<&EntryValue> {
-        let t: VideoInfoTag = name.parse().ok()?;
-        self.entries.get(&t)
-    }
-
-    pub fn get_gps_info(&self) -> Option<&GPSInfo> {
-        self.gps_info.as_ref()
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = (&str, &EntryValue)> {
-        self.entries
-            .iter()
-            .map(|(k, v)| (Into::<&str>::into(*k), v))
-    }
-
-    pub fn into_iter(self) -> impl Iterator<Item = (&'static str, EntryValue)> {
-        self.entries
-            .into_iter()
-            .map(|(k, v)| (Into::<&str>::into(k), v))
-    }
-
-    pub(crate) fn put(&mut self, tag: VideoInfoTag, value: EntryValue) {
-        self.entries.insert(tag, value);
-    }
-}
-
-pub fn parse_video_info<R: Read + Seek>(mut reader: R) -> crate::Result<VideoInfo> {
-    reader.rewind()?;
-    let mut loader = BufLoader::<SkipSeek, _>::new(reader);
+/// Parse video/audio info from `reader`. The file format will be detected
+/// automatically by parser, if the format is not supported, an `Err` will be
+/// returned.
+///
+/// Currently supported file formats are:
+///
+/// - ISO base media file format (ISOBMFF): *.mp4, *.mov, *.3gp, etc.
+/// - Matroska based file format: *.webm, *.mkv, *.mka, etc.
+///
+/// ## Explanation of the generic parameters of this function:
+///
+/// - In order to improve parsing efficiency, the parser will internally skip
+///   some useless bytes during parsing the byte stream, which is called `Skip`
+///   internally.
+///
+/// - In order to support both `Read` and `Read` + `Seek` types, the interface
+///   of input parameters is defined as `Read`.
+///   
+/// - Since Rust does not support specialization, the parser cannot internally
+///   distinguish between `Read` and `Seek` and provide different `Skip`
+///   implementations for them.
+///   
+/// Therefore, We chose to let the user specify how `Skip` works:
+///
+/// - `parse_track_info::<SkipSeek, _>(reader)` means the `reader` supports
+///   `Seek`, so `Skip` will use the `Seek` trait to implement efficient skip
+///   operations.
+///   
+/// - `parse_track_info::<SkipRead, _>(reader)` means the `reader` dosn't
+///   support `Seek`, so `Skip` will fall back to using `Read` to implement the
+///   skip operations.
+///
+/// ## Performance impact
+///
+/// If your `reader` only supports `Read`, it may cause performance loss when
+/// processing certain large files. For example, *.mov files place metadata at
+/// the end of the file, therefore, when parsing such files, locating metadata
+/// will be slightly slower.
+///
+/// ## Examples
+///
+/// ```rust
+/// use nom_exif::*;
+/// use std::fs::File;
+/// use chrono::DateTime;
+///
+/// let f = File::open("./testdata/meta.mov").unwrap();
+/// let info = parse_track_info::<SkipSeek, _>(f).unwrap();
+///
+/// assert_eq!(info.get(TrackInfoTag::Make), Some(&"Apple".into()));
+/// assert_eq!(info.get(TrackInfoTag::Model), Some(&"iPhone X".into()));
+/// assert_eq!(info.get(TrackInfoTag::GpsIso6709), Some(&"+27.1281+100.2508+000.000/".into()));
+/// assert_eq!(info.get_gps_info().unwrap().latitude_ref, 'N');
+/// assert_eq!(
+///     info.get_gps_info().unwrap().latitude,
+///     [(27, 1), (7, 1), (68, 100)].into(),
+/// );
+///
+/// let f = File::open("./testdata/sample_640x360.mkv").unwrap();
+/// let info = parse_track_info::<SkipSeek, _>(f).unwrap();
+///
+/// assert_eq!(info.get(TrackInfoTag::ImageWidth), Some(&640_u32.into()));
+/// assert_eq!(info.get(TrackInfoTag::ImageHeight), Some(&360_u32.into()));
+/// assert_eq!(info.get(TrackInfoTag::Duration), Some(&13346_f64.into()));
+/// assert_eq!(
+///     info.get(TrackInfoTag::CreateDate),
+///     Some(&DateTime::parse_from_str("2008-08-08T08:08:08Z", "%+").unwrap().into())
+/// );
+/// ```
+pub fn parse_track_info<S: Skip<R>, R: Read>(reader: R) -> crate::Result<TrackInfo> {
+    let mut loader = BufLoader::<S, _>::new(reader);
     let ff = FileFormat::try_from_load(&mut loader)?;
-    let mut info: VideoInfo = match ff {
+    let mut info: TrackInfo = match ff {
         FileFormat::Jpeg | FileFormat::Heif => {
             return Err(crate::error::Error::ParseFailed(
                 "can not parse video info from an image".into(),
@@ -75,15 +109,48 @@ pub fn parse_video_info<R: Read + Seek>(mut reader: R) -> crate::Result<VideoInf
         FileFormat::Ebml => parse_webm(loader)?.into(),
     };
 
-    if let Some(gps) = info.get_value_by_name(VideoInfoTag::GpsIso6709.into()) {
+    if let Some(gps) = info.get(TrackInfoTag::GpsIso6709) {
         info.gps_info = gps.as_str().and_then(|s| s.parse().ok());
     }
 
     Ok(info)
 }
 
-impl From<BTreeMap<VideoInfoTag, EntryValue>> for VideoInfo {
-    fn from(entries: BTreeMap<VideoInfoTag, EntryValue>) -> Self {
+#[derive(Debug, Clone, Default)]
+pub struct TrackInfo {
+    entries: BTreeMap<TrackInfoTag, EntryValue>,
+    gps_info: Option<GPSInfo>,
+}
+
+impl TrackInfo {
+    pub fn get(&self, tag: TrackInfoTag) -> Option<&EntryValue> {
+        self.entries.get(&tag)
+    }
+
+    pub fn get_gps_info(&self) -> Option<&GPSInfo> {
+        self.gps_info.as_ref()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&TrackInfoTag, &EntryValue)> {
+        self.entries.iter()
+    }
+
+    pub(crate) fn put(&mut self, tag: TrackInfoTag, value: EntryValue) {
+        self.entries.insert(tag, value);
+    }
+}
+
+impl IntoIterator for TrackInfo {
+    type Item = (TrackInfoTag, EntryValue);
+    type IntoIter = IntoIter<TrackInfoTag, EntryValue>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.entries.into_iter()
+    }
+}
+
+impl From<BTreeMap<TrackInfoTag, EntryValue>> for TrackInfo {
+    fn from(entries: BTreeMap<TrackInfoTag, EntryValue>) -> Self {
         Self {
             entries,
             gps_info: None,
@@ -91,44 +158,57 @@ impl From<BTreeMap<VideoInfoTag, EntryValue>> for VideoInfo {
     }
 }
 
-pub(crate) struct UnsupportedTagError;
-
-impl FromStr for VideoInfoTag {
-    type Err = UnsupportedTagError;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let t = match s {
-            "Make" => Self::Make,
-            "Model" => Self::Model,
-            "Software" => Self::Software,
-            "CreateDate" => Self::CreateDate,
-            "Duration" => Self::Duration,
-            "ImageWidth" => Self::ImageWidth,
-            "ImageHeight" => Self::ImageHeight,
-            "GPSInfo" => Self::GpsIso6709,
-            _ => return Err(UnsupportedTagError),
-        };
-        Ok(t)
-    }
-}
-
-impl Display for VideoInfoTag {
+impl Display for TrackInfoTag {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s: &str = (*self).into();
         s.fmt(f)
     }
 }
 
-impl From<VideoInfoTag> for &str {
-    fn from(value: VideoInfoTag) -> Self {
+impl From<TrackInfoTag> for &str {
+    fn from(value: TrackInfoTag) -> Self {
         match value {
-            VideoInfoTag::Make => "Make",
-            VideoInfoTag::Model => "Model",
-            VideoInfoTag::Software => "Software",
-            VideoInfoTag::CreateDate => "CreateDate",
-            VideoInfoTag::Duration => "Duration",
-            VideoInfoTag::ImageWidth => "ImageWidth",
-            VideoInfoTag::ImageHeight => "ImageHeight",
-            VideoInfoTag::GpsIso6709 => "GpsIso6709",
+            TrackInfoTag::Make => "Make",
+            TrackInfoTag::Model => "Model",
+            TrackInfoTag::Software => "Software",
+            TrackInfoTag::CreateDate => "CreateDate",
+            TrackInfoTag::Duration => "Duration",
+            TrackInfoTag::ImageWidth => "ImageWidth",
+            TrackInfoTag::ImageHeight => "ImageHeight",
+            TrackInfoTag::GpsIso6709 => "GpsIso6709",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::testkit::open_sample;
+    use crate::values::Rational;
+    use crate::{LatLng, SkipRead, SkipSeek};
+    use chrono::DateTime;
+    use test_case::test_case;
+
+    use super::TrackInfoTag::*;
+    use super::*;
+
+    #[test_case("sample_640x360.mkv", ImageWidth, 640_u32.into())]
+    #[test_case("sample_640x360.mkv", ImageHeight, 360_u32.into())]
+    #[test_case("sample_640x360.mkv", Duration, 13346_f64.into())]
+    #[test_case("sample_640x360.mkv", CreateDate, DateTime::parse_from_str("2008-08-08T08:08:08Z", "%+").unwrap().into())]
+    fn test_skip_seek(path: &str, tag: TrackInfoTag, v: EntryValue) {
+        let info = parse_track_info::<SkipSeek, _>(open_sample(path).unwrap()).unwrap();
+        assert_eq!(info.get(tag).unwrap(), &v);
+    }
+
+    #[test_case("meta.mov", Make, "Apple".into())]
+    #[test_case("meta.mov", Model, "iPhone X".into())]
+    #[test_case("meta.mov", GpsIso6709, "+27.1281+100.2508+000.000/".into())]
+    fn test_skip_read(path: &str, tag: TrackInfoTag, v: EntryValue) {
+        let info = parse_track_info::<SkipRead, _>(open_sample(path).unwrap()).unwrap();
+        assert_eq!(info.get(tag).unwrap(), &v);
+        assert_eq!(
+            info.get_gps_info().unwrap().latitude,
+            LatLng(Rational(27, 1), Rational(7, 1), Rational(68, 100))
+        );
     }
 }

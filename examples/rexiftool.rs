@@ -6,7 +6,7 @@ use std::{
 };
 
 use clap::Parser;
-use nom_exif::{parse_exif, parse_video_info, FileFormat};
+use nom_exif::{parse_exif, parse_track_info, FileFormat, SkipSeek};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Registry};
 
 #[derive(Parser, Debug)]
@@ -78,9 +78,9 @@ fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
             .collect::<Vec<_>>()
         }
         FileFormat::QuickTime | FileFormat::MP4 | FileFormat::Ebml => {
-            let info = parse_video_info(&mut reader)?;
+            let info = parse_track_info::<SkipSeek, _>(&mut reader)?;
             info.into_iter()
-                .map(|x| (x.0.to_owned(), x.1))
+                .map(|x| (x.0.to_string(), x.1))
                 .collect::<Vec<_>>()
         }
     };
