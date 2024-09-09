@@ -29,23 +29,10 @@ use crate::{
 /// let f = File::open(Path::new("./testdata/exif.heic")).unwrap();
 /// let exif = parse_heif_exif(f).unwrap().unwrap();
 ///
-/// assert_eq!(exif.get_value(&Make).unwrap().unwrap().to_string(), "Apple");
-///
-/// assert_eq!(
-///     exif.get_values(&[DateTimeOriginal, CreateDate, ModifyDate])
-///         .into_iter()
-///         .map(|x| (x.0.to_string(), x.1.to_string()))
-///         .collect::<Vec<_>>(),
-///     [
-///         ("DateTimeOriginal(0x9003)", "2022-07-22T21:26:32+08:00"),
-///         ("CreateDate(0x9004)", "2022-07-22T21:26:32+08:00"),
-///         ("ModifyDate(0x0132)", "2022-07-22T21:26:32+08:00")
-///     ]
-///     .into_iter()
-///     .map(|x| (x.0.to_string(), x.1.to_string()))
-///     .collect::<Vec<_>>()
-/// );
+/// assert_eq!(exif.get(Make).unwrap().to_string(), "Apple");
 /// ```
+///
+/// See also: [`parse_exif`](crate::parse_exif).
 pub fn parse_heif_exif<R: Read + Seek>(reader: R) -> crate::Result<Option<Exif>> {
     read_exif(reader, Some(FileFormat::Heif))?
         .map(input_to_exif)

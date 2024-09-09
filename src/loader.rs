@@ -7,7 +7,10 @@ use crate::error::{ParsedError, ParsingError};
 
 mod sync;
 pub(crate) use sync::BufLoader;
+
+#[cfg(feature = "async")]
 mod r#async;
+#[cfg(feature = "async")]
 pub(crate) use r#async::AsyncBufLoader;
 
 const INIT_BUF_SIZE: usize = 4096;
@@ -77,6 +80,7 @@ pub(crate) trait Load: BufLoad {
     }
 }
 
+#[cfg(feature = "async")]
 pub(crate) trait AsyncLoad: BufLoad {
     async fn read_buf(&mut self, n: usize) -> std::io::Result<usize>;
     async fn skip(&mut self, n: usize) -> std::io::Result<()>;

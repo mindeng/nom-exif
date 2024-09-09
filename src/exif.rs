@@ -96,7 +96,7 @@ where
 {
     use crate::loader::{AsyncBufLoader, AsyncLoad};
 
-    let mut loader = AsyncBufLoader::new(read);
+    let mut loader = AsyncBufLoader::<SkipRead, _>::new(read);
     let ff = match format {
         Some(ff) => ff,
         None => {
@@ -146,9 +146,6 @@ mod tests {
             .filter(|e| e.has_value())
             .map(|e| format!("{} => {}", e.tag().unwrap(), e.take_value().unwrap()))
             .collect();
-        assert_eq!(
-            res.join(", "),
-            "Make(0x010f) => Apple, Model(0x0110) => iPhone 12 Pro"
-        );
+        assert_eq!(res.join(", "), "Make => Apple, Model => iPhone 12 Pro");
     }
 }

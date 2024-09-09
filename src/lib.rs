@@ -78,7 +78,7 @@
 //!         .collect();
 //!     assert_eq!(
 //!         res.join(", "),
-//!         "Make(0x010f) => Apple, Model(0x0110) => iPhone 12 Pro"
+//!         "Make => Apple, Model => iPhone 12 Pro"
 //!     );
 //!     
 //!     // An `ExifIter` can be easily converted to an `Exif`
@@ -191,10 +191,10 @@ mod input;
 mod jpeg;
 mod loader;
 mod mov;
+mod skip;
 mod slice;
 mod values;
 mod video;
-mod skip;
 
 #[cfg(test)]
 mod testkit;

@@ -348,37 +348,6 @@ mod tests {
     }
 
     #[test_case("exif.jpg")]
-    fn exif_iter(path: &str) {
-        use std::fmt::Write;
-        let buf = read_sample(path).unwrap();
-        let (_, data) = extract_exif_data(&buf).unwrap();
-        let data = data
-            .and_then(|x| buf.subslice_range(x))
-            .map(|x| Input::from_vec_range(buf, x))
-            .unwrap();
-        let parser = ExifParser::new(data);
-        let iter = parser.parse_iter().unwrap();
-
-        let mut expect = String::new();
-        open_sample(&format!("{path}.txt"))
-            .unwrap()
-            .read_to_string(&mut expect)
-            .unwrap();
-
-        let mut result = String::new();
-        for res in iter {
-            writeln!(&mut result, "{res:?}").unwrap();
-        }
-
-        // open_sample_w(&format!("{path}.txt"))
-        //     .unwrap()
-        //     .write_all(result.as_bytes())
-        //     .unwrap();
-
-        assert_eq!(result.trim(), expect.trim());
-    }
-
-    #[test_case("exif.jpg")]
     fn exif_iter_gps(path: &str) {
         let buf = read_sample(path).unwrap();
         let (_, data) = extract_exif_data(&buf).unwrap();
@@ -394,7 +363,6 @@ mod tests {
 
     #[test_case("exif.jpg")]
     fn clone_exif_iter_to_thread(path: &str) {
-        use std::fmt::Write;
         let buf = read_sample(path).unwrap();
         let (_, data) = extract_exif_data(&buf).unwrap();
         let data = data
@@ -411,20 +379,35 @@ mod tests {
             .read_to_string(&mut expect)
             .unwrap();
 
-        let jh = thread::spawn(move || {
-            let mut result = String::new();
-            for res in iter2 {
-                writeln!(&mut result, "{res:?}").unwrap();
-            }
-            result
-        });
+        let jh = thread::spawn(move || iter_to_str(iter2));
 
-        let mut result = String::new();
-        for res in iter {
-            writeln!(&mut result, "{res:?}").unwrap();
-        }
+        let result = iter_to_str(iter);
+
+        // open_sample_w(&format!("{path}.txt"))
+        //     .unwrap()
+        //     .write_all(result.as_bytes())
+        //     .unwrap();
 
         assert_eq!(result.trim(), expect.trim());
         assert_eq!(jh.join().unwrap().trim(), expect.trim());
+    }
+
+    fn iter_to_str(it: impl Iterator<Item = ParsedExifEntry>) -> String {
+        let ss = it
+            .map(|x| {
+                format!(
+                    "ifd{}.{:<32} » {}",
+                    x.ifd_index(),
+                    x.tag()
+                        .map(|t| t.to_string())
+                        .unwrap_or_else(|| format!("Unknown(0x{:04x})", x.tag_code())),
+                    x.take_result()
+                        .map(|v| v.to_string())
+                        .map_err(|e| e.to_string())
+                        .unwrap_or_else(|s| s)
+                )
+            })
+            .collect::<Vec<String>>();
+        ss.join("\n")
     }
 }

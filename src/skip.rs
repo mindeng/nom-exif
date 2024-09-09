@@ -5,6 +5,7 @@ use tokio::io::{AsyncRead, AsyncSeek, AsyncSeekExt};
 
 pub(crate) trait Skip<R> {
     /// Skip the given number of bytes.
+    #[allow(unused)]
     fn skip(reader: &mut R, skip: u64) -> io::Result<()>;
 
     /// Skip the given number of bytes. If seek is not implemented by `reader`,
@@ -83,13 +84,11 @@ impl<R: AsyncSeek + Unpin> AsyncSkip<R> for SkipSeek {
 
 #[cfg(test)]
 mod tests {
-    use io::{repeat, Cursor};
-    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Registry};
-
     use super::*;
+    use io::{repeat, Cursor};
 
-    fn parse<S: Skip<R>, R: Read>(reader: &mut R) -> io::Result<()> {
-        S::skip(reader, 2)
+    fn parse<S: Skip<R>, R: Read>(reader: &mut R) -> io::Result<bool> {
+        S::skip_by_seek(reader, 2)
     }
 
     #[cfg(feature = "async")]
@@ -101,16 +100,12 @@ mod tests {
 
     #[test]
     fn skip() {
-        let stdout_log = tracing_subscriber::fmt::layer().pretty();
-        let subscriber = Registry::default().with(stdout_log);
-        subscriber.init();
-
         let mut buf = Cursor::new([0u8, 3]);
-        parse::<SkipRead, _>(&mut buf).unwrap();
-        parse::<SkipSeek, _>(&mut buf).unwrap();
+        assert!(!parse::<SkipRead, _>(&mut buf).unwrap());
+        assert!(parse::<SkipSeek, _>(&mut buf).unwrap());
 
         let mut r = repeat(0);
-        parse::<SkipRead, _>(&mut r).unwrap();
+        assert!(!parse::<SkipRead, _>(&mut r).unwrap());
     }
 
     #[cfg(feature = "async")]

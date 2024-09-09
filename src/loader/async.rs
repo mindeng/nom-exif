@@ -1,14 +1,14 @@
-#[cfg(feature = "async")]
+use super::{AsyncLoad, BufLoad, INIT_BUF_SIZE};
+use crate::skip::AsyncSkip;
+
+use std::marker::PhantomData;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
-use super::{AsyncLoad, BufLoad, INIT_BUF_SIZE};
-
-pub(crate) struct AsyncBufLoader<T> {
-    inner: Inner<T>,
+pub(crate) struct AsyncBufLoader<S, R> {
+    inner: Inner<S, R>,
 }
 
-#[cfg(feature = "async")]
-impl<T: AsyncRead + Unpin> AsyncLoad for AsyncBufLoader<T> {
+impl<S: AsyncSkip<T>, T: AsyncRead + Unpin> AsyncLoad for AsyncBufLoader<S, T> {
     #[inline]
     async fn read_buf(&mut self, n: usize) -> std::io::Result<usize> {
         self.inner.buf.reserve(n);
@@ -16,11 +16,15 @@ impl<T: AsyncRead + Unpin> AsyncLoad for AsyncBufLoader<T> {
     }
 
     async fn skip(&mut self, n: usize) -> std::io::Result<()> {
-        self.inner.skip_by_read(n).await
+        if S::skip_by_seek(&mut self.inner.read, n as u64).await? {
+            Ok(())
+        } else {
+            self.inner.skip_by_read(n).await
+        }
     }
 }
 
-impl<T> BufLoad for AsyncBufLoader<T> {
+impl<S, T> BufLoad for AsyncBufLoader<S, T> {
     #[inline]
     fn into_vec(self) -> Vec<u8> {
         self.inner.buf
@@ -37,7 +41,7 @@ impl<T> BufLoad for AsyncBufLoader<T> {
     }
 }
 
-impl<Idx, T> std::ops::Index<Idx> for AsyncBufLoader<T>
+impl<Idx, S, T> std::ops::Index<Idx> for AsyncBufLoader<S, T>
 where
     Idx: std::slice::SliceIndex<[u8]>,
 {
@@ -48,7 +52,7 @@ where
     }
 }
 
-impl<T> AsyncBufLoader<T> {
+impl<S, T> AsyncBufLoader<S, T> {
     pub fn new(reader: T) -> Self {
         Self {
             inner: Inner::new(reader),
@@ -56,22 +60,23 @@ impl<T> AsyncBufLoader<T> {
     }
 }
 
-struct Inner<T> {
+struct Inner<S, T> {
     buf: Vec<u8>,
     read: T,
+    phantom: PhantomData<S>,
 }
 
-impl<T> Inner<T> {
+impl<S, T> Inner<S, T> {
     pub fn new(reader: T) -> Self {
         Self {
             buf: Vec::with_capacity(INIT_BUF_SIZE),
             read: reader,
+            phantom: PhantomData,
         }
     }
 }
 
-#[cfg(feature = "async")]
-impl<T> Inner<T>
+impl<S, T> Inner<S, T>
 where
     T: AsyncRead + Unpin,
 {

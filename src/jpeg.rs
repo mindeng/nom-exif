@@ -31,9 +31,9 @@ use crate::exif::{check_exif_header, input_to_exif, Exif};
 ///         .map(|x| (x.0.to_string(), x.1.to_string()))
 ///         .collect::<Vec<_>>(),
 ///     [
-///         ("DateTimeOriginal(0x9003)", "2023-07-09T20:36:33+08:00"),
-///         ("CreateDate(0x9004)", "2023-07-09T20:36:33+08:00"),
-///         ("ModifyDate(0x0132)", "2023-07-09T20:36:33+08:00")
+///         ("DateTimeOriginal", "2023-07-09T20:36:33+08:00"),
+///         ("CreateDate", "2023-07-09T20:36:33+08:00"),
+///         ("ModifyDate", "2023-07-09T20:36:33+08:00")
 ///     ]
 ///     .into_iter()
 ///     .map(|x| (x.0.to_string(), x.1.to_string()))
@@ -251,9 +251,9 @@ mod tests {
                 .map(|x| (x.0.to_string(), x.1.to_string()))
                 .collect::<Vec<_>>(),
             [
-                ("DateTimeOriginal(0x9003)", "2023-07-09T20:36:33+08:00"),
-                ("CreateDate(0x9004)", "2023-07-09T20:36:33+08:00"),
-                ("ModifyDate(0x0132)", "2023-07-09T20:36:33+08:00")
+                ("DateTimeOriginal", "2023-07-09T20:36:33+08:00"),
+                ("CreateDate", "2023-07-09T20:36:33+08:00"),
+                ("ModifyDate", "2023-07-09T20:36:33+08:00")
             ]
             .into_iter()
             .map(|x| (x.0.to_string(), x.1.to_string()))
@@ -268,13 +268,10 @@ mod tests {
         entries.sort();
         assert_eq!(
             entries,
-            [
-                ("ImageHeight(0x0101)", "4096"),
-                ("ImageWidth(0x0100)", "3072")
-            ]
-            .into_iter()
-            .map(|x| (x.0.to_string(), x.1.to_string()))
-            .collect::<Vec<_>>()
+            [("ImageHeight", "4096"), ("ImageWidth", "3072")]
+                .into_iter()
+                .map(|x| (x.0.to_string(), x.1.to_string()))
+                .collect::<Vec<_>>()
         );
     }
 
