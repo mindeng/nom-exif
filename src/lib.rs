@@ -12,10 +12,9 @@
 //!   ([`Exif`]). The former is fully functional and lazy-loading, and the
 //!   latter is simple and easy to use.
 //!
-//! - Media type auto-detecting: By using
-//!   [`MediaInfo::from_reader`](crate::MediaInfo::from_reader), you can easily
-//!   detect the media type of the file, and then you can choose which parsing
-//!   function to call based on the detected media type, e.g.:
+//! - Media type auto-detecting: By using [`MediaType`](crate::MediaType), you
+//!   can easily detect the media type of the file, and then you can choose
+//!   which parsing function to call based on the detected media type, e.g.:
 //!   [`parse_track_info`](crate::parse_track_info) or
 //!   [`parse_exif`](crate::parse_exif), without checking file name extensions.
 //!   
@@ -184,7 +183,9 @@
 //!
 //! ## Media Type Detecting
 //!
-//! You can detect the media type by using [`MediaDetector`](crate::MediaDetector)
+//! You can detect the media type by using [`MediaType`](crate::MediaType).
+//!
+//! Here's an example.
 //!
 //! ```rust
 //! use nom_exif::*;
@@ -192,12 +193,12 @@
 //!
 //! fn main() -> Result<()> {
 //!     let f = File::open("./testdata/exif.heic")?;
-//!     let mi = MediaInfo::from_reader(f)?;
+//!     let mi = MediaType::try_from_reader(f)?;
 //!     assert!(mi.is_image());
 //!     assert_eq!(mi.mime(), "image/heic");
 //!
 //!     let f = File::open("./testdata/meta.mov")?;
-//!     let mi = MediaInfo::from_reader(f)?;
+//!     let mi = MediaType::try_from_reader(f)?;
 //!     assert!(mi.is_track());
 //!     assert_eq!(mi.mime(), "video/quicktime");
 //!     
@@ -219,7 +220,7 @@ pub use exif::parse_exif_async;
 pub use exif::{parse_exif, Exif, ExifIter, ExifTag, GPSInfo, LatLng, ParsedExifEntry};
 pub use values::EntryValue;
 
-pub use file::MediaInfo;
+pub use file::MediaType;
 
 pub use heif::parse_heif_exif;
 pub use jpeg::parse_jpeg_exif;

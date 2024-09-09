@@ -38,13 +38,13 @@ const QT_BRAND_NAMES: &[&str] = &["qt  ", "mqt "];
 
 /// Autodetect
 #[derive(Debug, Clone)]
-pub struct MediaInfo {
-    media_type: MediaType,
+pub struct MediaType {
+    media_type: MediaKind,
     mime: &'static str,
 }
 
-impl MediaInfo {
-    pub fn from_reader<R: Read>(reader: R) -> crate::Result<MediaInfo> {
+impl MediaType {
+    pub fn try_from_reader<R: Read>(reader: R) -> crate::Result<MediaType> {
         const BUF_SIZE: usize = 4096;
         let mut buf = Vec::with_capacity(BUF_SIZE);
         let n = reader.take(BUF_SIZE as u64).read_to_end(buf.as_mut())?;
@@ -52,29 +52,29 @@ impl MediaInfo {
             Err("file is empty")?;
         }
 
-        Self::from_bytes(&buf)
+        Self::try_from_bytes(&buf)
     }
 
-    pub fn from_bytes(input: &[u8]) -> crate::Result<MediaInfo> {
+    pub fn try_from_bytes(input: &[u8]) -> crate::Result<MediaType> {
         let (media_type, mime) = if check_jpeg(input).is_ok() {
-            (MediaType::Image, "image/jpeg")
+            (MediaKind::Image, "image/jpeg")
         } else if let Ok(x) = get_bmff_media_type(input) {
             x
         } else if let Ok(x) = get_ebml_doc_type(input) {
             if x == "webm" {
-                (MediaType::Video, "video/webm")
+                (MediaKind::Video, "video/webm")
             } else {
-                (MediaType::Video, "video/matroska")
+                (MediaKind::Video, "video/matroska")
             }
         } else {
             return Err(crate::Error::UnrecognizedFileFormat);
         };
 
-        Ok(MediaInfo { media_type, mime })
+        Ok(MediaType { media_type, mime })
     }
 
     pub fn is_image(&self) -> bool {
-        self.media_type == MediaType::Image
+        self.media_type == MediaKind::Image
     }
 
     pub fn is_track(&self) -> bool {
@@ -87,13 +87,15 @@ impl MediaInfo {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MediaType {
+enum MediaKind {
     Image,
     Video,
     #[allow(unused)]
     Audio,
 }
 
+/// *Deprecated*: Please use [`MediaType`] instead.
+#[deprecated(since = "2.0.0")]
 #[allow(unused)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileFormat {
@@ -211,11 +213,11 @@ fn get_ebml_doc_type(input: &[u8]) -> crate::Result<String> {
     Ok(doc)
 }
 
-fn get_bmff_media_type(input: &[u8]) -> crate::Result<(MediaType, &'static str)> {
+fn get_bmff_media_type(input: &[u8]) -> crate::Result<(MediaKind, &'static str)> {
     let (ftyp, Some(major_brand)) = get_ftyp_and_major_brand(input)? else {
         if travel_header(input, |header, _| header.box_type != "mdat").is_ok() {
             // ftyp is None, mdat box is found, assume it's a MOV file extracted from HEIC
-            return Ok((MediaType::Video, "video/quicktime"));
+            return Ok((MediaKind::Video, "video/quicktime"));
         }
 
         return Err(crate::Error::UnrecognizedFileFormat);
@@ -223,23 +225,23 @@ fn get_bmff_media_type(input: &[u8]) -> crate::Result<(MediaType, &'static str)>
 
     // Check if it is a QuickTime file
     if QT_BRAND_NAMES.iter().any(|v| v.as_bytes() == major_brand) {
-        return Ok((MediaType::Video, "video/quicktime"));
+        return Ok((MediaKind::Video, "video/quicktime"));
     }
 
     // Check if it is a HEIF file
     if HEIF_HEIC_BRAND_NAMES.contains(&major_brand) {
         if HEIC_BRAND_NAMES.contains(&major_brand) {
-            return Ok((MediaType::Image, "image/heic"));
+            return Ok((MediaKind::Image, "image/heic"));
         }
-        return Ok((MediaType::Image, "image/heif"));
+        return Ok((MediaKind::Image, "image/heif"));
     }
 
     // Check if it is a MP4 file
     if MP4_BRAND_NAMES.iter().any(|v| v.as_bytes() == major_brand) {
         if major_brand.starts_with(b"3gp") {
-            return Ok((MediaType::Video, "video/3gpp"));
+            return Ok((MediaKind::Video, "video/3gpp"));
         }
-        return Ok((MediaType::Video, "video/mp4"));
+        return Ok((MediaKind::Video, "video/mp4"));
     }
 
     // Check compatible brands
@@ -249,7 +251,7 @@ fn get_bmff_media_type(input: &[u8]) -> crate::Result<(MediaType, &'static str)>
         .iter()
         .any(|v| compatible_brands.iter().any(|x| v.as_bytes() == *x))
     {
-        return Ok((MediaType::Video, "video/quicktime"));
+        return Ok((MediaKind::Video, "video/quicktime"));
     }
 
     if HEIF_HEIC_BRAND_NAMES
@@ -257,9 +259,9 @@ fn get_bmff_media_type(input: &[u8]) -> crate::Result<(MediaType, &'static str)>
         .any(|x| compatible_brands.contains(x))
     {
         if HEIC_BRAND_NAMES.contains(&major_brand) {
-            return Ok((MediaType::Image, "image/heic"));
+            return Ok((MediaKind::Image, "image/heic"));
         }
-        return Ok((MediaType::Image, "image/heif"));
+        return Ok((MediaKind::Image, "image/heif"));
     }
 
     if MP4_BRAND_NAMES
@@ -267,9 +269,9 @@ fn get_bmff_media_type(input: &[u8]) -> crate::Result<(MediaType, &'static str)>
         .any(|v| compatible_brands.iter().any(|x| v.as_bytes() == *x))
     {
         if major_brand.starts_with(b"3gp") {
-            return Ok((MediaType::Video, "video/3gpp"));
+            return Ok((MediaKind::Video, "video/3gpp"));
         }
-        return Ok((MediaType::Video, "video/mp4"));
+        return Ok((MediaKind::Video, "video/mp4"));
     }
 
     tracing::error!(
@@ -279,7 +281,7 @@ fn get_bmff_media_type(input: &[u8]) -> crate::Result<(MediaType, &'static str)>
 
     if travel_header(input, |header, _| header.box_type != "mdat").is_ok() {
         // mdat box found, assume it's a mp4 file
-        return Ok((MediaType::Video, "video/mp4"));
+        return Ok((MediaKind::Video, "video/mp4"));
     }
 
     Err(crate::Error::UnrecognizedFileFormat)
@@ -453,7 +455,7 @@ fn get_compatible_brands(body: &[u8]) -> crate::Result<Vec<&[u8]>> {
 mod tests {
     use super::*;
     use test_case::test_case;
-    use MediaType::*;
+    use MediaKind::*;
 
     use crate::testkit::open_sample;
 
@@ -467,9 +469,9 @@ mod tests {
     #[test_case("mkv_640x360.mkv", Video, "video/matroska")]
     #[test_case("mka.mka", Video, "video/matroska")]
     #[test_case("3gp_640x360.3gp", Video, "video/3gpp")]
-    fn media_type(path: &str, mt: MediaType, mime: &str) {
+    fn media_type(path: &str, mt: MediaKind, mime: &str) {
         let f = open_sample(path).unwrap();
-        let mi = MediaInfo::from_reader(f).unwrap();
+        let mi = MediaType::try_from_reader(f).unwrap();
         assert_eq!(mi.media_type, mt);
         assert_eq!(mi.mime(), mime);
     }

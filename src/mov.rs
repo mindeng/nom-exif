@@ -19,7 +19,7 @@ use crate::{
     EntryValue, FileFormat,
 };
 
-/// *Deprecated*: please use [`parse_track_info`](crate::parse_track_info)
+/// *Deprecated*: Please use [`parse_track_info`](crate::parse_track_info)
 /// instead.
 ///
 /// Analyze the byte stream in the `reader` as a MOV/MP4 file, attempting to
@@ -239,7 +239,7 @@ fn parse_mp4_gps(moov_body: &[u8]) -> Option<String> {
     None
 }
 
-/// *Deprecated*: please use [`parse_track_info`](crate::parse_track_info)
+/// *Deprecated*: Please use [`parse_track_info`](crate::parse_track_info)
 /// instead.
 ///
 /// Analyze the byte stream in the `reader` as a MOV file, attempting to extract

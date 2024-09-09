@@ -6,7 +6,7 @@ use std::{
 };
 
 use clap::Parser;
-use nom_exif::{parse_exif, parse_track_info, FileFormat, SkipSeek};
+use nom_exif::{parse_exif, parse_track_info, MediaType, SkipSeek};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Registry};
 
 #[derive(Parser, Debug)]
@@ -49,7 +49,7 @@ fn tracing_run(cli: &Cli) -> ExitCode {
 
 fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
     let mut reader = File::open(&cli.file)?;
-    let ff = FileFormat::try_from_read(&mut reader)
+    let mt = MediaType::try_from_reader(&mut reader)
         .map_err(|e| format!("unsupported file format: {e}"))?;
     reader.rewind()?;
 
@@ -59,30 +59,27 @@ fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
         return Err(msg.into());
     }
 
-    let values = match ff {
-        FileFormat::Jpeg | FileFormat::Heif => {
-            let iter = parse_exif(&mut reader, Some(ff))?;
-            let Some(iter) = iter else {
-                println!("Exif data not found in {}.", &cli.file);
-                return Ok(());
-            };
-            iter.filter_map(|x| {
-                let v = x.take_value()?;
-                Some((
-                    x.tag()
-                        .map(|x| x.to_string())
-                        .unwrap_or_else(|| format!("Unknown(0x{:04x})", x.tag_code())),
-                    v,
-                ))
-            })
+    let values = if mt.is_image() {
+        let iter = parse_exif(&mut reader, None)?;
+        let Some(iter) = iter else {
+            println!("Exif data not found in {}.", &cli.file);
+            return Ok(());
+        };
+        iter.filter_map(|x| {
+            let v = x.take_value()?;
+            Some((
+                x.tag()
+                    .map(|x| x.to_string())
+                    .unwrap_or_else(|| format!("Unknown(0x{:04x})", x.tag_code())),
+                v,
+            ))
+        })
+        .collect::<Vec<_>>()
+    } else {
+        let info = parse_track_info::<SkipSeek, _>(&mut reader)?;
+        info.into_iter()
+            .map(|x| (x.0.to_string(), x.1))
             .collect::<Vec<_>>()
-        }
-        FileFormat::QuickTime | FileFormat::MP4 | FileFormat::Ebml => {
-            let info = parse_track_info::<SkipSeek, _>(&mut reader)?;
-            info.into_iter()
-                .map(|x| (x.0.to_string(), x.1))
-                .collect::<Vec<_>>()
-        }
     };
 
     if cli.json {
