@@ -8,11 +8,16 @@
 //!
 //! ## Key Features
 //!
-//! - Supports both *sync* and *async* interfaces.
-//!
 //! - Supports two style interfaces, *iterator* ([`ExifIter`]) and *get*
-//!   ([`Exif`]). The former is fully functional and the latter is simple and
-//!   easy to use.
+//!   ([`Exif`]). The former is fully functional and lazy-loading, and the
+//!   latter is simple and easy to use.
+//!
+//! - Media type auto-detecting: By using
+//!   [`MediaInfo::from_reader`](crate::MediaInfo::from_reader), you can easily
+//!   detect the media type of the file, and then you can choose which parsing
+//!   function to call based on the detected media type, e.g.:
+//!   [`parse_track_info`](crate::parse_track_info) or
+//!   [`parse_exif`](crate::parse_exif), without checking file name extensions.
 //!   
 //! - Performance
 //!
@@ -21,7 +26,9 @@
 //!     
 //!   - Minimize I/O operations: When metadata is stored at the end/middle of a
 //!     large file (such as a QuickTime file does), `Seek` rather than `Read`
-//!     to quickly locate the location of the metadata.
+//!     to quickly locate the location of the metadata (if only the reader
+//!     support `Seek`, see [`parse_track_info`](crate::parse_track_info) for
+//!     more information).
 //!     
 //!   - Pay as you go: When working with [`ExifIter`], all entries are
 //!     lazy-parsed. That is, only when you iterate over [`ExifIter`] will the
@@ -32,6 +39,8 @@
 //!   discovered during testing have been fixed. Thanks to
 //!   [@sigaloid](https://github.com/sigaloid) for [pointing this
 //!   out](https://github.com/mindeng/nom-exif/pull/5)!
+//!
+//! - Supports both *sync* and *async* interfaces.
 //!
 //! ## Supported File Types
 //!
@@ -173,6 +182,29 @@
 //! }
 //! ```
 //!
+//! ## Media Type Detecting
+//!
+//! You can detect the media type by using [`MediaDetector`](crate::MediaDetector)
+//!
+//! ```rust
+//! use nom_exif::*;
+//! use std::fs::File;
+//!
+//! fn main() -> Result<()> {
+//!     let f = File::open("./testdata/exif.heic")?;
+//!     let mi = MediaInfo::from_reader(f)?;
+//!     assert!(mi.is_image());
+//!     assert_eq!(mi.mime(), "image/heic");
+//!
+//!     let f = File::open("./testdata/meta.mov")?;
+//!     let mi = MediaInfo::from_reader(f)?;
+//!     assert!(mi.is_track());
+//!     assert_eq!(mi.mime(), "video/quicktime");
+//!     
+//!     Ok(())
+//! }
+//! ```
+//!
 //! ## Video
 //!
 //! Please refer to: [`parse_track_info`](crate::parse_track_info).
@@ -180,21 +212,25 @@
 //! For more usage details, please refer to the [API
 //! documentation](https://docs.rs/nom-exif/latest/nom_exif/).
 
-pub use heif::parse_heif_exif;
-pub use jpeg::parse_jpeg_exif;
-#[allow(deprecated)]
-pub use mov::{parse_metadata, parse_mov_metadata};
-pub use skip::{SkipRead, SkipSeek};
 pub use video::{parse_track_info, TrackInfo, TrackInfoTag};
 
 #[cfg(feature = "async")]
 pub use exif::parse_exif_async;
 pub use exif::{parse_exif, Exif, ExifIter, ExifTag, GPSInfo, LatLng, ParsedExifEntry};
-pub use file::FileFormat;
 pub use values::EntryValue;
+
+pub use file::MediaInfo;
+
+pub use heif::parse_heif_exif;
+pub use jpeg::parse_jpeg_exif;
 
 pub use error::Error;
 pub type Result<T> = std::result::Result<T, Error>;
+pub use file::FileFormat;
+pub use skip::{SkipRead, SkipSeek};
+
+#[allow(deprecated)]
+pub use mov::{parse_metadata, parse_mov_metadata};
 
 mod bbox;
 mod ebml;

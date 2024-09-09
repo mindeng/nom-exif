@@ -38,8 +38,8 @@ pub enum TrackInfoTag {
 /// ## Explanation of the generic parameters of this function:
 ///
 /// - In order to improve parsing efficiency, the parser will internally skip
-///   some useless bytes during parsing the byte stream, which is called `Skip`
-///   internally.
+///   some useless bytes during parsing the byte stream, which is called
+///   [`Skip`] internally.
 ///
 /// - In order to support both `Read` and `Read` + `Seek` types, the interface
 ///   of input parameters is defined as `Read`.
@@ -82,17 +82,6 @@ pub enum TrackInfoTag {
 /// assert_eq!(
 ///     info.get_gps_info().unwrap().latitude,
 ///     [(27, 1), (7, 1), (68, 100)].into(),
-/// );
-///
-/// let f = File::open("./testdata/sample_640x360.mkv").unwrap();
-/// let info = parse_track_info::<SkipSeek, _>(f).unwrap();
-///
-/// assert_eq!(info.get(TrackInfoTag::ImageWidth), Some(&640_u32.into()));
-/// assert_eq!(info.get(TrackInfoTag::ImageHeight), Some(&360_u32.into()));
-/// assert_eq!(info.get(TrackInfoTag::Duration), Some(&13346_f64.into()));
-/// assert_eq!(
-///     info.get(TrackInfoTag::CreateDate),
-///     Some(&DateTime::parse_from_str("2008-08-08T08:08:08Z", "%+").unwrap().into())
 /// );
 /// ```
 pub fn parse_track_info<S: Skip<R>, R: Read>(reader: R) -> crate::Result<TrackInfo> {
@@ -191,10 +180,10 @@ mod tests {
     use super::TrackInfoTag::*;
     use super::*;
 
-    #[test_case("sample_640x360.mkv", ImageWidth, 640_u32.into())]
-    #[test_case("sample_640x360.mkv", ImageHeight, 360_u32.into())]
-    #[test_case("sample_640x360.mkv", Duration, 13346_f64.into())]
-    #[test_case("sample_640x360.mkv", CreateDate, DateTime::parse_from_str("2008-08-08T08:08:08Z", "%+").unwrap().into())]
+    #[test_case("mkv_640x360.mkv", ImageWidth, 640_u32.into())]
+    #[test_case("mkv_640x360.mkv", ImageHeight, 360_u32.into())]
+    #[test_case("mkv_640x360.mkv", Duration, 13346_f64.into())]
+    #[test_case("mkv_640x360.mkv", CreateDate, DateTime::parse_from_str("2008-08-08T08:08:08Z", "%+").unwrap().into())]
     fn test_skip_seek(path: &str, tag: TrackInfoTag, v: EntryValue) {
         let info = parse_track_info::<SkipSeek, _>(open_sample(path).unwrap()).unwrap();
         assert_eq!(info.get(tag).unwrap(), &v);
