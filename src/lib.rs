@@ -194,6 +194,7 @@ mod mov;
 mod slice;
 mod values;
 mod video;
+mod skip;
 
 #[cfg(test)]
 mod testkit;
