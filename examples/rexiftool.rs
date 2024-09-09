@@ -51,7 +51,7 @@ fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
     let mut reader = File::open(&cli.file)?;
     let ff = FileFormat::try_from_read(&mut reader)
         .map_err(|e| format!("unsupported file format: {e}"))?;
-    reader.seek(io::SeekFrom::Start(0))?;
+    reader.rewind()?;
 
     if cli.json && !FEATURE_JSON_DUMP_ON {
         let msg = "-j/--json option requires the feature `json_dump`.";

@@ -59,7 +59,8 @@ impl VideoInfo {
     }
 }
 
-pub fn parse_video_info<R: Read + Seek>(reader: R) -> crate::Result<VideoInfo> {
+pub fn parse_video_info<R: Read + Seek>(mut reader: R) -> crate::Result<VideoInfo> {
+    reader.rewind()?;
     let mut loader = SeekBufLoader::new(reader);
     let ff = FileFormat::try_from_load(&mut loader)?;
     let mut info: VideoInfo = match ff {

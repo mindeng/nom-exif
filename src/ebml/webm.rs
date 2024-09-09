@@ -6,6 +6,7 @@ use std::{
 
 use bytes::Buf;
 use chrono::{DateTime, NaiveDate, Utc};
+use nom::{error::ErrorKind, multi::many_till};
 use thiserror::Error;
 
 use crate::{
@@ -36,7 +37,9 @@ pub struct EbmlFileInfo {
 impl From<EbmlFileInfo> for VideoInfo {
     fn from(value: EbmlFileInfo) -> Self {
         let mut info = VideoInfo::default();
-        info.put(VideoInfoTag::CreateDate, value.segment_info.date.into());
+        if let Some(date) = value.segment_info.date {
+            info.put(VideoInfoTag::CreateDate, date.into());
+        }
         info.put(
             VideoInfoTag::Duration,
             (value.segment_info.duration / 1000.0 / 1000.0).into(),
@@ -71,7 +74,6 @@ pub enum ParseWebmFailed {
 pub(crate) fn parse_webm<T: Load>(mut loader: T) -> Result<EbmlFileInfo, ParsedError> {
     let mut pos: usize = 0;
     let doc_type = loader.load_and_parse(|input| {
-        tracing::debug!(len = input.len(), "buf size");
         let mut cursor = Cursor::new(input);
         let doc_type = parse_ebml_doc_type(&mut cursor)?;
         pos = cursor.position() as usize;
@@ -100,6 +102,9 @@ pub(crate) fn parse_webm<T: Load>(mut loader: T) -> Result<EbmlFileInfo, ParsedE
         ..Default::default()
     };
 
+    let mut info_set = false;
+    let mut tracks_set = false;
+
     if let Ok(seeks) = loader.load_and_parse_at(parse_seeks, pos) {
         let info_seek = seeks.get(&(SegmentId::Info as u32)).cloned();
         let tracks_seek = seeks.get(&(SegmentId::Tracks as u32)).cloned();
@@ -107,6 +112,7 @@ pub(crate) fn parse_webm<T: Load>(mut loader: T) -> Result<EbmlFileInfo, ParsedE
             let info = loader.load_and_parse_at(parse_segment_info, pos as usize)?;
             tracing::debug!(?info);
             if let Some(info) = info {
+                info_set = true;
                 file_info.segment_info = info;
             }
         }
@@ -115,10 +121,13 @@ pub(crate) fn parse_webm<T: Load>(mut loader: T) -> Result<EbmlFileInfo, ParsedE
                 loader.load_and_parse_at(|x, at| Ok(parse_tracks_info(x, at)?), pos as usize)?;
             tracing::debug!(?tracks);
             if let Some(info) = tracks {
+                tracks_set = true;
                 file_info.tracks_info = info;
             }
         }
-    } else {
+    }
+
+    if !info_set {
         // According to the specification, The first Info Element SHOULD occur
         // before the first Tracks Element
         let info: Option<SegmentInfo> = loader.load_and_parse_at(
@@ -136,7 +145,9 @@ pub(crate) fn parse_webm<T: Load>(mut loader: T) -> Result<EbmlFileInfo, ParsedE
         if let Some(info) = info {
             file_info.segment_info = info;
         }
+    }
 
+    if !tracks_set {
         let track = loader.load_and_parse_at(
             |x, at| {
                 let mut cursor = Cursor::new(&x[at..]);
@@ -176,25 +187,69 @@ fn parse_tracks_info(input: &[u8], pos: usize) -> Result<Option<TracksInfo>, Par
         return Err(ParseWebmFailed::Need(header.data_size - cursor.remaining()));
     }
 
-    let mut cursor = Cursor::new(&cursor.chunk()[..header.data_size]);
-    let header = travel_while(&mut cursor, |h| h.id == TracksId::VideoTrack as u64)?;
-    tracing::debug!(?header, "video track");
+    const Z: &[u8] = &[];
+    let start = pos + cursor.position() as usize;
+    let data = &input[start..start + header.data_size];
 
-    if cursor.remaining() < header.data_size {
-        return Err(ParseWebmFailed::Need(header.data_size - cursor.remaining()));
+    if let Ok((_, (_, track))) = many_till::<&[u8], (), Option<_>, (&[u8], ErrorKind), _, _>(
+        |data| {
+            let mut cursor = Cursor::new(data);
+            let header = next_element_header(&mut cursor)?;
+            cursor.consume(std::cmp::min(cursor.remaining(), header.data_size));
+            Ok((&data[cursor.position() as usize..], ()))
+        },
+        |data| {
+            let mut cursor = Cursor::new(data);
+            let header = next_element_header(&mut cursor)?;
+            tracing::debug!(tracks_sub_track_entry = ?header);
+            if header.id != TracksId::TrackEntry as u64 {
+                return Err(nom::Err::Error((Z, ErrorKind::Fail)));
+            };
+
+            if cursor.remaining() < header.data_size {
+                return Err(nom::Err::Error((Z, ErrorKind::Fail)));
+            }
+
+            let track = parse_track(&cursor.chunk()[..header.data_size]).map(|x| {
+                x.map(|x| TracksInfo {
+                    width: x.width,
+                    height: x.height,
+                })
+            })?;
+
+            Ok((Z, track))
+        },
+    )(data)
+    {
+        Ok(track)
+    } else {
+        Ok(None)
     }
 
-    match parse_track(&cursor.chunk()[..header.data_size]).map(|x| {
-        x.map(|x| TracksInfo {
-            width: x.width,
-            height: x.height,
-        })
-    }) {
-        Ok(x) => Ok(x),
-        // Don't bubble Need error to caller here
-        Err(ParseWebmFailed::Need(_)) => Ok(None),
-        Err(e) => Err(e),
-    }
+    // let mut cursor = Cursor::new(&cursor.chunk()[..header.data_size]);
+    // let header = match travel_while(&mut cursor, |h| h.id != TracksId::VideoTrack as u64) {
+    //     Ok(x) => x,
+    //     // Don't bubble Need error to caller here
+    //     Err(ParseEBMLFailed::Need(_)) => return Ok(None),
+    //     Err(e) => return Err(e.into()),
+    // };
+    // tracing::debug!(?header, "video track");
+
+    // if cursor.remaining() < header.data_size {
+    //     return Err(ParseWebmFailed::Need(header.data_size - cursor.remaining()));
+    // }
+
+    // match parse_track(&cursor.chunk()[..header.data_size]).map(|x| {
+    //     x.map(|x| TracksInfo {
+    //         width: x.width,
+    //         height: x.height,
+    //     })
+    // }) {
+    //     Ok(x) => Ok(x),
+    //     // Don't bubble Need error to caller here
+    //     Err(ParseWebmFailed::Need(_)) => Ok(None),
+    //     Err(e) => Err(e),
+    // }
 }
 
 fn parse_track(input: &[u8]) -> Result<Option<VideoTrackInfo>, ParseWebmFailed> {
@@ -213,13 +268,13 @@ fn parse_track(input: &[u8]) -> Result<Option<VideoTrackInfo>, ParseWebmFailed> 
         };
 
         if id == TracksId::VideoTrack {
-            return parse_video_track(&input[pos..pos + header.data_size]).map(Some);
+            return parse_video_track(&input[pos..pos + header.data_size]);
         }
     }
     Ok(None)
 }
 
-fn parse_video_track(input: &[u8]) -> Result<VideoTrackInfo, ParseWebmFailed> {
+fn parse_video_track(input: &[u8]) -> Result<Option<VideoTrackInfo>, ParseWebmFailed> {
     let mut cursor = Cursor::new(input);
     let mut info = VideoTrackInfo::default();
 
@@ -237,10 +292,14 @@ fn parse_video_track(input: &[u8]) -> Result<VideoTrackInfo, ParseWebmFailed> {
         info.height = v as u32;
     }
 
-    Ok(info)
+    if info == VideoTrackInfo::default() {
+        Ok(None)
+    } else {
+        Ok(Some(info))
+    }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct VideoTrackInfo {
     width: u32,
     height: u32,
@@ -250,7 +309,7 @@ struct VideoTrackInfo {
 struct SegmentInfo {
     // in nano seconds
     duration: f64,
-    date: DateTime<Utc>,
+    date: Option<DateTime<Utc>>,
 }
 
 #[tracing::instrument(skip(input))]
@@ -307,7 +366,7 @@ fn parse_segment_info_body(cursor: &mut Cursor<&[u8]>) -> Result<SegmentInfo, Pa
                             .unwrap()
                             .and_utc();
                         let diff = dt - DateTime::from_timestamp_nanos(0);
-                        info.date = DateTime::from_timestamp_nanos(v as i64) + diff;
+                        info.date = Some(DateTime::from_timestamp_nanos(v as i64) + diff);
                     }
                 }
             }
@@ -396,8 +455,8 @@ fn parse_seek_entry(input: &mut Cursor<&[u8]>) -> Result<Option<SeekEntry>, Pars
         }
         tracing::debug!(
             id = format!("0x{id:x}"),
-            "{}",
-            ParseWebmFailed::InvalidSeekEntry
+            "invalid seek entry: id != 0x{:x}",
+            SeekHeadId::Seek as u32
         );
         return Err(ParseWebmFailed::InvalidSeekEntry);
     }
@@ -415,15 +474,11 @@ fn parse_seek_entry(input: &mut Cursor<&[u8]>) -> Result<Option<SeekEntry>, Pars
                 seek_id = VInt::as_u64_with_marker(&mut buf)? as u32;
             }
             x if x == SeekHeadId::SeekPosition as u64 => {
-                if size == 8 {
-                    seek_pos = buf.get_u64();
-                } else if size == 4 {
-                    seek_pos = buf.get_u32() as u64;
-                } else {
-                    return Err(ParseWebmFailed::InvalidSeekEntry);
-                }
+                seek_pos =
+                    get_as_u64(&mut buf, size).ok_or_else(|| ParseWebmFailed::InvalidSeekEntry)?;
             }
             _ => {
+                tracing::debug!(id = format!("0x{id:x}"), "invalid seek entry");
                 return Err(ParseWebmFailed::InvalidSeekEntry);
             }
         }
@@ -577,5 +632,25 @@ impl From<ParseWebmFailed> for ParsingError {
             | ParseWebmFailed::InvalidSeekEntry => Self::Failed(value.to_string()),
             ParseWebmFailed::Need(n) => Self::Need(n),
         }
+    }
+}
+
+impl From<ParseEBMLFailed> for nom::Err<(&[u8], ErrorKind)> {
+    fn from(value: ParseEBMLFailed) -> Self {
+        match value {
+            // Don't bubble Need error to caller, since we only use nom for
+            // complete data here.
+            ParseEBMLFailed::Need(_)
+            | ParseEBMLFailed::NotEBMLFile
+            | ParseEBMLFailed::InvalidEBMLFile(_) => nom::Err::Error((&[], ErrorKind::Fail)),
+        }
+    }
+}
+
+impl From<ParseWebmFailed> for nom::Err<(&[u8], ErrorKind)> {
+    fn from(_: ParseWebmFailed) -> Self {
+        // Don't bubble Need error to caller, since we only use nom for
+        // complete data here.
+        nom::Err::Error((&[], ErrorKind::Fail))
     }
 }
