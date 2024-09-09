@@ -6,10 +6,9 @@ use std::{
 use crate::error::{ParsedError, ParsingError};
 
 mod sync;
-pub(crate) use sync::{BufLoader, SeekBufLoader};
+pub(crate) use sync::BufLoader;
 mod r#async;
-#[allow(unused)]
-pub(crate) use r#async::{AsyncBufLoader, AsyncSeekBufLoader};
+pub(crate) use r#async::AsyncBufLoader;
 
 const INIT_BUF_SIZE: usize = 4096;
 const MIN_GROW_SIZE: usize = 2 * 4096;

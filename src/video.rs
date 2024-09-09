@@ -7,8 +7,9 @@ use std::{
 
 use crate::{
     ebml::webm::parse_webm,
-    loader::SeekBufLoader,
+    loader::BufLoader,
     mov::{parse_mp4, parse_qt},
+    skip::SkipSeek,
     EntryValue, FileFormat, GPSInfo,
 };
 
@@ -61,7 +62,7 @@ impl VideoInfo {
 
 pub fn parse_video_info<R: Read + Seek>(mut reader: R) -> crate::Result<VideoInfo> {
     reader.rewind()?;
-    let mut loader = SeekBufLoader::new(reader);
+    let mut loader = BufLoader::<SkipSeek, _>::new(reader);
     let ff = FileFormat::try_from_load(&mut loader)?;
     let mut info: VideoInfo = match ff {
         FileFormat::Jpeg | FileFormat::Heif => {

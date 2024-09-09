@@ -1,5 +1,6 @@
 use crate::error::ParsingError;
 use crate::loader::{BufLoad, BufLoader, Load};
+use crate::skip::SkipRead;
 use crate::slice::SubsliceRange;
 use crate::{input::Input, FileFormat};
 pub use exif_iter::{ExifIter, ParsedExifEntry};
@@ -61,11 +62,11 @@ pub async fn parse_exif_async<T: AsyncRead + Unpin>(
 /// Read exif data from `reader`, if `format` is None, then guess the file
 /// format based on the read content.
 #[tracing::instrument(skip(read))]
-pub(crate) fn read_exif<T: Read>(
-    read: T,
+pub(crate) fn read_exif<R: Read>(
+    read: R,
     format: Option<FileFormat>,
 ) -> crate::Result<Option<Input<'static>>> {
-    let mut loader = BufLoader::new(read);
+    let mut loader = BufLoader::<SkipRead, R>::new(read);
     let ff = match format {
         Some(ff) => ff,
         None => loader.load_and_parse(|x| {

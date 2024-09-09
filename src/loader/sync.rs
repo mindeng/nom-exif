@@ -1,12 +1,14 @@
-use std::io::{Read, Seek};
+use std::{io::Read, marker::PhantomData};
+
+use crate::skip::Skip;
 
 use super::{BufLoad, Load, INIT_BUF_SIZE};
 
-pub(crate) struct BufLoader<T> {
-    inner: Inner<T>,
+pub(crate) struct BufLoader<S, R> {
+    inner: Inner<S, R>,
 }
 
-impl<T: Read> Load for BufLoader<T> {
+impl<S: Skip<R>, R: Read> Load for BufLoader<S, R> {
     #[inline]
     fn read_buf(&mut self, to_read: usize) -> std::io::Result<usize> {
         self.inner.read_buf(to_read)
@@ -14,24 +16,15 @@ impl<T: Read> Load for BufLoader<T> {
 
     #[inline]
     fn skip(&mut self, n: usize) -> std::io::Result<()> {
-        tracing::debug!("read to skip");
-        match std::io::copy(
-            &mut self.inner.read.by_ref().take(n as u64),
-            &mut std::io::sink(),
-        ) {
-            Ok(x) => {
-                if x == n as u64 {
-                    Ok(())
-                } else {
-                    Err(std::io::ErrorKind::UnexpectedEof.into())
-                }
-            }
-            Err(e) => Err(e),
+        if S::skip_by_seek(&mut self.inner.read, n as u64)? {
+            Ok(())
+        } else {
+            self.inner.skip_by_read(n)
         }
     }
 }
 
-impl<T: Read> BufLoad for BufLoader<T> {
+impl<S, R: Read> BufLoad for BufLoader<S, R> {
     #[inline]
     fn into_vec(self) -> Vec<u8> {
         self.inner.buf
@@ -48,7 +41,7 @@ impl<T: Read> BufLoad for BufLoader<T> {
     }
 }
 
-impl<Idx, T> std::ops::Index<Idx> for BufLoader<T>
+impl<Idx, S, R> std::ops::Index<Idx> for BufLoader<S, R>
 where
     Idx: std::slice::SliceIndex<[u8]>,
 {
@@ -59,85 +52,31 @@ where
     }
 }
 
-impl<T> BufLoader<T> {
-    pub fn new(reader: T) -> Self {
+impl<S, R> BufLoader<S, R> {
+    pub fn new(reader: R) -> Self {
         Self {
-            inner: Inner::new(reader),
+            inner: Inner::<S, R>::new(reader),
         }
     }
 }
 
-pub(crate) struct SeekBufLoader<T> {
-    inner: Inner<T>,
-}
-
-impl<T: Read + Seek> Load for SeekBufLoader<T> {
-    #[inline]
-    fn read_buf(&mut self, to_read: usize) -> std::io::Result<usize> {
-        self.inner.read_buf(to_read)
-    }
-
-    #[inline]
-    fn skip(&mut self, n: usize) -> std::io::Result<()> {
-        tracing::debug!("seek to skip");
-        self.inner
-            .read
-            .seek(std::io::SeekFrom::Current(n as i64))
-            .map(|_| ())
-    }
-}
-
-impl<T: Read + Seek> BufLoad for SeekBufLoader<T> {
-    #[inline]
-    fn into_vec(self) -> Vec<u8> {
-        self.inner.buf
-    }
-
-    #[inline]
-    fn buf(&self) -> &Vec<u8> {
-        &self.inner.buf
-    }
-
-    #[inline]
-    fn buf_mut(&mut self) -> &mut Vec<u8> {
-        &mut self.inner.buf
-    }
-}
-
-impl<Idx, T> std::ops::Index<Idx> for SeekBufLoader<T>
-where
-    Idx: std::slice::SliceIndex<[u8]>,
-{
-    type Output = Idx::Output;
-
-    fn index(&self, index: Idx) -> &Self::Output {
-        &self.inner.buf[index]
-    }
-}
-
-impl<T> SeekBufLoader<T> {
-    pub fn new(reader: T) -> Self {
-        Self {
-            inner: Inner::new(reader),
-        }
-    }
-}
-
-pub(crate) struct Inner<T> {
+pub(crate) struct Inner<S, R> {
     buf: Vec<u8>,
-    read: T,
+    read: R,
+    phantom: PhantomData<S>,
 }
 
-impl<T> Inner<T> {
+impl<S, T> Inner<S, T> {
     pub fn new(reader: T) -> Self {
         Self {
             buf: Vec::with_capacity(INIT_BUF_SIZE),
             read: reader,
+            phantom: PhantomData,
         }
     }
 }
 
-impl<T> Inner<T>
+impl<S, T> Inner<S, T>
 where
     T: Read,
 {
@@ -154,5 +93,13 @@ where
             return Err(std::io::ErrorKind::UnexpectedEof.into());
         }
         Ok(n)
+    }
+
+    #[inline]
+    fn skip_by_read(&mut self, n: usize) -> std::io::Result<()> {
+        self.buf.reserve(n);
+        assert!(self.buf.capacity() - self.buf.len() >= n);
+        let start = self.buf.len();
+        self.read.read_exact(&mut self.buf[start..start + n])
     }
 }

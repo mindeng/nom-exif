@@ -1,5 +1,5 @@
 #[cfg(feature = "async")]
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt};
+use tokio::io::{AsyncRead, AsyncReadExt};
 
 use super::{AsyncLoad, BufLoad, INIT_BUF_SIZE};
 
@@ -16,7 +16,7 @@ impl<T: AsyncRead + Unpin> AsyncLoad for AsyncBufLoader<T> {
     }
 
     async fn skip(&mut self, n: usize) -> std::io::Result<()> {
-        self.inner.skip(n).await
+        self.inner.skip_by_read(n).await
     }
 }
 
@@ -56,65 +56,6 @@ impl<T> AsyncBufLoader<T> {
     }
 }
 
-pub(crate) struct AsyncSeekBufLoader<T> {
-    inner: Inner<T>,
-}
-
-#[cfg(feature = "async")]
-impl<T: AsyncRead + AsyncSeek + Unpin> AsyncLoad for AsyncSeekBufLoader<T> {
-    #[inline]
-    async fn read_buf(&mut self, n: usize) -> std::io::Result<usize> {
-        self.inner.read_buf(n).await
-    }
-
-    #[inline]
-    async fn skip(&mut self, n: usize) -> std::io::Result<()> {
-        println!("seek to skip");
-        self.inner
-            .read
-            .seek(std::io::SeekFrom::Current(n as i64))
-            .await
-            .map(|_| ())
-    }
-}
-
-impl<T> BufLoad for AsyncSeekBufLoader<T> {
-    #[inline]
-    fn into_vec(self) -> Vec<u8> {
-        self.inner.buf
-    }
-
-    #[inline]
-    fn buf(&self) -> &Vec<u8> {
-        &self.inner.buf
-    }
-
-    #[inline]
-    fn buf_mut(&mut self) -> &mut Vec<u8> {
-        &mut self.inner.buf
-    }
-}
-
-impl<Idx, T> std::ops::Index<Idx> for AsyncSeekBufLoader<T>
-where
-    Idx: std::slice::SliceIndex<[u8]>,
-{
-    type Output = Idx::Output;
-
-    fn index(&self, index: Idx) -> &Self::Output {
-        &self.buf()[index]
-    }
-}
-
-impl<T> AsyncSeekBufLoader<T> {
-    #[allow(unused)]
-    pub fn new(reader: T) -> Self {
-        Self {
-            inner: Inner::new(reader),
-        }
-    }
-}
-
 struct Inner<T> {
     buf: Vec<u8>,
     read: T,
@@ -146,8 +87,7 @@ where
     }
 
     #[inline]
-    async fn skip(&mut self, n: usize) -> std::io::Result<()> {
-        println!("read to skip");
+    async fn skip_by_read(&mut self, n: usize) -> std::io::Result<()> {
         self.buf.reserve(n);
         let start = self.buf.len();
         match self.read.read_exact(&mut self.buf[start..start + n]).await {

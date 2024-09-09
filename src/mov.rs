@@ -13,7 +13,8 @@ use crate::{
     },
     error::ParsingError,
     input::Input,
-    loader::{Load, SeekBufLoader},
+    loader::{BufLoader, Load},
+    skip::SkipSeek,
     video::VideoInfoTag,
     EntryValue, FileFormat,
 };
@@ -54,7 +55,7 @@ use crate::{
 /// ```
 #[tracing::instrument(skip_all)]
 pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, EntryValue)>> {
-    let mut loader = SeekBufLoader::new(reader);
+    let mut loader = BufLoader::<SkipSeek, _>::new(reader);
     let ff = FileFormat::try_from_load(&mut loader)?;
     match ff {
         FileFormat::Jpeg | FileFormat::Heif => {
