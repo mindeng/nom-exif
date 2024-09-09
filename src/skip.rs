@@ -1,19 +1,22 @@
-use std::io::{self, Read, Seek};
+use std::io::{self, BufRead, Read, Seek};
 
 #[cfg(feature = "async")]
 use tokio::io::{AsyncRead, AsyncSeek, AsyncSeekExt};
 
-/// Use `SkipSeek` as a generic parameter for some interfaces, so tell the
-/// parser to use `Seek` to implement [`Skip`] operations. For more
-/// information, please refer to:
+/// Seekable represents a *seek-able* `Read`, e.g. a `File`.
+///
+/// Use `Seekable` as a generic parameter to tell the parser to use `Seek` to
+/// implement [`Skip`] operations. For more information, please refer to:
 /// [`parse_track_info`](crate::parse_track_info).
-pub struct SkipSeek(());
+pub struct Seekable(());
 
 /// Use `SkipRead` as a generic parameter for some interfaces, so tell the
 /// parser to use `Read` to implement [`Skip`] operations. For more
 /// information, please refer to:
 /// [`parse_track_info`](crate::parse_track_info).
 pub struct SkipRead(());
+
+pub struct SkipBufRead(());
 
 /// Abstracts the operation of skipping some bytes.
 ///
@@ -45,6 +48,25 @@ pub(crate) trait AsyncSkip<R> {
     async fn skip_by_seek(reader: &mut R, skip: u64) -> io::Result<bool>;
 }
 
+impl<R: BufRead> Skip<R> for SkipBufRead {
+    fn skip(reader: &mut R, mut skip: u64) -> io::Result<()> {
+        while skip > 0 {
+            let buffer = reader.fill_buf()?;
+            if buffer.is_empty() {
+                return Err(io::ErrorKind::UnexpectedEof.into());
+            }
+            let consume = u64::try_from(buffer.len()).expect("should fit").min(skip);
+            reader.consume(usize::try_from(consume).expect("must fit"));
+            skip -= consume;
+        }
+        Ok(())
+    }
+
+    fn skip_by_seek(_: &mut R, _: u64) -> io::Result<bool> {
+        Ok(false)
+    }
+}
+
 impl<R: Read> Skip<R> for SkipRead {
     #[inline]
     fn skip(reader: &mut R, skip: u64) -> io::Result<()> {
@@ -66,7 +88,7 @@ impl<R: Read> Skip<R> for SkipRead {
     }
 }
 
-impl<R: Seek> Skip<R> for SkipSeek {
+impl<R: Seek> Skip<R> for Seekable {
     #[inline]
     fn skip(reader: &mut R, skip: u64) -> io::Result<()> {
         reader.seek_relative(skip.try_into().unwrap())
@@ -88,7 +110,7 @@ impl<R: AsyncRead> AsyncSkip<R> for SkipRead {
 }
 
 #[cfg(feature = "async")]
-impl<R: AsyncSeek + Unpin> AsyncSkip<R> for SkipSeek {
+impl<R: AsyncSeek + Unpin> AsyncSkip<R> for Seekable {
     #[inline]
     async fn skip_by_seek(reader: &mut R, skip: u64) -> io::Result<bool> {
         match reader.seek(std::io::SeekFrom::Current(skip as i64)).await {
@@ -124,7 +146,7 @@ mod tests {
     fn skip() {
         let mut buf = Cursor::new([0u8, 3]);
         assert!(!parse::<SkipRead, _>(&mut buf).unwrap());
-        assert!(parse::<SkipSeek, _>(&mut buf).unwrap());
+        assert!(parse::<Seekable, _>(&mut buf).unwrap());
 
         let mut r = repeat(0);
         assert!(!parse::<SkipRead, _>(&mut r).unwrap());
@@ -135,7 +157,7 @@ mod tests {
     async fn skip_async() {
         let mut buf = Cursor::new([0u8, 3]);
         assert!(!parse_async::<SkipRead, _>(&mut buf).await.unwrap());
-        assert!(parse_async::<SkipSeek, _>(&mut buf).await.unwrap());
+        assert!(parse_async::<Seekable, _>(&mut buf).await.unwrap());
 
         let mut r = tokio::io::repeat(1);
         assert!(!parse_async::<SkipRead, _>(&mut r).await.unwrap());

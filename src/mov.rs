@@ -14,7 +14,7 @@ use crate::{
     error::ParsingError,
     input::Input,
     loader::{BufLoader, Load},
-    skip::SkipSeek,
+    skip::Seekable,
     video::TrackInfoTag,
     EntryValue, FileFormat,
 };
@@ -59,7 +59,7 @@ use crate::{
 #[deprecated(since = "2.0.0")]
 #[tracing::instrument(skip_all)]
 pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, EntryValue)>> {
-    let mut loader = BufLoader::<SkipSeek, _>::new(reader);
+    let mut loader = BufLoader::<Seekable, _>::new(reader);
     let ff = FileFormat::try_from_load(&mut loader)?;
     match ff {
         FileFormat::Jpeg | FileFormat::Heif => {
@@ -294,7 +294,7 @@ fn extract_moov_body<L: Load>(mut loader: L) -> Result<Input<'static>, crate::Er
 ///
 /// Regarding error handling, please refer to [Error] for more information.
 #[tracing::instrument(skip_all)]
-fn extract_moov_body_from_buf(input: &[u8]) -> Result<Range<usize>, ParsingError> {
+pub(crate) fn extract_moov_body_from_buf(input: &[u8]) -> Result<Range<usize>, ParsingError> {
     // parse metadata from moov/meta/keys & moov/meta/ilst
     let remain = input;
 

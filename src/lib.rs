@@ -8,15 +8,27 @@
 //!
 //! ## Key Features
 //!
-//! - Supports two style interfaces, *iterator* ([`ExifIter`]) and *get*
-//!   ([`Exif`]). The former is fully functional and lazy-loading, and the
-//!   latter is simple and easy to use.
+//! - Ergonomic Design
 //!
-//! - Media type auto-detecting: By using [`MediaType`](crate::MediaType), you
-//!   can easily detect the media type of the file, and then you can choose
-//!   which parsing function to call based on the detected media type, e.g.:
-//!   [`parse_track_info`](crate::parse_track_info) or
-//!   [`parse_exif`](crate::parse_exif), without checking file name extensions.
+//!   - Media type auto-detecting: No need to check the file extensions!
+//!     `nom-exif` can automatically detect supported file formats and parse
+//!     them correctly.
+//!
+//!     To achieve this goal, the API has been carefully designed so that
+//!     various types of multimedia files can be easily processed using the
+//!     same set of processes.
+//!
+//!     Compared with the way the user judges the file name and then decides
+//!     which parsing function to call (such as `parse_jpg`, `parse_mp4`,
+//!     etc.), this usage is more accurate, simple and convenient.
+//!     
+//!     The usage is demonstrated in the following examples.
+//!     `examples/rexiftool` is also a good example.
+//!
+//!   - Two style APIs for Exif: *iterator* style ([`ExifIter`]) and *get*
+//!     style ([`Exif`]). The former is lazy-loading and parse-on-demand
+//!     (therefore, more detailed error information can also be captured), and
+//!     the latter is simple and easy to use.
 //!   
 //! - Performance
 //!
@@ -228,7 +240,7 @@ pub use jpeg::parse_jpeg_exif;
 pub use error::Error;
 pub type Result<T> = std::result::Result<T, Error>;
 pub use file::FileFormat;
-pub use skip::{SkipRead, SkipSeek};
+pub use skip::{Seekable, SkipRead};
 
 #[allow(deprecated)]
 pub use mov::{parse_metadata, parse_mov_metadata};
@@ -243,6 +255,7 @@ mod input;
 mod jpeg;
 mod loader;
 mod mov;
+mod parser;
 mod skip;
 mod slice;
 mod values;

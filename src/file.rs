@@ -3,7 +3,6 @@ use std::{
     fmt::Display,
     io::{Cursor, Read},
 };
-use FileFormat::*;
 
 use crate::{
     bbox::{travel_header, BoxHolder},
@@ -36,7 +35,46 @@ const MP4_BRAND_NAMES: &[&str] = &[
 
 const QT_BRAND_NAMES: &[&str] = &["qt  ", "mqt "];
 
-/// Autodetect
+pub(crate) enum Mime {
+    Image(MimeImage),
+    Video(MimeVideo),
+}
+
+pub(crate) enum MimeImage {
+    Jpeg,
+    Heic,
+    Heif,
+}
+
+pub(crate) enum MimeVideo {
+    QuickTime,
+    Mp4,
+    Webm,
+    Matroska,
+    _3gpp,
+}
+
+impl TryFrom<&[u8]> for Mime {
+    type Error = crate::Error;
+    fn try_from(input: &[u8]) -> Result<Self, Self::Error> {
+        let mime = if check_jpeg(input).is_ok() {
+            Mime::Image(MimeImage::Jpeg)
+        } else if let Ok(x) = parse_bmff_mime(input) {
+            x
+        } else if let Ok(x) = get_ebml_doc_type(input) {
+            if x == "webm" {
+                Mime::Video(MimeVideo::Webm)
+            } else {
+                Mime::Video(MimeVideo::Matroska)
+            }
+        } else {
+            return Err(crate::Error::UnrecognizedFileFormat);
+        };
+
+        Ok(mime)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MediaType {
     media_type: MediaKind,
@@ -195,6 +233,7 @@ impl FileFormat {
     }
 }
 
+use FileFormat::*;
 impl Display for FileFormat {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -211,6 +250,82 @@ fn get_ebml_doc_type(input: &[u8]) -> crate::Result<String> {
     let mut cursor = Cursor::new(input);
     let doc = parse_ebml_doc_type(&mut cursor)?;
     Ok(doc)
+}
+
+fn parse_bmff_mime(input: &[u8]) -> crate::Result<Mime> {
+    let (ftyp, Some(major_brand)) =
+        get_ftyp_and_major_brand(input).map_err(|_| crate::Error::UnrecognizedFileFormat)?
+    else {
+        if travel_header(input, |header, _| header.box_type != "mdat").is_ok() {
+            // ftyp is None, mdat box is found, assume it's a MOV file extracted from HEIC
+            return Ok(Mime::Video(MimeVideo::QuickTime));
+        }
+
+        return Err(crate::Error::UnrecognizedFileFormat);
+    };
+
+    // Check if it is a QuickTime file
+    if QT_BRAND_NAMES.iter().any(|v| v.as_bytes() == major_brand) {
+        return Ok(Mime::Video(MimeVideo::QuickTime));
+    }
+
+    // Check if it is a HEIF file
+    if HEIF_HEIC_BRAND_NAMES.contains(&major_brand) {
+        if HEIC_BRAND_NAMES.contains(&major_brand) {
+            return Ok(Mime::Image(MimeImage::Heic));
+        }
+        return Ok(Mime::Image(MimeImage::Heif));
+    }
+
+    // Check if it is a MP4 file
+    if MP4_BRAND_NAMES.iter().any(|v| v.as_bytes() == major_brand) {
+        if major_brand.starts_with(b"3gp") {
+            return Ok(Mime::Video(MimeVideo::_3gpp));
+        }
+        return Ok(Mime::Video(MimeVideo::Mp4));
+    }
+
+    // Check compatible brands
+    let compatible_brands = get_compatible_brands(ftyp.body_data())?;
+
+    if QT_BRAND_NAMES
+        .iter()
+        .any(|v| compatible_brands.iter().any(|x| v.as_bytes() == *x))
+    {
+        return Ok(Mime::Video(MimeVideo::QuickTime));
+    }
+
+    if HEIF_HEIC_BRAND_NAMES
+        .iter()
+        .any(|x| compatible_brands.contains(x))
+    {
+        if HEIC_BRAND_NAMES.contains(&major_brand) {
+            return Ok(Mime::Image(MimeImage::Heic));
+        }
+        return Ok(Mime::Image(MimeImage::Heif));
+    }
+
+    if MP4_BRAND_NAMES
+        .iter()
+        .any(|v| compatible_brands.iter().any(|x| v.as_bytes() == *x))
+    {
+        if major_brand.starts_with(b"3gp") {
+            return Ok(Mime::Video(MimeVideo::_3gpp));
+        }
+        return Ok(Mime::Video(MimeVideo::Mp4));
+    }
+
+    tracing::error!(
+        marjor_brand = major_brand.iter().map(|b| *b as char).collect::<String>(),
+        "unknown major brand",
+    );
+
+    if travel_header(input, |header, _| header.box_type != "mdat").is_ok() {
+        // mdat box found, assume it's a mp4 file
+        return Ok(Mime::Video(MimeVideo::Mp4));
+    }
+
+    Err(crate::Error::UnrecognizedFileFormat)
 }
 
 fn get_bmff_media_type(input: &[u8]) -> crate::Result<(MediaKind, &'static str)> {
@@ -453,6 +568,7 @@ fn get_compatible_brands(body: &[u8]) -> crate::Result<Vec<&[u8]>> {
 
 #[cfg(test)]
 mod tests {
+    use super::FileFormat::*;
     use super::*;
     use test_case::test_case;
     use MediaKind::*;

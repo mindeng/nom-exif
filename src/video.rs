@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     ebml::webm::parse_webm,
-    loader::BufLoader,
+    loader::{BufLoader, Load},
     mov::{parse_mp4, parse_qt},
     skip::Skip,
     EntryValue, FileFormat, GPSInfo,
@@ -105,6 +105,26 @@ pub fn parse_track_info<S: Skip<R>, R: Read>(reader: R) -> crate::Result<TrackIn
     Ok(info)
 }
 
+pub fn parse_track_from_loader<L: Load>(mut loader: L) -> crate::Result<TrackInfo> {
+    let ff = FileFormat::try_from_load(&mut loader)?;
+    let mut info: TrackInfo = match ff {
+        FileFormat::Jpeg | FileFormat::Heif => {
+            return Err(crate::error::Error::ParseFailed(
+                "can not parse video info from an image".into(),
+            ));
+        }
+        FileFormat::QuickTime => parse_qt(loader)?.into(),
+        FileFormat::MP4 => parse_mp4(loader)?.into(),
+        FileFormat::Ebml => parse_webm(loader)?.into(),
+    };
+
+    if let Some(gps) = info.get(TrackInfoTag::GpsIso6709) {
+        info.gps_info = gps.as_str().and_then(|s| s.parse().ok());
+    }
+
+    Ok(info)
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct TrackInfo {
     entries: BTreeMap<TrackInfoTag, EntryValue>,
@@ -173,7 +193,7 @@ impl From<TrackInfoTag> for &str {
 mod tests {
     use crate::testkit::open_sample;
     use crate::values::Rational;
-    use crate::{LatLng, SkipRead, SkipSeek};
+    use crate::{LatLng, Seekable, SkipRead};
     use chrono::DateTime;
     use test_case::test_case;
 
@@ -185,7 +205,7 @@ mod tests {
     #[test_case("mkv_640x360.mkv", Duration, 13346_f64.into())]
     #[test_case("mkv_640x360.mkv", CreateDate, DateTime::parse_from_str("2008-08-08T08:08:08Z", "%+").unwrap().into())]
     fn test_skip_seek(path: &str, tag: TrackInfoTag, v: EntryValue) {
-        let info = parse_track_info::<SkipSeek, _>(open_sample(path).unwrap()).unwrap();
+        let info = parse_track_info::<Seekable, _>(open_sample(path).unwrap()).unwrap();
         assert_eq!(info.get(tag).unwrap(), &v);
     }
 

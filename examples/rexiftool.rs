@@ -6,7 +6,7 @@ use std::{
 };
 
 use clap::Parser;
-use nom_exif::{parse_exif, parse_track_info, MediaType, SkipSeek};
+use nom_exif::{parse_exif, parse_track_info, MediaType, Seekable};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Registry};
 
 #[derive(Parser, Debug)]
@@ -76,7 +76,7 @@ fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
         })
         .collect::<Vec<_>>()
     } else {
-        let info = parse_track_info::<SkipSeek, _>(&mut reader)?;
+        let info = parse_track_info::<Seekable, _>(&mut reader)?;
         info.into_iter()
             .map(|x| (x.0.to_string(), x.1))
             .collect::<Vec<_>>()
