@@ -9,7 +9,7 @@ use crate::{
     ebml::element::parse_ebml_doc_type,
     error::{ParsedError, ParsingError},
     heif,
-    jpeg::{self, check_jpeg},
+    jpeg::{self, check_jpeg_exif},
     loader::Load,
 };
 
@@ -57,9 +57,7 @@ pub(crate) enum MimeVideo {
 impl TryFrom<&[u8]> for Mime {
     type Error = crate::Error;
     fn try_from(input: &[u8]) -> Result<Self, Self::Error> {
-        let mime = if check_jpeg(input).is_ok() {
-            Mime::Image(MimeImage::Jpeg)
-        } else if let Ok(x) = parse_bmff_mime(input) {
+        let mime = if let Ok(x) = parse_bmff_mime(input) {
             x
         } else if let Ok(x) = get_ebml_doc_type(input) {
             if x == "webm" {
@@ -67,6 +65,8 @@ impl TryFrom<&[u8]> for Mime {
             } else {
                 Mime::Video(MimeVideo::Matroska)
             }
+        } else if check_jpeg_exif(input).is_ok_and(|x| x.1) {
+            Mime::Image(MimeImage::Jpeg)
         } else {
             return Err(crate::Error::UnrecognizedFileFormat);
         };
@@ -94,7 +94,7 @@ impl MediaType {
     }
 
     pub fn try_from_bytes(input: &[u8]) -> crate::Result<MediaType> {
-        let (media_type, mime) = if check_jpeg(input).is_ok() {
+        let (media_type, mime) = if check_jpeg_exif(input).is_ok_and(|x| x.1) {
             (MediaKind::Image, "image/jpeg")
         } else if let Ok(x) = get_bmff_media_type(input) {
             x
@@ -161,7 +161,7 @@ impl TryFrom<&[u8]> for FileFormat {
     type Error = crate::Error;
 
     fn try_from(input: &[u8]) -> Result<Self, Self::Error> {
-        if check_jpeg(input).is_ok() {
+        if check_jpeg_exif(input).is_ok_and(|x| x.1) {
             Ok(Self::Jpeg)
         } else if let Ok(ff) = check_bmff(input) {
             Ok(ff)
@@ -204,31 +204,6 @@ impl FileFormat {
             }
             MP4 => nom::error::context("no exif data in MP4 file", nom::combinator::fail)(input),
             Ebml => nom::error::context("no exif data in EBML file", nom::combinator::fail)(input),
-        }
-    }
-
-    #[allow(unused)]
-    pub(crate) fn check(&self, input: &[u8]) -> crate::Result<()> {
-        match self {
-            Jpeg => check_jpeg(input),
-            Heif => check_heif(input),
-            QuickTime => {
-                let ff = check_qt_mp4(input)?;
-                if ff == *self {
-                    Ok(())
-                } else {
-                    Err("not a QuickTime file".into())
-                }
-            }
-            MP4 => {
-                let ff = check_qt_mp4(input)?;
-                if ff == *self {
-                    Ok(())
-                } else {
-                    Err("not a MP4 file".into())
-                }
-            }
-            Ebml => get_ebml_doc_type(input).map(|_| ()),
         }
     }
 }
