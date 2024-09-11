@@ -16,12 +16,22 @@ use crate::{
 };
 
 /// MediaSource represents a media data source.
+///
+/// - Use `MediaSource::file(path)` to create a MediaSource from a file
+/// - Use `MediaSource::tcp_stream(stream)` to create a MediaSource from a `TcpStream`
+/// - In other cases:
+///
+///   - Use `MediaSource::seekable(reader)` to create a MediaSource from a `Read + Seek`
+///   
+///   - Use `MediaSource::unseekable(read)` to create a MediaSource from a
+///     reader that only impl `Read`
+///   
+/// `seekable` is preferred to `unseekable`, since the former is more efficient
+/// when the parser needs to skip a large number of bytes.
 pub struct MediaSource<R, S = Seekable> {
     read: R,
     phantom: PhantomData<S>,
 }
-
-impl<R: Read, S> MediaSource<R, S> {}
 
 impl<R: Read + Seek> MediaSource<R> {
     pub fn seekable(read: R) -> Self {
@@ -41,24 +51,15 @@ impl<R: Read> MediaSource<R, SkipRead> {
     }
 }
 
-impl<R: Read, S> MediaSource<R, S> {
-    fn from_read(read: R) -> Self {
-        Self {
-            read,
-            phantom: PhantomData,
-        }
-    }
-}
-
-impl MediaSource<File, Seekable> {
+impl MediaSource<File> {
     pub fn file<P: AsRef<Path>>(path: P) -> io::Result<Self> {
-        Ok(Self::from_read(File::open(path)?))
+        Ok(Self::seekable(File::open(path)?))
     }
 }
 
 impl MediaSource<TcpStream, SkipRead> {
     pub fn tcp_stream(stream: TcpStream) -> Self {
-        Self::from_read(stream)
+        Self::unseekable(stream)
     }
 }
 
