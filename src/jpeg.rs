@@ -84,6 +84,23 @@ fn find_exif_segment(input: &[u8]) -> IResult<&[u8], Option<Segment<'_>>> {
     }
 }
 
+/// len of input should be >= 2
+pub fn check_jpeg(input: &[u8]) -> crate::Result<()> {
+    assert!(input.len() >= 2);
+
+    // check soi marker [0xff, 0xd8]
+    let (_, (_, code)) = tuple((nom::bytes::complete::tag([0xFF]), number::complete::u8))(input)?;
+
+    // SOI has no payload
+    if code != MarkerCode::Soi.code() {
+        return Err("invalid JPEG file; SOI marker not found".into());
+    }
+
+    // check next marker [0xff, *]
+    let (_, (_, _)) = tuple((nom::bytes::complete::tag([0xFF]), number::complete::u8))(input)?;
+    Ok(())
+}
+
 #[tracing::instrument(skip_all)]
 fn travel_until<'a, F>(input: &'a [u8], mut predicate: F) -> IResult<&'a [u8], Segment<'a>>
 where

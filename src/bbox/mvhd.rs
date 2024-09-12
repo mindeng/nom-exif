@@ -35,8 +35,8 @@ pub struct MvhdBox {
 }
 
 impl MvhdBox {
-    pub fn duration_ms(&self) -> u32 {
-        ((self.duration as f64) / (self.time_scale as f64) * 1000_f64) as u32
+    pub fn duration_ms(&self) -> u64 {
+        ((self.duration as f64) / (self.time_scale as f64) * 1000_f64) as u64
     }
 
     fn creation_time_naive(&self) -> NaiveDateTime {
@@ -103,7 +103,7 @@ mod tests {
         "2024-02-03T15:05:38+08:00",
         1063
     )]
-    fn mvhd_box(path: &str, time_utc: &str, time_east8: &str, milliseconds: u32) {
+    fn mvhd_box(path: &str, time_utc: &str, time_east8: &str, milliseconds: u64) {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 
         let buf = read_sample(path).unwrap();

@@ -1,4 +1,4 @@
-use std::{cell::RefCell, fmt::Debug, sync::Arc};
+use std::{fmt::Debug, sync::Arc};
 
 use nom::{
     number::{complete, Endianness},
@@ -37,6 +37,11 @@ pub struct ExifIter<'a> {
 }
 
 impl Clone for ExifIter<'_> {
+    /// If you want to convert an `ExifIter` `into` an [`Exif`], you'd better
+    /// clone the `ExifIter` before converting. Since the iterator index may
+    /// have been modified by `Iterator::next()` calls.
+    ///
+    /// `clone()` will reset the iterator index to be the first one.
     fn clone(&self) -> Self {
         let mut ifds = Vec::new();
         if let Some(ref ifd0) = self.ifd0 {
@@ -87,9 +92,9 @@ impl<'a> ExifIter<'a> {
             return Ok(None);
         };
 
-        let offset = match gps.take_result() {
+        let offset = match gps.get_result() {
             Ok(v) => v.as_u32().unwrap() as usize,
-            Err(e) => return Err(e.into()),
+            Err(e) => return Err(e.clone().into()),
         };
 
         let data = &iter.input[..];
@@ -123,7 +128,7 @@ impl Default for ExifIter<'static> {
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 #[error("ifd entry error: {0}")]
 pub struct EntryError(ParseEntryError);
 
@@ -138,7 +143,7 @@ pub struct ParsedExifEntry {
     // 0: ifd0, 1: ifd1
     ifd: usize,
     tag: ExifTagCode,
-    res: RefCell<Option<Result<EntryValue, EntryError>>>,
+    res: Option<Result<EntryValue, EntryError>>,
 }
 
 impl ParsedExifEntry {
@@ -180,11 +185,15 @@ impl ParsedExifEntry {
     /// - The value has been taken by calling [`Self::take_value`] or
     ///   [`Self::take_result`] methods.
     pub fn has_value(&self) -> bool {
-        self.res
-            .borrow()
-            .as_ref()
-            .map(|e| e.is_ok())
-            .is_some_and(|b| b)
+        self.res.as_ref().map(|e| e.is_ok()).is_some_and(|b| b)
+    }
+
+    /// Get the parsed entry value of this entry.
+    pub fn get_value(&self) -> Option<&EntryValue> {
+        match self.res.as_ref() {
+            Some(Ok(v)) => Some(v),
+            Some(Err(_)) | None => None,
+        }
     }
 
     /// Takes out the parsed entry value of this entry.
@@ -192,10 +201,25 @@ impl ParsedExifEntry {
     /// **Note**: This method can only be called once! Once it has been called,
     /// calling it again always returns `None`. You may want to check it by
     /// calling [`Self::has_value`] before calling this method.
-    pub fn take_value(&self) -> Option<EntryValue> {
+    pub fn take_value(&mut self) -> Option<EntryValue> {
         match self.res.take() {
             Some(v) => v.ok(),
             None => None,
+        }
+    }
+
+    /// Get the parsed result of this entry.
+    ///
+    /// Returns:
+    ///
+    /// - If any error occurred while parsing this entry, an
+    ///   Err(&[`EntryError`]) is returned.
+    ///
+    /// - Otherwise, an Ok(&[`EntryValue`]) is returned.
+    pub fn get_result(&self) -> Result<&EntryValue, &EntryError> {
+        match self.res {
+            Some(ref v) => v.as_ref(),
+            None => panic!("take result of entry twice"),
         }
     }
 
@@ -210,7 +234,7 @@ impl ParsedExifEntry {
     ///
     /// **Note**: This method can ONLY be called once! If you call it twice, it
     /// will **panic** directly!
-    pub fn take_result(&self) -> Result<EntryValue, EntryError> {
+    pub fn take_result(&mut self) -> Result<EntryValue, EntryError> {
         match self.res.take() {
             Some(v) => v,
             None => panic!("take result of entry twice"),
@@ -221,7 +245,7 @@ impl ParsedExifEntry {
         Self {
             ifd,
             tag,
-            res: RefCell::new(Some(Ok(v))),
+            res: Some(Ok(v)),
         }
     }
 
@@ -229,14 +253,14 @@ impl ParsedExifEntry {
         Self {
             ifd,
             tag,
-            res: RefCell::new(Some(Err(EntryError(e)))),
+            res: Some(Err(EntryError(e))),
         }
     }
 }
 
 impl Debug for ParsedExifEntry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let value = match self.take_result() {
+        let value = match self.get_result() {
             Ok(v) => format!("{v}"),
             Err(e) => format!("{e:?}"),
         };
@@ -537,14 +561,14 @@ impl ImageFileDirectoryIter {
                 }
                 ExifTag::GPSSpeedRef => {
                     if let Some(c) = entry.as_char() {
-                        gps.speed_ref = c;
+                        gps.speed_ref = Some(c);
                     }
                 }
                 ExifTag::GPSSpeed => {
                     if let Some(v) = entry.as_urational() {
-                        gps.speed = *v;
+                        gps.speed = Some(*v);
                     } else if let Some(v) = entry.as_irational() {
-                        gps.speed = (*v).into();
+                        gps.speed = Some((*v).into());
                     }
                 }
                 _ => (),

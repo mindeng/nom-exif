@@ -1,4 +1,4 @@
-use std::{io, string::FromUtf8Error};
+use std::{fmt::Debug, io, string::FromUtf8Error};
 use thiserror::Error;
 
 type FallbackError = Box<dyn std::error::Error + Send + Sync>;
@@ -76,6 +76,12 @@ pub enum ParsingError {
     Failed(String),
 }
 
+impl From<&str> for ParsingError {
+    fn from(value: &str) -> Self {
+        Self::Failed(value.to_string())
+    }
+}
+
 impl From<std::io::Error> for ParsedError {
     fn from(value: std::io::Error) -> Self {
         Self::IOError(value)
@@ -118,13 +124,16 @@ impl From<FromUtf8Error> for Error {
     }
 }
 
-impl From<nom::Err<nom::error::Error<&[u8]>>> for crate::Error {
-    fn from(e: nom::Err<nom::error::Error<&[u8]>>) -> Self {
+impl<T: Debug> From<nom::Err<nom::error::Error<T>>> for crate::Error {
+    fn from(e: nom::Err<nom::error::Error<T>>) -> Self {
         convert_parse_error(e, "")
     }
 }
 
-pub(crate) fn convert_parse_error(e: nom::Err<nom::error::Error<&[u8]>>, message: &str) -> Error {
+pub(crate) fn convert_parse_error<T: Debug>(
+    e: nom::Err<nom::error::Error<T>>,
+    message: &str,
+) -> Error {
     let s = match e {
         nom::Err::Incomplete(_) => format!("{e}; {message}"),
         nom::Err::Error(e) => format!("{}; {message}", e.code.description()),

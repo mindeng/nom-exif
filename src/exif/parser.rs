@@ -11,6 +11,7 @@ use nom::{
 };
 
 use crate::{
+    error::{ParsedError, ParsingError},
     exif::{ExifTag, GPSInfo},
     input::{self, Input},
     EntryValue,
@@ -61,8 +62,12 @@ impl<'a> ExifParser<'a> {
     /// The one exception is the time zone entries. The method will try to find
     /// and parse the time zone data first, so we can correctly parse all time
     /// information in subsequent iterates.
-    pub fn parse_iter(self) -> crate::Result<ExifIter<'a>> {
-        let iter = self.inner.try_into_iter()?;
+    pub fn parse_iter(self) -> Result<ExifIter<'a>, ParsedError> {
+        let iter = self.inner.try_into_iter().map_err(|e| match e {
+            ParsingError::Need(_) => unreachable!(),
+            ParsingError::ClearAndSkip(_) => unreachable!(),
+            ParsingError::Failed(v) => ParsedError::Failed(v),
+        })?;
         Ok(iter)
     }
 }
@@ -78,9 +83,9 @@ impl<'a> Inner<'a> {
         }
     }
 
-    fn try_into_iter(self) -> crate::Result<ExifIter<'a>> {
+    fn try_into_iter(self) -> Result<ExifIter<'a>, ParsingError> {
         let data = &self.input[..];
-        let (_, header) = Header::parse(data)?;
+        let (_, header) = TiffHeader::parse(data)?;
 
         // jump to ifd0
         let (remain, _) = take::<_, _, nom::error::Error<_>>((header.ifd0_offset) as usize)(data)
@@ -98,7 +103,7 @@ impl<'a> Inner<'a> {
             None,
         ) {
             Ok(ifd0) => ifd0,
-            Err(e) => return Err(e),
+            Err(e) => return Err(ParsingError::Failed(e.to_string())),
         };
 
         let tz = ifd0.find_tz_offset();
@@ -195,7 +200,7 @@ impl Exif {
         Ok(self.gps_info.clone())
     }
 
-    fn put(&mut self, res: ParsedExifEntry) {
+    fn put(&mut self, res: &mut ParsedExifEntry) {
         while self.ifds.len() < res.ifd_index() + 1 {
             self.ifds.push(ParsedImageFileDirectory::new());
         }
@@ -214,26 +219,27 @@ impl From<ExifIter<'_>> for Exif {
         let gps_info = iter.parse_gps_info().ok().flatten();
         let mut exif = Exif::new(gps_info);
 
-        for it in iter {
-            exif.put(it);
+        for mut it in iter {
+            exif.put(&mut it);
         }
 
         exif
     }
 }
 
+/// TIFF Header
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct Header {
+struct TiffHeader {
     pub endian: Endianness,
     pub ifd0_offset: u32,
 }
 
-impl Header {
-    pub fn parse(input: &[u8]) -> IResult<&[u8], Header> {
-        let (remain, endian) = Header::parse_endian(input)?;
+impl TiffHeader {
+    pub fn parse(input: &[u8]) -> IResult<&[u8], TiffHeader> {
+        let (remain, endian) = TiffHeader::parse_endian(input)?;
         map(
             tuple((verify(u16(endian), |magic| *magic == 0x2a), u32(endian))),
-            move |(_, offset)| Header {
+            move |(_, offset)| TiffHeader {
                 endian,
                 ifd0_offset: offset,
             },
@@ -262,6 +268,7 @@ impl Header {
     }
 }
 
+/// data.len() MUST >= 6
 pub(crate) fn check_exif_header(data: &[u8]) -> bool {
     use nom::bytes::complete;
     assert!(data.len() >= 6);
@@ -291,10 +298,10 @@ mod tests {
 
         let buf = [0x4d, 0x4d, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x08];
 
-        let (_, header) = Header::parse(&buf).unwrap();
+        let (_, header) = TiffHeader::parse(&buf).unwrap();
         assert_eq!(
             header,
-            Header {
+            TiffHeader {
                 endian: Endianness::Big,
                 ifd0_offset: 8
             }
@@ -309,8 +316,8 @@ mod tests {
         [(114, 1), (1, 1), (1733, 100)].into(),
         0u8,
         (0, 1).into(),
-        '\x00',
-        URational::default()
+        None,
+        None
     )]
     #[allow(clippy::too_many_arguments)]
     fn gps_info(
@@ -321,8 +328,8 @@ mod tests {
         longitude: LatLng,
         altitude_ref: u8,
         altitude: URational,
-        speed_ref: char,
-        speed: URational,
+        speed_ref: Option<char>,
+        speed: Option<URational>,
     ) {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 
@@ -401,7 +408,7 @@ mod tests {
                     x.tag()
                         .map(|t| t.to_string())
                         .unwrap_or_else(|| format!("Unknown(0x{:04x})", x.tag_code())),
-                    x.take_result()
+                    x.get_result()
                         .map(|v| v.to_string())
                         .map_err(|e| e.to_string())
                         .unwrap_or_else(|s| s)

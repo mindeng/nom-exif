@@ -1,6 +1,6 @@
 use crate::error::ParsingError;
 use crate::loader::{BufLoad, BufLoader, Load};
-use crate::skip::SkipRead;
+use crate::skip::Unseekable;
 use crate::slice::SubsliceRange;
 use crate::{input::Input, FileFormat};
 pub use exif_iter::{ExifIter, ParsedExifEntry};
@@ -11,7 +11,7 @@ pub use tags::ExifTag;
 use std::io::Read;
 
 pub(crate) mod ifd;
-pub(crate) use parser::{check_exif_header, input_to_exif, input_to_iter};
+pub(crate) use parser::{check_exif_header, input_to_exif, input_to_iter, ExifParser};
 
 mod exif_iter;
 mod gps;
@@ -73,7 +73,7 @@ pub(crate) fn read_exif<R: Read>(
     read: R,
     format: Option<FileFormat>,
 ) -> crate::Result<Option<Input<'static>>> {
-    let mut loader = BufLoader::<SkipRead, R>::new(read);
+    let mut loader = BufLoader::<Unseekable, R>::new(read);
     let ff = match format {
         Some(ff) => ff,
         None => loader.load_and_parse(|x| {
@@ -103,7 +103,7 @@ where
 {
     use crate::loader::{AsyncBufLoader, AsyncLoad};
 
-    let mut loader = AsyncBufLoader::<SkipRead, _>::new(read);
+    let mut loader = AsyncBufLoader::<Unseekable, _>::new(read);
     let ff = match format {
         Some(ff) => ff,
         None => {
@@ -151,7 +151,7 @@ mod tests {
             .clone()
             .filter(|e| e.tag().is_some_and(|t| tags.contains(&t)))
             .filter(|e| e.has_value())
-            .map(|e| format!("{} => {}", e.tag().unwrap(), e.take_value().unwrap()))
+            .map(|e| format!("{} => {}", e.tag().unwrap(), e.get_value().unwrap()))
             .collect();
         assert_eq!(res.join(", "), "Make => Apple, Model => iPhone 12 Pro");
     }

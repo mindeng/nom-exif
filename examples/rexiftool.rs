@@ -6,7 +6,7 @@ use std::{
 };
 
 use clap::Parser;
-use nom_exif::{parse_exif, parse_track_info, MediaType, Seekable};
+use nom_exif::{parse_exif, ExifIter, MediaParser, MediaSource, TrackInfo};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Registry};
 
 #[derive(Parser, Debug)]
@@ -48,35 +48,30 @@ fn tracing_run(cli: &Cli) -> ExitCode {
 }
 
 fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
-    let mut reader = File::open(&cli.file)?;
-    let mt = MediaType::try_from_reader(&mut reader)
-        .map_err(|e| format!("unsupported file format: {e}"))?;
-    reader.rewind()?;
-
     if cli.json && !FEATURE_JSON_DUMP_ON {
         let msg = "-j/--json option requires the feature `json_dump`.";
         eprintln!("{msg}");
         return Err(msg.into());
     }
 
-    let values = if mt.is_image() {
-        let iter = parse_exif(&mut reader, None)?;
-        let Some(iter) = iter else {
-            println!("Exif data not found in {}.", &cli.file);
-            return Ok(());
-        };
-        iter.filter_map(|x| {
-            let v = x.take_value()?;
-            Some((
-                x.tag()
-                    .map(|x| x.to_string())
-                    .unwrap_or_else(|| format!("Unknown(0x{:04x})", x.tag_code())),
-                v,
-            ))
-        })
-        .collect::<Vec<_>>()
+    let ms = MediaSource::file_path(&cli.file)?;
+    let mut parser = MediaParser::new();
+
+    let values = if ms.has_exif() {
+        let iter: ExifIter = parser.parse(ms)?;
+        iter.into_iter()
+            .filter_map(|mut x| {
+                let v = x.take_value()?;
+                Some((
+                    x.tag()
+                        .map(|x| x.to_string())
+                        .unwrap_or_else(|| format!("Unknown(0x{:04x})", x.tag_code())),
+                    v,
+                ))
+            })
+            .collect::<Vec<_>>()
     } else {
-        let info = parse_track_info::<Seekable, _>(&mut reader)?;
+        let info: TrackInfo = parser.parse(ms)?;
         info.into_iter()
             .map(|x| (x.0.to_string(), x.1))
             .collect::<Vec<_>>()

@@ -1,4 +1,4 @@
-use nom::{bytes::complete, multi::many0, IResult};
+use nom::{bytes::complete, multi::many0, FindSubstring, IResult};
 use std::{
     fmt::Display,
     io::{Cursor, Read},
@@ -9,8 +9,9 @@ use crate::{
     ebml::element::parse_ebml_doc_type,
     error::{ParsedError, ParsingError},
     heif,
-    jpeg::{self, check_jpeg_exif},
+    jpeg::{self, check_jpeg, check_jpeg_exif},
     loader::Load,
+    slice::SubsliceRange,
 };
 
 const HEIF_HEIC_BRAND_NAMES: &[&[u8]] = &[
@@ -35,17 +36,20 @@ const MP4_BRAND_NAMES: &[&str] = &[
 
 const QT_BRAND_NAMES: &[&str] = &["qt  ", "mqt "];
 
+#[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub(crate) enum Mime {
     Image(MimeImage),
     Video(MimeVideo),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub(crate) enum MimeImage {
     Jpeg,
     Heic,
     Heif,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub(crate) enum MimeVideo {
     QuickTime,
     Mp4,
@@ -65,7 +69,7 @@ impl TryFrom<&[u8]> for Mime {
             } else {
                 Mime::Video(MimeVideo::Matroska)
             }
-        } else if check_jpeg_exif(input).is_ok_and(|x| x.1) {
+        } else if check_jpeg(input).is_ok() {
             Mime::Image(MimeImage::Jpeg)
         } else {
             return Err(crate::Error::UnrecognizedFileFormat);
@@ -161,12 +165,12 @@ impl TryFrom<&[u8]> for FileFormat {
     type Error = crate::Error;
 
     fn try_from(input: &[u8]) -> Result<Self, Self::Error> {
-        if check_jpeg_exif(input).is_ok_and(|x| x.1) {
-            Ok(Self::Jpeg)
-        } else if let Ok(ff) = check_bmff(input) {
+        if let Ok(ff) = check_bmff(input) {
             Ok(ff)
         } else if get_ebml_doc_type(input).is_ok() {
             Ok(Self::Ebml)
+        } else if check_jpeg(input).is_ok() {
+            Ok(Self::Jpeg)
         } else {
             Err(crate::Error::UnrecognizedFileFormat)
         }
@@ -261,18 +265,18 @@ fn parse_bmff_mime(input: &[u8]) -> crate::Result<Mime> {
     }
 
     // Check compatible brands
-    let compatible_brands = get_compatible_brands(ftyp.body_data())?;
+    let compatible_brands = ftyp.body_data();
 
     if QT_BRAND_NAMES
         .iter()
-        .any(|v| compatible_brands.iter().any(|x| v.as_bytes() == *x))
+        .any(|v| compatible_brands.find_substring(v.as_bytes()).is_some())
     {
         return Ok(Mime::Video(MimeVideo::QuickTime));
     }
 
     if HEIF_HEIC_BRAND_NAMES
         .iter()
-        .any(|x| compatible_brands.contains(x))
+        .any(|x| compatible_brands.find_substring(*x).is_some())
     {
         if HEIC_BRAND_NAMES.contains(&major_brand) {
             return Ok(Mime::Image(MimeImage::Heic));
@@ -282,7 +286,7 @@ fn parse_bmff_mime(input: &[u8]) -> crate::Result<Mime> {
 
     if MP4_BRAND_NAMES
         .iter()
-        .any(|v| compatible_brands.iter().any(|x| v.as_bytes() == *x))
+        .any(|v| compatible_brands.subslice_range(v.as_bytes()).is_some())
     {
         if major_brand.starts_with(b"3gp") {
             return Ok(Mime::Video(MimeVideo::_3gpp));

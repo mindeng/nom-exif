@@ -47,7 +47,7 @@ pub(crate) struct EntryData<'a> {
     pub components_num: u32,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 pub(crate) enum ParseEntryError {
     #[error("size is too big")]
     EntrySizeTooBig,
@@ -284,6 +284,13 @@ impl EntryValue {
     pub fn as_i16(&self) -> Option<i16> {
         match self {
             EntryValue::I16(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    pub fn as_u64(&self) -> Option<u64> {
+        match self {
+            EntryValue::U64(v) => Some(*v),
             _ => None,
         }
     }

@@ -28,8 +28,8 @@ pub struct GPSInfo {
     /// - K: kilometers per hour
     /// - M: miles per hour
     /// - N: knots
-    pub speed_ref: char,
-    pub speed: URational,
+    pub speed_ref: Option<char>,
+    pub speed: Option<URational>,
 }
 
 /// degree, minute, second,

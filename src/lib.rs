@@ -20,7 +20,8 @@
 //!
 //!     Compared with the way the user judges the file name and then decides
 //!     which parsing function to call (such as `parse_jpg`, `parse_mp4`,
-//!     etc.), this usage is more accurate, simple and convenient.
+//!     etc.), this method is simpler, more reliable, and more versatile (can
+//!     be applied to non-file scenarios, such as `TcpStream`).
 //!     
 //!     The usage is demonstrated in the following examples.
 //!     `examples/rexiftool` is also a good example.
@@ -57,9 +58,9 @@
 //!
 //! - Image
 //!   - *.heic, *.heif, etc.
-//!   - *.jpg, *.jpeg, etc.
+//!   - *.jpg, *.jpeg
 //!   - *.png
-//!   - *.tiff
+//!   - *.tiff, *.tif
 //! - Video/Audio
 //!   - ISO base media file format (ISOBMFF): *.mp4, *.mov, *.3gp, etc.
 //!   - Matroska based file format: *.webm, *.mkv, *.mka, etc.
@@ -79,14 +80,14 @@
 //!     assert_eq!(entry.ifd_index(), 0);
 //!     assert_eq!(entry.tag().unwrap(), ExifTag::Make);
 //!     assert_eq!(entry.tag_code(), 0x010f);
-//!     assert_eq!(entry.take_result()?.as_str().unwrap(), "Apple");
+//!     assert_eq!(entry.get_value().unwrap().as_str().unwrap(), "Apple");
 //!
 //!     // You can also iterate it in a `for` loop. Clone it first so we won't
 //!     // consume the original one. Note that the new cloned `ExifIter` will
 //!     // always start from the first entry.
 //!     for entry in iter.clone() {
 //!         if entry.tag().unwrap() == ExifTag::Make {
-//!             assert_eq!(entry.take_result()?.as_str().unwrap(), "Apple");
+//!             assert_eq!(entry.get_result().unwrap().as_str().unwrap(), "Apple");
 //!             break;
 //!         }
 //!     }
@@ -97,7 +98,7 @@
 //!         .clone()
 //!         .filter(|e| e.tag().is_some_and(|t| tags.contains(&t)))
 //!         .filter(|e| e.has_value())
-//!         .map(|e| format!("{} => {}", e.tag().unwrap(), e.take_value().unwrap()))
+//!         .map(|e| format!("{} => {}", e.tag().unwrap(), e.get_value().unwrap()))
 //!         .collect();
 //!     assert_eq!(
 //!         res.join(", "),
@@ -146,7 +147,7 @@
 //!
 //!     for entry in iter.clone() {
 //!         if entry.tag().unwrap() == ExifTag::Make {
-//!             assert_eq!(entry.take_result()?.as_str().unwrap(), "Apple");
+//!             entry.get_value().unwrap().as_str().unwrap();
 //!             break;
 //!         }
 //!     }
@@ -225,7 +226,8 @@
 //! For more usage details, please refer to the [API
 //! documentation](https://docs.rs/nom-exif/latest/nom_exif/).
 
-pub use video::{parse_track_info, TrackInfo, TrackInfoTag};
+pub use parser::{MediaParser, MediaSource};
+pub use video::{TrackInfo, TrackInfoTag};
 
 #[cfg(feature = "async")]
 pub use exif::parse_exif_async;
@@ -240,10 +242,12 @@ pub use jpeg::parse_jpeg_exif;
 pub use error::Error;
 pub type Result<T> = std::result::Result<T, Error>;
 pub use file::FileFormat;
-pub use skip::{Seekable, SkipRead};
+pub(crate) use skip::{Seekable, Unseekable};
 
 #[allow(deprecated)]
 pub use mov::{parse_metadata, parse_mov_metadata};
+
+pub(crate) const ZB: &[u8] = &[];
 
 mod bbox;
 mod ebml;

@@ -70,7 +70,7 @@ pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, E
         FileFormat::QuickTime | FileFormat::MP4 => (),
         FileFormat::Ebml => {
             return Err(crate::error::Error::ParseFailed(
-                "please use parse_video_info() to parse *.webm, *.mkv files".into(),
+                "please use MediaParser to parse *.webm, *.mkv files".into(),
             ))
         }
     };
@@ -104,7 +104,11 @@ pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, E
     entries.extend(extras.into_iter().map(|(k, v)| match k {
         TrackInfoTag::ImageWidth => ("width".to_string(), v),
         TrackInfoTag::ImageHeight => ("height".to_string(), v),
-        TrackInfoTag::Duration => ("duration".to_string(), v),
+        TrackInfoTag::DurationMs => (
+            "duration".to_string(),
+            // For compatibility with older versions, convert to u32
+            EntryValue::U32(v.as_u64().unwrap() as u32),
+        ),
         TrackInfoTag::CreateDate => (CREATIONDATE_KEY.to_string(), v),
         _ => unreachable!(),
     }));
@@ -123,9 +127,9 @@ pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, E
 }
 
 #[tracing::instrument(skip_all)]
-pub(crate) fn parse_qt<L: Load>(loader: L) -> crate::Result<BTreeMap<TrackInfoTag, EntryValue>> {
-    let moov_body = extract_moov_body(loader)?;
-
+pub(crate) fn parse_qt(
+    moov_body: &[u8],
+) -> Result<BTreeMap<TrackInfoTag, EntryValue>, ParsingError> {
     let (_, entries) = match parse_moov_body(&moov_body) {
         Ok((remain, Some(entries))) => (remain, entries),
         Ok((remain, None)) => (remain, Vec::new()),
@@ -135,7 +139,7 @@ pub(crate) fn parse_qt<L: Load>(loader: L) -> crate::Result<BTreeMap<TrackInfoTa
     };
 
     let mut entries: BTreeMap<TrackInfoTag, EntryValue> = map_qt_tag_to_video_tag(entries);
-    let extras = parse_mvhd_tkhd(&moov_body);
+    let extras = parse_mvhd_tkhd(moov_body);
     if entries.contains_key(&TrackInfoTag::CreateDate) {
         entries.remove(&TrackInfoTag::CreateDate);
     }
@@ -144,11 +148,39 @@ pub(crate) fn parse_qt<L: Load>(loader: L) -> crate::Result<BTreeMap<TrackInfoTa
     Ok(entries)
 }
 
+#[tracing::instrument(skip_all)]
+pub(crate) fn parse_mp4(
+    moov_body: &[u8],
+) -> Result<BTreeMap<TrackInfoTag, EntryValue>, ParsingError> {
+    let (_, entries) = match parse_moov_body(&moov_body) {
+        Ok((remain, Some(entries))) => (remain, entries),
+        Ok((remain, None)) => (remain, Vec::new()),
+        Err(_) => {
+            return Err("invalid moov body".into());
+        }
+    };
+
+    let mut entries: BTreeMap<TrackInfoTag, EntryValue> = map_qt_tag_to_video_tag(entries);
+    let extras = parse_mvhd_tkhd(moov_body);
+    entries.extend(extras);
+
+    // If the GPSInfo doesn't exist, then try to find GPS info from box
+    // `moov/udta/©xyz`. For mp4 files, Android phones store GPS info in that
+    // box.
+    if let btree_map::Entry::Vacant(e) = entries.entry(TrackInfoTag::GpsIso6709) {
+        if let Some(gps) = parse_mp4_gps(moov_body) {
+            e.insert(gps.into());
+        }
+    }
+
+    Ok(entries)
+}
+
 fn parse_mvhd_tkhd(moov_body: &[u8]) -> BTreeMap<TrackInfoTag, EntryValue> {
     let mut entries = BTreeMap::new();
     if let Ok((_, Some(bbox))) = find_box(moov_body, "mvhd") {
         if let Ok((_, mvhd)) = MvhdBox::parse_box(bbox.data) {
-            entries.insert(TrackInfoTag::Duration, mvhd.duration_ms().into());
+            entries.insert(TrackInfoTag::DurationMs, mvhd.duration_ms().into());
 
             entries.insert(
                 TrackInfoTag::CreateDate,
@@ -188,34 +220,6 @@ fn map_qt_tag_to_video_tag(
             }
         })
         .collect()
-}
-
-#[tracing::instrument(skip_all)]
-pub(crate) fn parse_mp4<L: Load>(loader: L) -> crate::Result<BTreeMap<TrackInfoTag, EntryValue>> {
-    let moov_body = extract_moov_body(loader)?;
-
-    let (_, entries) = match parse_moov_body(&moov_body) {
-        Ok((remain, Some(entries))) => (remain, entries),
-        Ok((remain, None)) => (remain, Vec::new()),
-        Err(_) => {
-            return Err("invalid moov body".into());
-        }
-    };
-
-    let mut entries: BTreeMap<TrackInfoTag, EntryValue> = map_qt_tag_to_video_tag(entries);
-    let extras = parse_mvhd_tkhd(&moov_body);
-    entries.extend(extras);
-
-    // If the GPSInfo doesn't exist, then try to find GPS info from box
-    // `moov/udta/©xyz`. For mp4 files, Android phones store GPS info in that
-    // box.
-    if let btree_map::Entry::Vacant(e) = entries.entry(TrackInfoTag::GpsIso6709) {
-        if let Some(gps) = parse_mp4_gps(&moov_body) {
-            e.insert(gps.into());
-        }
-    }
-
-    Ok(entries)
 }
 
 /// Try to find GPS info from box `moov/udta/©xyz`. For mp4 files, Android

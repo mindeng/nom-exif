@@ -14,8 +14,7 @@ use crate::{
         find_element_by_id, get_as_f64, get_as_u64, next_element_header, parse_ebml_doc_type,
         EBMLGlobalId, TopElementId,
     },
-    error::{ParsedError, ParsingError},
-    loader::Load,
+    error::ParsingError,
     video::{TrackInfo, TrackInfoTag},
 };
 
@@ -41,8 +40,8 @@ impl From<EbmlFileInfo> for TrackInfo {
             info.put(TrackInfoTag::CreateDate, date.into());
         }
         info.put(
-            TrackInfoTag::Duration,
-            (value.segment_info.duration / 1000.0 / 1000.0).into(),
+            TrackInfoTag::DurationMs,
+            ((value.segment_info.duration / 1000.0 / 1000.0) as u64).into(),
         );
         info.put(TrackInfoTag::ImageWidth, value.tracks_info.width.into());
         info.put(TrackInfoTag::ImageHeight, value.tracks_info.height.into());
@@ -71,31 +70,24 @@ pub enum ParseWebmFailed {
 /// - [Matroska Elements](https://www.matroska.org/technical/elements.html)
 /// - [EBML Specification](https://github.com/ietf-wg-cellar/ebml-specification/blob/master/specification.markdown)
 #[tracing::instrument(skip_all)]
-pub(crate) fn parse_webm<T: Load>(mut loader: T) -> Result<EbmlFileInfo, ParsedError> {
-    let mut pos: usize = 0;
-    let doc_type = loader.load_and_parse(|input| {
+pub(crate) fn parse_webm(input: &[u8]) -> Result<EbmlFileInfo, ParsingError> {
+    let (doc_type, pos) = {
         let mut cursor = Cursor::new(input);
         let doc_type = parse_ebml_doc_type(&mut cursor)?;
-        pos = cursor.position() as usize;
-        Ok(doc_type)
-    })?;
+        (doc_type, cursor.position() as usize)
+    };
 
     tracing::debug!(doc_type, pos);
 
-    let at = pos;
-    let pos = loader.load_and_parse_at(
-        |input, at| {
-            let mut cursor = Cursor::new(&input[at..]);
-            let header = next_element_header(&mut cursor)?;
-            tracing::debug!(segment_header = ?header);
-            if header.id != TopElementId::Segment as u64 {
-                return Err(ParseWebmFailed::NotWebmFile.into());
-            }
-            pos = at + cursor.position() as usize;
-            Ok(pos)
-        },
-        at,
-    )?;
+    let pos = {
+        let mut cursor = Cursor::new(&input[pos..]);
+        let header = next_element_header(&mut cursor)?;
+        tracing::debug!(segment_header = ?header);
+        if header.id != TopElementId::Segment as u64 {
+            return Err(ParseWebmFailed::NotWebmFile.into());
+        }
+        pos + cursor.position() as usize
+    };
 
     let mut file_info = EbmlFileInfo {
         doc_type,
@@ -105,11 +97,11 @@ pub(crate) fn parse_webm<T: Load>(mut loader: T) -> Result<EbmlFileInfo, ParsedE
     let mut info_set = false;
     let mut tracks_set = false;
 
-    if let Ok(seeks) = loader.load_and_parse_at(parse_seeks, pos) {
+    if let Ok(seeks) = parse_seeks(input, pos) {
         let info_seek = seeks.get(&(SegmentId::Info as u32)).cloned();
         let tracks_seek = seeks.get(&(SegmentId::Tracks as u32)).cloned();
         if let Some(pos) = info_seek {
-            let info = loader.load_and_parse_at(parse_segment_info, pos as usize)?;
+            let info = parse_segment_info(input, pos as usize)?;
             tracing::debug!(?info);
             if let Some(info) = info {
                 info_set = true;
@@ -117,8 +109,7 @@ pub(crate) fn parse_webm<T: Load>(mut loader: T) -> Result<EbmlFileInfo, ParsedE
             }
         }
         if let Some(pos) = tracks_seek {
-            let tracks =
-                loader.load_and_parse_at(|x, at| Ok(parse_tracks_info(x, at)?), pos as usize)?;
+            let tracks = parse_tracks_info(input, pos as usize)?;
             tracing::debug!(?tracks);
             if let Some(info) = tracks {
                 tracks_set = true;
@@ -130,17 +121,14 @@ pub(crate) fn parse_webm<T: Load>(mut loader: T) -> Result<EbmlFileInfo, ParsedE
     if !info_set {
         // According to the specification, The first Info Element SHOULD occur
         // before the first Tracks Element
-        let info: Option<SegmentInfo> = loader.load_and_parse_at(
-            |x, at| {
-                let mut cursor = Cursor::new(&x[at..]);
-                let header = travel_while(&mut cursor, |h| h.id != SegmentId::Info as u64)?;
-                parse_segment_info(
-                    &x[at + cursor.position() as usize - header.header_size..],
-                    0,
-                )
-            },
-            pos,
-        )?;
+        let info: Option<SegmentInfo> = {
+            let mut cursor = Cursor::new(&input[pos..]);
+            let header = travel_while(&mut cursor, |h| h.id != SegmentId::Info as u64)?;
+            parse_segment_info(
+                &input[pos + cursor.position() as usize - header.header_size..],
+                0,
+            )
+        }?;
         tracing::debug!(?info);
         if let Some(info) = info {
             file_info.segment_info = info;
@@ -148,17 +136,14 @@ pub(crate) fn parse_webm<T: Load>(mut loader: T) -> Result<EbmlFileInfo, ParsedE
     }
 
     if !tracks_set {
-        let track = loader.load_and_parse_at(
-            |x, at| {
-                let mut cursor = Cursor::new(&x[at..]);
-                let header = travel_while(&mut cursor, |h| h.id != SegmentId::Tracks as u64)?;
-                Ok(parse_tracks_info(
-                    &x[at + cursor.position() as usize - header.header_size..],
-                    0,
-                )?)
-            },
-            pos,
-        )?;
+        let track = {
+            let mut cursor = Cursor::new(&input[pos..]);
+            let header = travel_while(&mut cursor, |h| h.id != SegmentId::Tracks as u64)?;
+            parse_tracks_info(
+                &input[pos + cursor.position() as usize - header.header_size..],
+                0,
+            )?
+        };
         tracing::debug!(?track);
         if let Some(info) = track {
             file_info.tracks_info = info;

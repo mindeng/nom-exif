@@ -6,23 +6,45 @@ use std::{
 
 use crate::{
     ebml::webm::parse_webm,
+    error::ParsingError,
+    file::{Mime, MimeVideo},
     loader::{BufLoader, Load},
-    mov::{parse_mp4, parse_qt},
+    mov::{extract_moov_body_from_buf, parse_mp4, parse_qt},
     skip::Skip,
     EntryValue, FileFormat, GPSInfo,
 };
 
 /// Try to keep the tag name consistent with [`crate::ExifTag`], and add some
-/// unique to video/audio, such as `Duration`
+/// unique to video/audio, such as `DurationMs`.
+///
+/// Different variants of `TrackInfoTag` may have different value types, please
+/// refer to the documentation of each variant.
 #[derive(Debug, Clone, PartialEq, Eq, Copy, PartialOrd, Ord)]
 pub enum TrackInfoTag {
+    /// [`EntryValue::Text`]
     Make,
+
+    /// [`EntryValue::Text`]
     Model,
+
+    /// [`EntryValue::Text`]
     Software,
+
+    /// [`EntryValue::Time`]
     CreateDate,
-    Duration,
+
+    /// Duration in millisecond, it's an [`EntryValue::U64`]
+    DurationMs,
+
+    /// [`EntryValue::U32`]
     ImageWidth,
+
+    /// [`EntryValue::U32`]
     ImageHeight,
+
+    /// [`EntryValue::Text`], Location presented in ISO6709. If you need a
+    /// parsed [`GPSInfo`] which provides more detailed GPS info, please use
+    /// [`TrackInfo::get_gps_info`].
     GpsIso6709,
 }
 
@@ -72,8 +94,9 @@ pub enum TrackInfoTag {
 /// use std::fs::File;
 /// use chrono::DateTime;
 ///
-/// let f = File::open("./testdata/meta.mov").unwrap();
-/// let info = parse_track_info::<SkipSeek, _>(f).unwrap();
+/// let ms = MediaSource::file_path("./testdata/meta.mov").unwrap();
+/// let mut parser = MediaParser::new();
+/// let info: TrackInfo = parser.parse(ms).unwrap();
 ///
 /// assert_eq!(info.get(TrackInfoTag::Make), Some(&"Apple".into()));
 /// assert_eq!(info.get(TrackInfoTag::Model), Some(&"iPhone X".into()));
@@ -84,38 +107,27 @@ pub enum TrackInfoTag {
 ///     [(27, 1), (7, 1), (68, 100)].into(),
 /// );
 /// ```
-pub fn parse_track_info<S: Skip<R>, R: Read>(reader: R) -> crate::Result<TrackInfo> {
-    let mut loader = BufLoader::<S, _>::new(reader);
-    let ff = FileFormat::try_from_load(&mut loader)?;
-    let mut info: TrackInfo = match ff {
-        FileFormat::Jpeg | FileFormat::Heif => {
-            return Err(crate::error::Error::ParseFailed(
-                "can not parse video info from an image".into(),
-            ));
+pub(crate) fn parse_track_info(
+    input: &[u8],
+    mime_video: MimeVideo,
+) -> Result<TrackInfo, ParsingError> {
+    let mut info: TrackInfo = match mime_video {
+        crate::file::MimeVideo::QuickTime
+        | crate::file::MimeVideo::_3gpp
+        | crate::file::MimeVideo::Mp4 => {
+            let range = extract_moov_body_from_buf(input)?;
+            let moov_body = &input[range];
+
+            match mime_video {
+                MimeVideo::QuickTime => parse_qt(moov_body)?.into(),
+
+                MimeVideo::Mp4 | MimeVideo::_3gpp => parse_mp4(moov_body)?.into(),
+                _ => unreachable!(),
+            }
         }
-        FileFormat::QuickTime => parse_qt(loader)?.into(),
-        FileFormat::MP4 => parse_mp4(loader)?.into(),
-        FileFormat::Ebml => parse_webm(loader)?.into(),
-    };
-
-    if let Some(gps) = info.get(TrackInfoTag::GpsIso6709) {
-        info.gps_info = gps.as_str().and_then(|s| s.parse().ok());
-    }
-
-    Ok(info)
-}
-
-pub fn parse_track_from_loader<L: Load>(mut loader: L) -> crate::Result<TrackInfo> {
-    let ff = FileFormat::try_from_load(&mut loader)?;
-    let mut info: TrackInfo = match ff {
-        FileFormat::Jpeg | FileFormat::Heif => {
-            return Err(crate::error::Error::ParseFailed(
-                "can not parse video info from an image".into(),
-            ));
+        crate::file::MimeVideo::Webm | crate::file::MimeVideo::Matroska => {
+            parse_webm(input)?.into()
         }
-        FileFormat::QuickTime => parse_qt(loader)?.into(),
-        FileFormat::MP4 => parse_mp4(loader)?.into(),
-        FileFormat::Ebml => parse_webm(loader)?.into(),
     };
 
     if let Some(gps) = info.get(TrackInfoTag::GpsIso6709) {
@@ -132,14 +144,19 @@ pub struct TrackInfo {
 }
 
 impl TrackInfo {
+    /// Get value for `tag`. Different variants of `TrackInfoTag` may have
+    /// different value types, please refer to [`TrackInfoTag`].
     pub fn get(&self, tag: TrackInfoTag) -> Option<&EntryValue> {
         self.entries.get(&tag)
     }
 
+    /// Get parsed `GPSInfo`.
     pub fn get_gps_info(&self) -> Option<&GPSInfo> {
         self.gps_info.as_ref()
     }
 
+    /// Get an iterator for `(&TrackInfoTag, &EntryValue)`. The parsed
+    /// `GPSInfo` is not included.
     pub fn iter(&self) -> impl Iterator<Item = (&TrackInfoTag, &EntryValue)> {
         self.entries.iter()
     }
@@ -181,43 +198,10 @@ impl From<TrackInfoTag> for &str {
             TrackInfoTag::Model => "Model",
             TrackInfoTag::Software => "Software",
             TrackInfoTag::CreateDate => "CreateDate",
-            TrackInfoTag::Duration => "Duration",
+            TrackInfoTag::DurationMs => "Duration",
             TrackInfoTag::ImageWidth => "ImageWidth",
             TrackInfoTag::ImageHeight => "ImageHeight",
             TrackInfoTag::GpsIso6709 => "GpsIso6709",
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::testkit::open_sample;
-    use crate::values::Rational;
-    use crate::{LatLng, Seekable, SkipRead};
-    use chrono::DateTime;
-    use test_case::test_case;
-
-    use super::TrackInfoTag::*;
-    use super::*;
-
-    #[test_case("mkv_640x360.mkv", ImageWidth, 640_u32.into())]
-    #[test_case("mkv_640x360.mkv", ImageHeight, 360_u32.into())]
-    #[test_case("mkv_640x360.mkv", Duration, 13346_f64.into())]
-    #[test_case("mkv_640x360.mkv", CreateDate, DateTime::parse_from_str("2008-08-08T08:08:08Z", "%+").unwrap().into())]
-    fn test_skip_seek(path: &str, tag: TrackInfoTag, v: EntryValue) {
-        let info = parse_track_info::<Seekable, _>(open_sample(path).unwrap()).unwrap();
-        assert_eq!(info.get(tag).unwrap(), &v);
-    }
-
-    #[test_case("meta.mov", Make, "Apple".into())]
-    #[test_case("meta.mov", Model, "iPhone X".into())]
-    #[test_case("meta.mov", GpsIso6709, "+27.1281+100.2508+000.000/".into())]
-    fn test_skip_read(path: &str, tag: TrackInfoTag, v: EntryValue) {
-        let info = parse_track_info::<SkipRead, _>(open_sample(path).unwrap()).unwrap();
-        assert_eq!(info.get(tag).unwrap(), &v);
-        assert_eq!(
-            info.get_gps_info().unwrap().latitude,
-            LatLng(Rational(27, 1), Rational(7, 1), Rational(68, 100))
-        );
     }
 }
