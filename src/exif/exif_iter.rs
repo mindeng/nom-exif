@@ -139,6 +139,7 @@ impl From<EntryError> for crate::Error {
 }
 
 /// Represents a parsed IFD entry. Used as iterator items in [`ExifIter`].
+#[derive(Clone)]
 pub struct ParsedExifEntry {
     // 0: ifd0, 1: ifd1
     ifd: usize,

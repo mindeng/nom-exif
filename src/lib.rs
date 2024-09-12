@@ -194,31 +194,6 @@
 //! }
 //! ```
 //!
-//! ## Media Type Detecting
-//!
-//! You can detect the media type by using [`MediaType`](crate::MediaType).
-//!
-//! Here's an example.
-//!
-//! ```rust
-//! use nom_exif::*;
-//! use std::fs::File;
-//!
-//! fn main() -> Result<()> {
-//!     let f = File::open("./testdata/exif.heic")?;
-//!     let mi = MediaType::try_from_reader(f)?;
-//!     assert!(mi.is_image());
-//!     assert_eq!(mi.mime(), "image/heic");
-//!
-//!     let f = File::open("./testdata/meta.mov")?;
-//!     let mi = MediaType::try_from_reader(f)?;
-//!     assert!(mi.is_track());
-//!     assert_eq!(mi.mime(), "video/quicktime");
-//!     
-//!     Ok(())
-//! }
-//! ```
-//!
 //! ## Video
 //!
 //! Please refer to: [`parse_track_info`](crate::parse_track_info).
@@ -233,8 +208,6 @@ pub use video::{TrackInfo, TrackInfoTag};
 pub use exif::parse_exif_async;
 pub use exif::{parse_exif, Exif, ExifIter, ExifTag, GPSInfo, LatLng, ParsedExifEntry};
 pub use values::EntryValue;
-
-pub use file::MediaType;
 
 pub use heif::parse_heif_exif;
 pub use jpeg::parse_jpeg_exif;

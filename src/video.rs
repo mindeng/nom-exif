@@ -19,7 +19,7 @@ use crate::{
 ///
 /// Different variants of `TrackInfoTag` may have different value types, please
 /// refer to the documentation of each variant.
-#[derive(Debug, Clone, PartialEq, Eq, Copy, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Copy, PartialOrd, Ord, Hash)]
 pub enum TrackInfoTag {
     /// [`EntryValue::Text`]
     Make,
