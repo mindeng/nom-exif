@@ -173,7 +173,7 @@ pub use mov::{parse_metadata, parse_mov_metadata};
 pub use exif::parse_exif_async;
 pub use exif::{parse_exif, Exif, ExifIter, ExifTag, GPSInfo, LatLng, ParsedExifEntry};
 pub use file::FileFormat;
-pub use values::EntryValue;
+pub use values::{EntryValue, Rational};
 
 pub use error::Error;
 pub type Result<T> = std::result::Result<T, Error>;
