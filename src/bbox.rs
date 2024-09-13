@@ -228,7 +228,7 @@ where
         }
 
         // skip box body
-        remain = &remain[header.body_size() as usize..]; // Safe-slice
+        remain = &remain[body_size..]; // Safe-slice
     }
 }
 

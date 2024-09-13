@@ -175,7 +175,7 @@ fn extract_moov_body<R: Read + Seek>(
 
     let mut offset = 0;
     let moov_body_range = loop {
-        let input = if offset > 0 { &buf[offset..] } else { &buf[..] }; // Safe-slice
+        let input = if offset > 0 { &buf[offset..] } else { &buf }; // Safe-slice
 
         let to_read = match extract_moov_body_from_buf(input) {
             Ok(range) => break range.start + offset..range.end + offset,

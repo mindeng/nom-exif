@@ -79,7 +79,7 @@ impl<'a> Inner<'a> {
     }
 
     fn try_into_iter(self) -> crate::Result<ExifIter<'a>> {
-        let data = &self.input[..];
+        let data = &*self.input;
         let (_, header) = Header::parse(data)?;
 
         // jump to ifd0

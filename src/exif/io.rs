@@ -36,7 +36,7 @@ pub(crate) fn read_exif<T: Read>(
     };
 
     let exif_data = loop {
-        let to_read = match ff.extract_exif_data(&buf[..]) {
+        let to_read = match ff.extract_exif_data(&buf) {
             Ok((_, data)) => break data,
             Err(nom::Err::Incomplete(needed)) => match needed {
                 Needed::Unknown => MIN_GROW_SIZE,
@@ -106,7 +106,7 @@ where
     };
 
     let exif_data = loop {
-        let to_read = match ff.extract_exif_data(&buf[..]) {
+        let to_read = match ff.extract_exif_data(&buf) {
             Ok((_, data)) => break data,
             Err(nom::Err::Incomplete(needed)) => match needed {
                 Needed::Unknown => MIN_GROW_SIZE,

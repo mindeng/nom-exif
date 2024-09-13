@@ -6,11 +6,7 @@ pub trait SliceChecked {
 
 impl<T> SliceChecked for [T] {
     fn slice_checked(&self, range: Range<usize>) -> Option<&Self> {
-        if range.end <= self.len() {
-            Some(&self[range])
-        } else {
-            None
-        }
+        (range.end <= self.len()).then_some(&self[range])
     }
 }
 

@@ -285,7 +285,7 @@ mod tests {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 
         let buf = read_sample(path).unwrap();
-        let (_, segment) = find_exif_segment(&buf[..]).unwrap();
+        let (_, segment) = find_exif_segment(&buf).unwrap();
 
         if exif_size == 0 {
             assert!(segment.is_none());
@@ -300,7 +300,7 @@ mod tests {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 
         let buf = read_sample(path).unwrap();
-        let (_, exif) = extract_exif_data(&buf[..]).unwrap();
+        let (_, exif) = extract_exif_data(&buf).unwrap();
 
         if exif_size == 0 {
             assert!(exif.is_none());
