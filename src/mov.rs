@@ -170,7 +170,7 @@ fn extract_moov_body<R: Read + Seek>(
         .take(INIT_BUF_SIZE as u64)
         .read_to_end(buf.as_mut())?;
     if n == 0 {
-        Err("file is empty")?;
+        return Err("file is empty".into());
     }
 
     let ft = check_qt_mp4(&buf)?;
@@ -202,7 +202,7 @@ fn extract_moov_body<R: Read + Seek>(
             .take(to_read as u64)
             .read_to_end(buf.as_mut())?;
         if n == 0 {
-            Err("metadata not found")?;
+            return Err("metadata not found".into());
         }
     };
 
@@ -289,7 +289,11 @@ fn extract_moov_body_from_buf(input: &[u8]) -> Result<Range<usize>, Error> {
             to_skip = h.body_size() - remain.len() as u64;
             false
         } else {
-            skipped += h.box_size as usize;
+            let Ok(box_size) = TryInto::<usize>::try_into(h.box_size) else {
+                panic!("box size is too big for 32-bit target usize");
+            };
+
+            skipped += box_size;
             true
         }
     })
@@ -299,8 +303,14 @@ fn extract_moov_body_from_buf(input: &[u8]) -> Result<Range<usize>, Error> {
         return Err(Error::Skip(to_skip));
     }
 
-    let (_, body) = streaming::take(header.body_size())(remain)
-        .map_err(|e| convert_error(e, "moov is too small"))?;
+    let Ok(body_size) = TryInto::<usize>::try_into(header.body_size()) else {
+        return Err(Error::ParseFailed(
+            "header body is too big for 32-bit target usize".into(),
+        ));
+    };
+
+    let (_, body) =
+        streaming::take(body_size)(remain).map_err(|e| convert_error(e, "moov is too small"))?;
 
     Ok(skipped..skipped + body.len())
 }

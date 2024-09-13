@@ -14,7 +14,16 @@ pub struct IdatBox<'a> {
 impl<'a> IdatBox<'a> {
     pub fn parse(input: &'a [u8]) -> IResult<&'a [u8], IdatBox> {
         let (remain, header) = BoxHeader::parse(input)?;
-        let (remain, data) = streaming::take(header.box_size - header.header_size as u64)(remain)?;
+        let ct = TryInto::<usize>::try_into(header.box_size - header.header_size as u64);
+
+        let Ok(ct) = ct else {
+            return Err(nom::Err::Failure(nom::error::Error::new(
+                input,
+                nom::error::ErrorKind::TooLarge,
+            )));
+        };
+
+        let (remain, data) = streaming::take(ct)(remain)?;
 
         Ok((remain, IdatBox { header, data }))
     }

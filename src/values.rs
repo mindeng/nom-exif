@@ -196,7 +196,10 @@ impl EntryValue {
                 }
             }
             DataFormat::I8 => match components_num {
-                1 => Ok(Self::I8(data[0] as i8)),
+                1 => TryInto::<i8>::try_into(data[0]).map_or_else(
+                    |_| Err(Error::InvalidData("i8 data is too big".into())),
+                    |data| Ok(Self::I8(data)),
+                ),
                 x => Err(Error::Unsupported(format!(
                     "signed byte with {x} components"
                 ))),

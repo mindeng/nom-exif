@@ -1,7 +1,8 @@
 use crate::slice::SubsliceRange;
 use crate::{error::convert_parse_error, input::Input, FileFormat};
+use core::cmp;
 use nom::Needed;
-use std::{cmp, io::Read};
+use std::io::Read;
 
 /// Read exif data from `reader`, if `format` is None, then guess the file
 /// format based on the read content.
@@ -20,7 +21,7 @@ pub(crate) fn read_exif<T: Read>(
         .take(INIT_BUF_SIZE as u64)
         .read_to_end(buf.as_mut())?;
     if n == 0 {
-        Err("file is empty")?;
+        return Err("file is empty".into());
     }
 
     let ff = match format {
@@ -90,7 +91,7 @@ where
 
     let n = reader.read_buf(&mut buf).await?;
     if n == 0 {
-        Err("file is empty")?;
+        return Err("file is empty".into());
     }
 
     let ff = match format {

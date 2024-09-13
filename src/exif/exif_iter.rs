@@ -278,11 +278,12 @@ impl<'a> Iterator for ExifIter<'a> {
 
                         if is_subifd {
                             // Return sub-ifd as an entry
-                            return Some(ParsedExifEntry::make_ok(
-                                idx,
-                                tag_code,
-                                EntryValue::U32(offset as u32),
-                            ));
+                            return Some(ParsedExifEntry::make_ok(idx, tag_code, {
+                                let Ok(offset) = TryInto::<u32>::try_into(offset) else {
+                                    return None;
+                                };
+                                EntryValue::U32(offset)
+                            }));
                         }
                     }
                     IfdEntry::Entry(v) => {
@@ -419,9 +420,8 @@ impl ImageFileDirectoryIter {
                         offset: value_or_offset as usize,
                     },
                 );
-            } else {
-                return (tag, IfdEntry::Err(EntryError::Overflow));
             }
+            return (tag, IfdEntry::Err(EntryError::Overflow));
         }
 
         let entry = EntryData {

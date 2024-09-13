@@ -76,8 +76,13 @@ impl MetaBox {
                     .and_then(|iloc| iloc.item_offset_len(exif_infe.id))
             })
             .map(|(construction_method, offset, length)| {
-                let start = offset as usize;
-                let end = (offset + length) as usize;
+                let (Ok(start), Ok(end)) = (offset.try_into(), (offset + length).try_into()) else {
+                    return Err(nom::Err::Failure(nom::error::Error::new(
+                        input,
+                        nom::error::ErrorKind::TooLarge,
+                    )));
+                };
+
                 if construction_method == 0 {
                     // file offset
                     if end > input.len() {

@@ -54,7 +54,7 @@ impl BoxHeader {
 
         let (remain, box_type) = map_res(streaming::take(4_usize), |res: &'a [u8]| {
             // String::from_utf8 will fail on "©xyz"
-            Ok::<String, ()>(res.iter().map(|b| b.as_char()).collect::<String>())
+            Ok::<String, ()>(res.iter().map(nom::AsChar::as_char).collect::<String>())
             // String::from_utf8(res.to_vec()).map_err(|error| {
             //     tracing::error!(?error, ?res, "Failed to construct string");
             //     error
@@ -145,7 +145,14 @@ impl<'a> BoxHolder<'a> {
     #[tracing::instrument(skip_all)]
     pub fn parse(input: &'a [u8]) -> IResult<&'a [u8], BoxHolder<'a>> {
         let (_, header) = BoxHeader::parse(input)?;
-        let (remain, data) = streaming::take(header.box_size)(input)?;
+        let Ok(box_size) = TryInto::<usize>::try_into(header.box_size) else {
+            return Err(nom::Err::Failure(nom::error::Error::new(
+                input,
+                nom::error::ErrorKind::TooLarge,
+            )));
+        };
+
+        let (remain, data) = streaming::take(box_size)(input)?;
         tracing::debug!(?header.box_type, data_len = ?data.len(), "Got");
 
         Ok((remain, BoxHolder { header, data }))
@@ -209,10 +216,15 @@ where
             break Ok((rem, header));
         }
 
-        if remain.len() < header.body_size() as usize {
-            return Err(nom::Err::Incomplete(Needed::new(
-                header.body_size() as usize - remain.len(),
+        let Ok(body_size) = TryInto::<usize>::try_into(header.body_size()) else {
+            return Err(nom::Err::Failure(nom::error::Error::new(
+                remain,
+                nom::error::ErrorKind::TooLarge,
             )));
+        };
+
+        if remain.len() < body_size {
+            return Err(nom::Err::Incomplete(Needed::new(body_size - remain.len())));
         }
 
         // skip box body
@@ -288,10 +300,10 @@ impl<O, T: ParseBody<O>> ParseBox<O> for T {
             header.header_size
         );
 
-        // limit parsing size
-        let box_size = header.body_size() as usize;
-        if box_size > MAX_BODY_LEN {
-            tracing::error!(?header.box_type, ?box_size, "Box is too big");
+        // // limit parsing size
+        let box_size = header.body_size();
+        if box_size > MAX_BODY_LEN as u64 {
+            tracing::error!(?header.box_type, box_size, "Box is too big");
             return fail(remain);
         }
         let (remain, data) = complete::take(box_size)(remain)?;

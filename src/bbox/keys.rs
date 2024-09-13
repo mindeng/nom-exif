@@ -55,10 +55,17 @@ impl KeyEntry {
             |bs: &'a [u8]| String::from_utf8(bs.to_vec()),
         )(input)?;
 
+        let Ok(size) = u32::try_from(s.len() + 4) else {
+            return Err(nom::Err::Failure(nom::error::Error::new(
+                input,
+                nom::error::ErrorKind::TooLarge,
+            )));
+        };
+
         Ok((
             remain,
-            KeyEntry {
-                size: (s.len() + 4) as u32,
+            Self {
+                size,
                 namespace: s.chars().take(4).collect(),
                 key: s.chars().skip(4).collect(),
             },

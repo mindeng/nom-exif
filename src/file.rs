@@ -51,7 +51,7 @@ impl FileFormat {
         let mut buf = Vec::with_capacity(BUF_SIZE);
         let n = reader.take(BUF_SIZE as u64).read_to_end(buf.as_mut())?;
         if n == 0 {
-            Err("file is empty")?;
+            return Err("file is empty".into());
         }
 
         buf.as_slice().try_into()
