@@ -86,7 +86,7 @@ impl<'a> Inner<'a> {
 
         // jump to ifd0
         let (remain, _) = take::<_, _, nom::error::Error<_>>((header.ifd0_offset) as usize)(data)
-            .map_err(|_| "not enough bytes")?;
+            .map_err(|_e| "not enough bytes")?;
         if remain.is_empty() {
             return Ok(ExifIter::default());
         }
@@ -316,7 +316,7 @@ mod tests {
         [(22, 1), (31, 1), (5208, 100)].into(),
         'E',
         [(114, 1), (1, 1), (1733, 100)].into(),
-        0u8,
+        0_u8,
         (0, 1).into(),
         '\x00',
         URational::default()

@@ -1,13 +1,18 @@
-use std::{fs::File, io::Read, path::Path};
+use std::path::PathBuf;
+use std::{fs::File, path::Path};
 
 use crate::exif::Exif;
 use crate::exif::ExifTag::*;
 
 pub fn read_sample(path: &str) -> Result<Vec<u8>, std::io::Error> {
-    let mut f = open_sample(path)?;
-    let mut buf = Vec::new();
-    f.read_to_end(&mut buf)?;
-    Ok(buf)
+    std::fs::read(sample_path(Path::new(path)))
+}
+
+pub fn sample_path(path: &Path) -> PathBuf {
+    if !path.is_absolute() {
+        return PathBuf::from("./testdata").join(path);
+    }
+    path.to_path_buf()
 }
 
 pub fn open_sample(path: &str) -> Result<File, std::io::Error> {

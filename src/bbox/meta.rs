@@ -28,7 +28,7 @@ impl ParseBody<Self> for MetaBox {
 
         let boxes = boxes
             .into_iter()
-            .map(|b| (b.header.box_type.to_owned(), b))
+            .map(|b| (b.header.box_type.clone(), b))
             .collect::<HashMap<_, _>>();
 
         // parse iinf box

@@ -182,7 +182,7 @@ impl ParsedExifEntry {
         self.res
             .borrow()
             .as_ref()
-            .map(|e| e.is_ok())
+            .map(Result::is_ok)
             .is_some_and(|b| b)
     }
 
@@ -478,7 +478,7 @@ impl ImageFileDirectoryIter {
             let (tag, res) = self.parse_tag_entry(entry_data)?;
             if TZ_OFFSET_TAGS.contains(&tag) {
                 return match res {
-                    IfdEntry::Ifd { idx: _, offset: _ } => unreachable!(),
+                    IfdEntry::Ifd { .. } => unreachable!(),
                     IfdEntry::Entry(v) => match v {
                         EntryValue::Text(v) => Some(v),
                         _ => unreachable!(),
@@ -552,11 +552,7 @@ impl ImageFileDirectoryIter {
             }
         }
 
-        if has_data {
-            Some(gps)
-        } else {
-            None
-        }
+        has_data.then_some(gps)
     }
 }
 

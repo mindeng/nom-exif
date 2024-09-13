@@ -72,7 +72,7 @@ impl GPSInfo {
 impl From<[(u32, u32); 3]> for LatLng {
     #[inline]
     fn from(value: [(u32, u32); 3]) -> Self {
-        let res: [URational; 3] = value.map(|x| x.into());
+        let res: [URational; 3] = value.map(Into::into);
         res.into()
 
         // value
@@ -94,8 +94,8 @@ impl From<[URational; 3]> for LatLng {
 impl FromIterator<(u32, u32)> for LatLng {
     #[inline]
     fn from_iter<T: IntoIterator<Item = (u32, u32)>>(iter: T) -> Self {
-        let rationals: Vec<URational> = iter.into_iter().take(3).map(|x| x.into()).collect();
-        assert!(rationals.len() >= 3);
+        let rationals: Vec<URational> = iter.into_iter().take(3).map(Into::into).collect();
+        assert!(rationals.len() >= 3, "missing required rationals");
         rationals.try_into().unwrap()
     }
 }

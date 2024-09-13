@@ -84,7 +84,7 @@ mod tests {
         let res: Vec<String> = iter
             .clone()
             .filter(|e| e.tag().is_some_and(|t| tags.contains(&t)))
-            .filter(|e| e.has_value())
+            .filter(ParsedExifEntry::has_value)
             .map(|e| format!("{} => {}", e.tag().unwrap(), e.take_value().unwrap()))
             .collect();
         assert_eq!(

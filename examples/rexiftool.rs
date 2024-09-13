@@ -70,8 +70,7 @@ fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
                 let v = x.take_value()?;
                 Some((
                     x.tag()
-                        .map(|x| x.to_string())
-                        .unwrap_or_else(|| format!("0x{:04x}", x.tag_code())),
+                        .map_or_else(|| format!("0x{:04x}", x.tag_code()), |x| x.to_string()),
                     v,
                 ))
             })
@@ -80,7 +79,7 @@ fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
         FileFormat::QuickTime | FileFormat::MP4 => {
             let meta = nom_exif::parse_metadata(&mut reader)?;
             meta.into_iter()
-                .map(|x| (x.0.to_string(), x.1))
+                .map(|x| (x.0.clone(), x.1))
                 .collect::<Vec<_>>()
         }
     };
@@ -95,7 +94,7 @@ fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
             serde_json::to_string_pretty(
                 &values
                     .into_iter()
-                    .map(|x| (x.0.to_string(), x.1))
+                    .map(|x| (x.0.clone(), x.1))
                     .collect::<HashMap<_, _>>()
             )?
         );

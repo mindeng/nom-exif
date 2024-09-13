@@ -144,7 +144,7 @@ impl EntryValue {
                 // }
                 let s = get_cstr(data).map_err(|e| Error::InvalidData(e.to_string()))?;
 
-                let t = if let Some(tz) = tz {
+                let t = if let Some(ref tz) = *tz {
                     let s = format!("{s} {tz}");
                     DateTime::parse_from_str(&s, "%Y:%m:%d %H:%M:%S %z")?
                 } else {
@@ -471,7 +471,7 @@ impl Display for EntryValue {
                     })
                     .collect::<Vec<String>>()
                     .join(", ");
-                write!(f, "Undefined[{}]", s)
+                write!(f, "Undefined[{s}]")
             }
             Self::URationalArray(ref v) => {
                 write!(f, "URationalArray[{}]", rationals_to_string::<u32>(v))

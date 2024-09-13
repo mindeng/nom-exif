@@ -190,7 +190,7 @@ fn extract_moov_body<R: Read + Seek>(
         };
 
         tracing::debug!(?to_read, "to_read");
-        assert!(to_read > 0);
+        assert!(to_read > 0, "no bytes to read");
 
         let to_read = cmp::max(GROW_BUF_SIZE, to_read);
         buf.reserve(to_read);
@@ -270,8 +270,7 @@ fn extract_moov_body_from_buf(input: &[u8]) -> Result<Range<usize>, Error> {
             nom::Needed::Unknown => Error::Need(4096),
             nom::Needed::Size(n) => Error::Need(n.get()),
         },
-        nom::Err::Error(_) => Error::ParseFailed(msg.into()),
-        nom::Err::Failure(_) => Error::ParseFailed(msg.into()),
+        nom::Err::Failure(_) | nom::Err::Error(_) => Error::ParseFailed(msg.into()),
     };
 
     let mut to_skip = 0;
@@ -351,7 +350,7 @@ fn tz_iso_8601_to_rfc3339(s: String) -> String {
 
     let ss = s.trim();
     // Safe unwrap
-    let re = Regex::new(r"([+-][0-9][0-9])([0-9][0-9])?$").unwrap();
+    let re = Regex::new("([+-][0-9][0-9])([0-9][0-9])?$").unwrap();
 
     if let Some((offset, tz)) = re.captures(ss).map(|caps| {
         (

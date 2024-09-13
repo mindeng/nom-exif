@@ -78,10 +78,10 @@ fn find_exif_segment(input: &[u8]) -> IResult<&[u8], Option<Segment<'_>>> {
             || s.marker_code == MarkerCode::Sos.code() // searching stop at SOS
     })?;
 
-    if segment.marker_code != MarkerCode::Sos.code() {
-        Ok((remain, Some(segment)))
-    } else {
+    if segment.marker_code == MarkerCode::Sos.code() {
         Ok((remain, None))
+    } else {
+        Ok((remain, Some(segment)))
     }
 }
 
@@ -96,7 +96,7 @@ where
         let (rem, (_, code)) = tuple((streaming::tag([0xFF]), number::streaming::u8))(remain)?;
         let (rem, segment) = parse_segment(code, rem)?;
         // Sanity check
-        assert!(rem.len() < remain.len());
+        assert!(rem.len() < remain.len(), "remaining len sanity check");
         remain = rem;
         tracing::debug!(?segment.marker_code, "Got segment.");
 
@@ -108,16 +108,16 @@ where
 
 /// len of input should be >= 2
 pub fn check_jpeg(input: &[u8]) -> crate::Result<()> {
-    assert!(input.len() >= 2);
+    assert!(input.len() >= 2, "jpeg input is too small");
 
     // check SOI marker [0XFF, 0XD8]
     let (_, (_, code)) = tuple((nom::bytes::complete::tag([0xFF]), number::complete::u8))(input)?;
 
     // SOI has no payload
-    if code != MarkerCode::Soi.code() {
-        Err("invalid JPEG file; SOI marker not found".into())
-    } else {
+    if code == MarkerCode::Soi.code() {
         Ok(())
+    } else {
+        Err("invalid JPEG file; SOI marker not found".into())
     }
 }
 
@@ -156,7 +156,7 @@ fn parse_segment(marker_code: u8, input: &[u8]) -> IResult<&[u8], Segment<'_>> {
 /// progressive JPEG.
 #[allow(dead_code)]
 fn read_image_data<T: Read + Seek>(mut reader: T) -> crate::Result<Vec<u8>> {
-    let mut header = [0u8; 2];
+    let mut header = [0_u8; 2];
     loop {
         reader.read_exact(&mut header)?;
         let (tag, marker) = (header[0], header[1]);
@@ -308,8 +308,8 @@ mod tests {
         }
     }
 
-    #[test_case("no-exif.jpg", 4089704, 0x000c0301, 0xb3b3e43f)]
-    #[test_case("exif.jpg", 3564768, 0x000c0301, 0x84a297a9)]
+    #[test_case("no-exif.jpg", 4_089_704, 0x000c0301, 0xb3b3e43f)]
+    #[test_case("exif.jpg", 3_564_768, 0x000c0301, 0x84a297a9)]
     fn jpeg_image_data(path: &str, len: usize, start: u32, end: u32) {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 

@@ -192,7 +192,7 @@ where
 
         let (rem, bbox) = BoxHolder::parse(remain)?;
         // Sanity check, to avoid infinite loops caused by unexpected errors.
-        assert!(rem.len() < remain.len());
+        assert!(rem.len() < remain.len(), "infinite loop detected!");
         remain = rem;
 
         if !predicate(&bbox) {
@@ -209,7 +209,7 @@ where
     loop {
         let (rem, header) = BoxHeader::parse(remain)?;
         // Sanity check, to avoid infinite loops caused by unexpected errors.
-        assert!(rem.len() < remain.len());
+        assert!(rem.len() < remain.len(), "infinite loop detected!");
         remain = rem;
 
         if !predicate(&header, rem) {
@@ -323,7 +323,7 @@ impl<O, T: ParseBody<O>> ParseBox<O> for T {
 fn parse_cstr(input: &[u8]) -> IResult<&[u8], String> {
     let (remain, s) = map_res(streaming::take_till(|b| b == 0), |bs: &[u8]| {
         if bs.is_empty() {
-            Ok("".to_owned())
+            Ok(String::new())
         } else {
             String::from_utf8(bs.to_vec())
         }
@@ -350,7 +350,7 @@ mod tests {
 
         let (remain, bbox) = travel_while(&buf, |bbox| {
             tracing::info!(bbox.header.box_type, "Got");
-            boxes.push((bbox.header.box_type.to_owned(), bbox.to_owned()));
+            boxes.push((bbox.header.box_type.clone(), bbox.to_owned()));
             bbox.box_type() != "mdat"
         })
         .unwrap();
@@ -372,7 +372,7 @@ mod tests {
             &meta.body_data()[4..], // Safe-slice in test_case
             |bbox| {
                 tracing::info!(bbox.header.box_type, "Got");
-                boxes.push(bbox.header.box_type.to_owned());
+                boxes.push(bbox.header.box_type.clone());
                 bbox.box_type() != "iloc"
             },
         )
@@ -397,7 +397,7 @@ mod tests {
 
         let (remain, bbox) = travel_while(&buf, |bbox| {
             tracing::info!(bbox.header.box_type, "Got");
-            boxes.push((bbox.header.box_type.to_owned(), bbox.to_owned()));
+            boxes.push((bbox.header.box_type.clone(), bbox.to_owned()));
             bbox.box_type() != "moov"
         })
         .unwrap();
@@ -417,7 +417,7 @@ mod tests {
         let mut boxes = Vec::new();
         let (remain, bbox) = travel_while(moov.body_data(), |bbox| {
             tracing::info!(bbox.header.box_type, "Got");
-            boxes.push(bbox.header.box_type.to_owned());
+            boxes.push(bbox.header.box_type.clone());
             bbox.box_type() != "meta"
         })
         .unwrap();
@@ -433,7 +433,7 @@ mod tests {
         let mut boxes = Vec::new();
         let (remain, _) = travel_while(meta.body_data(), |bbox| {
             tracing::info!(bbox.header.box_type, "Got");
-            boxes.push(bbox.header.box_type.to_owned());
+            boxes.push(bbox.header.box_type.clone());
             bbox.box_type() != "ilst"
         })
         .unwrap();
@@ -452,7 +452,7 @@ mod tests {
 
         let (remain, bbox) = travel_while(&buf, |bbox| {
             tracing::info!(bbox.header.box_type, "Got");
-            boxes.push((bbox.header.box_type.to_owned(), bbox.to_owned()));
+            boxes.push((bbox.header.box_type.clone(), bbox.to_owned()));
             bbox.box_type() != "moov"
         })
         .unwrap();
@@ -472,7 +472,7 @@ mod tests {
         let mut boxes = Vec::new();
         let (remain, bbox) = travel_while(moov.body_data(), |bbox| {
             tracing::info!(bbox.header.box_type, "Got");
-            boxes.push((bbox.header.box_type.to_owned(), bbox.to_owned()));
+            boxes.push((bbox.header.box_type.clone(), bbox.to_owned()));
             bbox.box_type() != "udta"
         })
         .unwrap();
@@ -483,17 +483,17 @@ mod tests {
 
         // sub-boxes in moov
         assert_eq!(
-            boxes.iter().map(|x| x.0.to_owned()).collect::<Vec<_>>(),
+            boxes.iter().map(|x| x.0.clone()).collect::<Vec<_>>(),
             ["mvhd", "trak", "trak", "udta"],
         );
 
-        let (_, trak) = boxes.iter().find(|x| x.0 == "trak").unwrap();
+        let (_, ref trak) = *boxes.iter().find(|x| x.0 == "trak").unwrap();
 
         let meta = bbox;
         let mut boxes = Vec::new();
         let (remain, _) = travel_while(meta.body_data(), |bbox| {
             tracing::info!(bbox.header.box_type, "Got");
-            boxes.push(bbox.header.box_type.to_owned());
+            boxes.push(bbox.header.box_type.clone());
             bbox.box_type() != "©xyz"
         })
         .unwrap();
@@ -505,7 +505,7 @@ mod tests {
         let mut boxes = Vec::new();
         let (remain, bbox) = travel_while(trak.body_data(), |bbox| {
             tracing::info!(bbox.header.box_type, "Got");
-            boxes.push(bbox.header.box_type.to_owned());
+            boxes.push(bbox.header.box_type.clone());
             bbox.box_type() != "mdia"
         })
         .unwrap();
@@ -518,7 +518,7 @@ mod tests {
         let mut boxes = Vec::new();
         let (remain, _) = travel_while(mdia.body_data(), |bbox| {
             tracing::info!(bbox.header.box_type, "Got");
-            boxes.push(bbox.header.box_type.to_owned());
+            boxes.push(bbox.header.box_type.clone());
             bbox.box_type() != "minf"
         })
         .unwrap();

@@ -8,11 +8,9 @@ fn main() {
     afl::fuzz!(|data: &[u8]| {
         let reader = Cursor::new(data);
         let iter = parse_exif(reader.clone(), None);
-        if let Ok(iter) = iter {
-            if let Some(iter) = iter {
-                let _ = iter.parse_gps_info();
-                let _: Exif = iter.into();
-            }
+        if let Ok(Some(iter)) = iter {
+            let _ = iter.parse_gps_info();
+            let _: Exif = iter.into();
         }
         let _ = parse_metadata(reader.clone());
         let _ = parse_heif_exif(reader.clone());

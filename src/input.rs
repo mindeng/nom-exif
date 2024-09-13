@@ -87,7 +87,7 @@ pub struct AssociatedInput {
     pub(crate) len: usize,
 }
 
-// Since we only use `AssociatedInput` in Exif, it's safe to impl `Send` &
+// SAFETY: Since we only use `AssociatedInput` in Exif, it's safe to impl `Send` &
 // `Sync` here.
 unsafe impl Send for AssociatedInput {}
 unsafe impl Sync for AssociatedInput {}

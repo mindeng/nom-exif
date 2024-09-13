@@ -52,9 +52,9 @@ mod tests {
 
     #[test]
     fn subslice_offset() {
-        let a = &[0u8];
+        let a = &[0_u8];
         let v: Vec<u8> = vec![0, 1, 2, 3, 4, 5];
-        let b = &[0u8];
+        let b = &[0_u8];
 
         assert_eq!(v.subslice_offset(&v).unwrap(), 0);
         assert_eq!(v.subslice_offset(&v[1..2]).unwrap(), 1);

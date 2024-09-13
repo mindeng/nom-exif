@@ -42,14 +42,14 @@ impl ParseBody<Self> for IinfBox {
 }
 
 impl IinfBox {
-    pub fn get_infe(&self, item_type: &'static str) -> Option<&InfeBox> {
+    pub(super) fn get_infe(&self, item_type: &'static str) -> Option<&InfeBox> {
         self.entries.get(item_type)
     }
 }
 
 /// Info entry box
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct InfeBox {
+pub(super) struct InfeBox {
     pub header: FullBoxHeader,
     pub id: u32,
     pub protection_index: u16,

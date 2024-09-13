@@ -32,7 +32,7 @@ pub(crate) fn read_exif<T: Read>(
         None => buf
             .as_slice()
             .try_into()
-            .map_err(|_| "unrecognized file format")?,
+            .map_err(|_e| "unrecognized file format")?,
     };
 
     let exif_data = loop {
@@ -46,7 +46,7 @@ pub(crate) fn read_exif<T: Read>(
         };
 
         tracing::debug!(bytes = ?to_read, "to_read");
-        assert!(to_read > 0);
+        assert!(to_read > 0, "no bytes to read");
 
         let to_read = cmp::max(MIN_GROW_SIZE, to_read);
         let to_read = cmp::min(MAX_GROW_SIZE, to_read);
@@ -102,7 +102,7 @@ where
         None => buf
             .deref()
             .try_into()
-            .map_err(|_| "unrecognized file format")?,
+            .map_err(|_e| "unrecognized file format")?,
     };
 
     let exif_data = loop {

@@ -85,7 +85,7 @@ impl IlstItem {
 /// types](https://developer.apple.com/documentation/quicktime-file-format/well-known_types)
 #[tracing::instrument(skip(data))]
 fn parse_value(type_code: u32, data: &[u8]) -> crate::Result<EntryValue> {
-    use EntryValue::*;
+    use EntryValue::Text;
     let v = match type_code {
         1 => {
             let s = String::from_utf8(data.to_vec())?;
@@ -128,7 +128,7 @@ fn parse_value(type_code: u32, data: &[u8]) -> crate::Result<EntryValue> {
         data_type => {
             let msg = "Unsupported ilst item data type";
             tracing::error!(data_type, "{}.", msg);
-            return Err(format!("{}: {data_type}", msg).into());
+            return Err(format!("{msg}: {data_type}").into());
         }
     };
     Ok(v)

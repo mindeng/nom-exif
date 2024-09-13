@@ -69,7 +69,7 @@ impl ParseBody<Self> for TkhdBox {
             be_u16,
             be_u16,
             be_u16,
-            take(36usize),
+            take(36_usize),
             be_u16,
             be_u16,
             be_u16,
@@ -102,16 +102,14 @@ pub fn parse_video_tkhd_in_moov(input: &[u8]) -> crate::Result<Option<TkhdBox>> 
     let (_, Some(bbox)) = find_box(bbox.body_data(), "tkhd")? else {
         return Ok(None);
     };
-    let (_, tkhd) = TkhdBox::parse_box(bbox.data).map_err(|_| "parse tkhd failed")?;
+    let (_, tkhd) = TkhdBox::parse_box(bbox.data).map_err(|_e| "parse tkhd failed")?;
     Ok(Some(tkhd))
 }
 
 fn find_video_track(input: &[u8]) -> crate::Result<Option<BoxHolder<'_>>> {
     let (_, bbox) = travel_while(input, |b| {
         // find video track
-        if b.box_type() != "trak" {
-            true
-        } else {
+        if b.box_type() == "trak" {
             // got a 'trak', to check if it's a 'vide' trak
 
             let found = find_box(b.body_data(), "mdia/hdlr");
@@ -133,6 +131,8 @@ fn find_video_track(input: &[u8]) -> crate::Result<Option<BoxHolder<'_>>> {
             } else {
                 true
             }
+        } else {
+            true
         }
     })
     .map_err(|e| format!("find vide trak failed: {e:?}"))?;
