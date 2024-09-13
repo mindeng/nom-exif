@@ -1,9 +1,6 @@
 use std::{fmt::Debug, sync::Arc};
 
-use nom::{
-    number::{complete, Endianness},
-    sequence::tuple,
-};
+use nom::{number::complete, sequence::tuple};
 use thiserror::Error;
 
 use crate::{
@@ -13,22 +10,30 @@ use crate::{
     EntryValue, ExifTag,
 };
 
-use super::{tags::ExifTagCode, GPSInfo};
+use super::{parser::IFD_ENTRY_SIZE, tags::ExifTagCode, GPSInfo, TiffHeader};
 
 /// An iterator version of [`Exif`](crate::Exif). Use [`ParsedExifEntry`] as
 /// iterator items.
 ///
-/// You can safely and cheaply clone an [`ExifIter`] in multiple tasks/threads
-/// concurrently, since it use `Arc` to share the underlying memory.
+/// Clone an `ExifIter` is very cheap, the underlying data is shared
+/// through Arc.
 ///
-/// Note that a new cloned `ExifIter` which is cloned by `clone()` method
-/// (*NOT* `cloned()`) will always be reset to the first entry, no matter what
-/// the original iterator state was.
-#[derive(Debug)]
+/// ⚠️ Currently `ExifIter::clone()` will reset the new cloned iterator's index.
+/// Please try to avoid calling this method, because the current behavior of
+/// this method is not very intuitive. If you wish to clone the iterator and
+/// reset the iteration state, use [`ExifIter::clone_and_rewind`] explicitly.
+///
+/// For the sake of compatibility, the current behavior of this method is
+/// temporarily retained, and may be modified in subsequent versions.
+///
+/// If you want to convert an `ExifIter` `into` an [`Exif`], you probably want
+/// to call `clone_and_rewind` and use the new cloned one. Since the iterator
+/// index may have been modified by `Iterator::next()` calls.
+#[derive(Debug, Default)]
 pub struct ExifIter<'a> {
     // Use Arc to make sure we won't clone the owned data.
     input: Arc<Input<'a>>,
-    endian: Endianness,
+    tiff_header: TiffHeader,
     tz: Option<String>,
     ifd0: Option<ImageFileDirectoryIter>,
 
@@ -37,30 +42,30 @@ pub struct ExifIter<'a> {
 }
 
 impl Clone for ExifIter<'_> {
+    /// ⚠️ Try to avoid calling this method. The semantics of this method are
+    /// not clear at present. If you wish to clone the iterator and reset the
+    /// iteration state, use [`ExifIter::clone_and_rewind`] explicitly.
+    ///
+    /// For the sake of compatibility, the current behavior of this method is
+    /// temporarily retained, and may be modified in subsequent versions.
+    ///
+    /// Clone an `ExifIter` is very cheap, the underlying data is shared
+    /// through Arc.
+    ///
     /// If you want to convert an `ExifIter` `into` an [`Exif`], you'd better
     /// clone the `ExifIter` before converting. Since the iterator index may
     /// have been modified by `Iterator::next()` calls.
     ///
-    /// `clone()` will reset the iterator index to be the first one.
+    /// `clone()` will reset the cloned iterator index to be the first one.
     fn clone(&self) -> Self {
-        let mut ifds = Vec::new();
-        if let Some(ref ifd0) = self.ifd0 {
-            ifds.push(ifd0.clone());
-        }
-        Self {
-            input: self.input.clone(),
-            endian: self.endian,
-            tz: self.tz.clone(),
-            ifd0: self.ifd0.clone(),
-            ifds,
-        }
+        self.clone_and_rewind()
     }
 }
 
 impl<'a> ExifIter<'a> {
     pub(crate) fn new(
         input: impl Into<Input<'a>>,
-        endian: Endianness,
+        tiff_header: TiffHeader,
         tz: Option<String>,
         ifd0: Option<ImageFileDirectoryIter>,
     ) -> ExifIter<'a> {
@@ -70,9 +75,27 @@ impl<'a> ExifIter<'a> {
         }
         ExifIter {
             input: Arc::new(input.into()),
-            endian,
+            tiff_header,
             tz,
             ifd0,
+            ifds,
+        }
+    }
+
+    /// Clone and rewind the iterator's index.
+    ///
+    /// Clone an `ExifIter` is very cheap, the underlying data is shared
+    /// through Arc.
+    pub fn clone_and_rewind(&self) -> Self {
+        let mut ifds = Vec::new();
+        if let Some(ref ifd0) = self.ifd0 {
+            ifds.push(ifd0.clone_and_rewind());
+        }
+        Self {
+            input: self.input.clone(),
+            tiff_header: self.tiff_header.clone(),
+            tz: self.tz.clone(),
+            ifd0: self.ifd0.as_ref().map(|x| x.clone_and_rewind()),
             ifds,
         }
     }
@@ -101,8 +124,8 @@ impl<'a> ExifIter<'a> {
         let mut gps_subifd = match ImageFileDirectoryIter::try_new(
             gps.ifd,
             iter.input.make_associated(data),
+            iter.tiff_header.clone(),
             offset,
-            iter.endian,
             iter.tz.clone(),
         ) {
             Ok(ifd0) => ifd0,
@@ -115,16 +138,10 @@ impl<'a> ExifIter<'a> {
     fn shallow_clone(&'a self) -> Self {
         ExifIter::new(
             &self.input[..],
-            self.endian,
+            self.tiff_header.clone(),
             self.tz.clone(),
-            self.ifd0.clone(),
+            self.ifd0.as_ref().map(|x| x.clone_and_rewind()),
         )
-    }
-}
-
-impl Default for ExifIter<'static> {
-    fn default() -> Self {
-        Self::new(Input::default(), Endianness::Big, None, None)
     }
 }
 
@@ -199,6 +216,9 @@ impl ParsedExifEntry {
 
     /// Takes out the parsed entry value of this entry.
     ///
+    /// If you need to convert this `ExifIter` to an [`crate::Exif`], please
+    /// don't call this method! Otherwise the converted `Exif` is incomplete.
+    ///
     /// **Note**: This method can only be called once! Once it has been called,
     /// calling it again always returns `None`. You may want to check it by
     /// calling [`Self::has_value`] before calling this method.
@@ -225,6 +245,9 @@ impl ParsedExifEntry {
     }
 
     /// Takes out the parsed result of this entry.
+    ///
+    /// If you need to convert this `ExifIter` to an [`crate::Exif`], please
+    /// don't call this method! Otherwise the converted `Exif` is incomplete.
     ///
     /// Returns:
     ///
@@ -279,10 +302,16 @@ impl<'a> Iterator for ExifIter<'a> {
     type Item = ParsedExifEntry;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let endian = self.endian;
         loop {
             if self.ifds.len() > MAX_IFD_DEPTH {
-                self.ifds.pop();
+                self.ifds.clear();
+                tracing::error!(
+                    ifds_depth = self.ifds.len(),
+                    "ifd depth is too deep, just go back to ifd0"
+                );
+                if let Some(ref ifd0) = self.ifd0 {
+                    self.ifds.push(ifd0.clone_with_state());
+                }
             }
 
             let mut ifd = self.ifds.pop()?;
@@ -303,8 +332,8 @@ impl<'a> Iterator for ExifIter<'a> {
                         if let Ok(ifd) = ImageFileDirectoryIter::try_new(
                             idx,
                             self.input.make_associated(&self.input[..]),
+                            self.tiff_header.clone(),
                             offset,
-                            endian,
                             self.tz.clone(),
                         ) {
                             self.ifds.push(ifd);
@@ -336,71 +365,53 @@ impl<'a> Iterator for ExifIter<'a> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct ImageFileDirectoryIter {
     pub ifd_idx: usize,
     pub input: AssociatedInput,
+    pub tiff_header: TiffHeader,
     pub pos: usize,
-    pub endian: Endianness,
+    pub entry_num: u16,
     pub tz: Option<String>,
-
-    pub num_entries: u16,
 
     // Iterating status
     pub index: u16,
 }
 
-impl Clone for ImageFileDirectoryIter {
-    fn clone(&self) -> Self {
-        Self {
-            tz: self.tz.clone(),
-            input: self.input.clone(),
-            index: 0,
-            ..*self
-        }
-    }
-}
-
 impl ImageFileDirectoryIter {
+    pub fn rewind(&mut self) {
+        self.index = 0;
+    }
+
+    pub fn clone_and_rewind(&self) -> Self {
+        let mut it = self.clone();
+        it.rewind();
+        it
+    }
+
     pub fn try_new(
         ifd_idx: usize,
         input: AssociatedInput,
+        tiff_header: TiffHeader,
         pos: usize,
-        endian: Endianness,
         tz: Option<String>,
     ) -> crate::Result<Self> {
-        let num_entries = Self::parse_num_entries(endian, &input[pos..])?;
+        // should use the complete header data to parse ifd entry num
+        let (_, entry_num) = TiffHeader::parse_ifd_entry_num(&input, pos, tiff_header.endian)?;
+
         Ok(Self {
             ifd_idx,
-            endian,
-            tz,
-            num_entries,
-            index: 0,
             input,
-            pos: pos + 2,
+            tiff_header,
+            pos: pos + 2, // Skip ifd entry num field
+            entry_num,
+            tz,
+            index: 0,
         })
     }
 
-    fn parse_num_entries(endian: Endianness, data: &[u8]) -> crate::Result<u16> {
-        let (remain, num) = complete::u16(endian)(data)?; // Safe-slice
-        if num == 0 {
-            return Ok(num);
-        }
-
-        // 12 bytes per entry
-        let size = (num as usize).checked_mul(ENTRY_SIZE);
-        let Some(size) = size else {
-            return Err("ifd entry num is too big".into());
-        };
-        if size > remain.len() {
-            Err("ifd entry num is too big".into())
-        } else {
-            Ok(num)
-        }
-    }
-
     fn parse_tag_entry(&self, entry_data: &[u8]) -> Option<(u16, IfdEntry)> {
-        let endian = self.endian;
+        let endian = self.tiff_header.endian;
         let (_, (tag, data_format, components_num, value_or_offset)) = tuple((
             complete::u16::<_, nom::error::Error<_>>(endian),
             complete::u16(endian),
@@ -459,7 +470,7 @@ impl ImageFileDirectoryIter {
         }
 
         let entry = EntryData {
-            endian: self.endian,
+            endian: self.tiff_header.endian,
             tag,
             data,
             data_format,
@@ -472,10 +483,10 @@ impl ImageFileDirectoryIter {
     }
 
     pub fn find_tz_offset(&self) -> Option<String> {
-        let endian = self.endian;
+        let endian = self.tiff_header.endian;
         // find ExifOffset
-        for i in 0..self.num_entries {
-            let pos = self.pos + i as usize * ENTRY_SIZE;
+        for i in 0..self.entry_num {
+            let pos = self.pos + i as usize * IFD_ENTRY_SIZE;
             let (remain, tag) =
                 complete::u16::<_, nom::error::Error<_>>(endian)(&self.input[pos..]).ok()?;
             if tag == ExifTag::ExifOffset.code() {
@@ -494,11 +505,11 @@ impl ImageFileDirectoryIter {
     }
 
     fn find_tz_offset_in_exif_subifd(&self, offset: usize) -> Option<String> {
-        let num_entries = Self::parse_num_entries(self.endian, &self.input[offset..]).ok()?;
+        let num_entries = self.entry_num;
         let pos = offset + 2;
         for i in 0..num_entries {
-            let pos = pos + i as usize * ENTRY_SIZE;
-            let entry_data = self.input.slice_checked(pos..pos + ENTRY_SIZE)?;
+            let pos = pos + i as usize * IFD_ENTRY_SIZE;
+            let entry_data = self.input.slice_checked(pos..pos + IFD_ENTRY_SIZE)?;
             let (tag, res) = self.parse_tag_entry(entry_data)?;
             if TZ_OFFSET_TAGS.contains(&tag) {
                 return match res {
@@ -582,6 +593,12 @@ impl ImageFileDirectoryIter {
             None
         }
     }
+
+    fn clone_with_state(&self) -> ImageFileDirectoryIter {
+        let mut it = self.clone();
+        it.index = self.index;
+        it
+    }
 }
 
 #[derive(Debug)]
@@ -641,7 +658,6 @@ impl IfdEntry {
     }
 }
 
-const ENTRY_SIZE: usize = 12;
 const SUBIFD_TAGS: &[u16] = &[ExifTag::ExifOffset.code(), ExifTag::GPSInfo.code()];
 const TZ_OFFSET_TAGS: &[u16] = &[
     ExifTag::OffsetTimeOriginal.code(),
@@ -653,8 +669,8 @@ impl Iterator for ImageFileDirectoryIter {
     type Item = (ExifTagCode, IfdEntry);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let endian = self.endian;
-        if self.index >= self.num_entries {
+        let endian = self.tiff_header.endian;
+        if self.index >= self.entry_num {
             // next IFD
             let (_, offset) =
                 complete::u32::<_, nom::error::Error<_>>(endian)(&self.input[self.pos..]).ok()?;
@@ -677,9 +693,11 @@ impl Iterator for ImageFileDirectoryIter {
             }
         }
 
-        let entry_data = self.input.slice_checked(self.pos..self.pos + ENTRY_SIZE)?;
+        let entry_data = self
+            .input
+            .slice_checked(self.pos..self.pos + IFD_ENTRY_SIZE)?;
         self.index += 1;
-        self.pos += ENTRY_SIZE;
+        self.pos += IFD_ENTRY_SIZE;
 
         let (tag, res) = self.parse_tag_entry(entry_data)?;
 

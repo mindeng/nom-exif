@@ -288,6 +288,7 @@ impl<'a, R: Read, S: Skip<R>> ParseOutput<'a, R, S> for ExifIter<'a> {
                         crate::file::MimeImage::Heic | crate::file::MimeImage::Heif => {
                             heif::extract_exif_data(buf)?
                         }
+                        crate::file::MimeImage::Tiff => todo!(),
                     };
 
                     Ok(exif_data.and_then(|x| buf.subslice_range(x)))
@@ -382,11 +383,10 @@ mod tests {
     #[case("meta.mp4", Track)]
     #[case("mka.mka", Track)]
     #[case("mkv_640x360.mkv", Track)]
-    #[case("no-exif.heic", Exif)]
+    #[case("exif-one-entry.heic", Exif)]
     #[case("no-exif.jpg", NoData)]
     // TODO:
-    // #[case("png.png", Exif)]
-    // #[case("tif.png", Exif)]
+    // #[case("tif.tif", Exif)]
     #[case("ramdisk.img", Invalid)]
     #[case("webm_480.webm", Track)]
     fn parse_media(path: &str, te: TrackExif) {
@@ -395,19 +395,28 @@ mod tests {
         match te {
             Track => {
                 let ms = ms.unwrap();
-                println!("path: {path} mime: {:?}", ms.mime);
+                // println!("path: {path} mime: {:?}", ms.mime);
                 assert!(ms.has_track());
                 let _: TrackInfo = parser.parse(ms).unwrap();
             }
             Exif => {
                 let ms = ms.unwrap();
-                println!("path: {path} mime: {:?}", ms.mime);
+                // println!("path: {path} mime: {:?}", ms.mime);
                 assert!(ms.has_exif());
-                let _: ExifIter = parser.parse(ms).unwrap();
+                let mut it: ExifIter = parser.parse(ms).unwrap();
+                let _ = it.parse_gps_info();
+
+                if path.contains("one-entry") {
+                    assert!(it.next().is_some());
+                    assert!(it.next().is_none());
+
+                    let exif: crate::Exif = it.clone_and_rewind().into();
+                    assert!(exif.get(ExifTag::Orientation).is_some());
+                }
             }
             NoData => {
                 let ms = ms.unwrap();
-                println!("path: {path} mime: {:?}", ms.mime);
+                // println!("path: {path} mime: {:?}", ms.mime);
                 assert!(ms.has_exif());
                 let res: Result<ExifIter, _> = parser.parse(ms);
                 res.unwrap_err();
@@ -421,7 +430,7 @@ mod tests {
     // #[case("compatible-brands.mov", Track)]
 
     use crate::testkit::open_sample;
-    use crate::{EntryValue, TrackInfoTag};
+    use crate::{EntryValue, ExifTag, TrackInfoTag};
     use chrono::DateTime;
     use test_case::test_case;
 

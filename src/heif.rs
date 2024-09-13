@@ -111,7 +111,7 @@ mod tests {
         }
     }
 
-    #[test_case("no-exif.heic", 0x24-10)]
+    #[test_case("exif-one-entry.heic", 0x24-10)]
     #[test_case("exif.heic", 0xa3a-10)]
     fn heic_exif_data(path: &str, exif_size: usize) {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();

@@ -5,13 +5,7 @@ use std::{
 };
 
 use crate::{
-    bbox::{travel_header, BoxHolder},
-    ebml::element::parse_ebml_doc_type,
-    error::{ParsedError, ParsingError},
-    heif,
-    jpeg::{self, check_jpeg, check_jpeg_exif},
-    loader::Load,
-    slice::SubsliceRange,
+    bbox::{travel_header, BoxHolder}, ebml::element::parse_ebml_doc_type, error::{ParsedError, ParsingError}, exif::TiffHeader, heif, jpeg::{self, check_jpeg, check_jpeg_exif}, loader::Load, slice::SubsliceRange
 };
 
 const HEIF_HEIC_BRAND_NAMES: &[&[u8]] = &[
@@ -47,6 +41,7 @@ pub(crate) enum MimeImage {
     Jpeg,
     Heic,
     Heif,
+    Tiff,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
@@ -69,6 +64,8 @@ impl TryFrom<&[u8]> for Mime {
             } else {
                 Mime::Video(MimeVideo::Matroska)
             }
+        } else if TiffHeader::parse(input).is_ok() {
+            Mime::Image(MimeImage::Tiff)
         } else if check_jpeg(input).is_ok() {
             Mime::Image(MimeImage::Jpeg)
         } else {
@@ -547,7 +544,6 @@ fn get_compatible_brands(body: &[u8]) -> crate::Result<Vec<&[u8]>> {
 
 #[cfg(test)]
 mod tests {
-    use super::FileFormat::*;
     use super::*;
     use test_case::test_case;
     use MediaKind::*;

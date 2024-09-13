@@ -1,7 +1,7 @@
 use nom::{
     branch::alt,
     bytes::complete::{tag, take},
-    combinator::{map, verify},
+    combinator::{fail, map, verify},
     number::{
         complete::{u16, u32},
         Endianness,
@@ -85,21 +85,17 @@ impl<'a> Inner<'a> {
 
     fn try_into_iter(self) -> Result<ExifIter<'a>, ParsingError> {
         let data = &self.input[..];
-        let (_, header) = TiffHeader::parse(data)?;
+        let (remain, header) = TiffHeader::parse(data)?;
 
-        // jump to ifd0
-        let (remain, _) = take::<_, _, nom::error::Error<_>>((header.ifd0_offset) as usize)(data)
-            .map_err(|_| "not enough bytes")?;
         if remain.is_empty() {
             return Ok(ExifIter::default());
         }
 
-        let pos = data.len() - remain.len();
         let mut ifd0 = match ImageFileDirectoryIter::try_new(
             0,
             self.input.make_associated(data),
-            pos,
-            header.endian,
+            header.clone(),
+            header.ifd0_offset as usize,
             None,
         ) {
             Ok(ifd0) => ifd0,
@@ -108,13 +104,14 @@ impl<'a> Inner<'a> {
 
         let tz = ifd0.find_tz_offset();
         ifd0.tz = tz.clone();
-        let iter: ExifIter<'a> = ExifIter::new(self.input, header.endian, tz, Some(ifd0));
+        let iter: ExifIter<'a> = ExifIter::new(self.input, header, tz, Some(ifd0));
 
         Ok(iter)
     }
 }
 
-/// Represents a parsed Exif information.
+/// Represents a parsed Exif information, can be converted from an [`ExifIter`]
+/// like this: `let exif: Exif = iter.into()`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Exif {
     ifds: Vec<ParsedImageFileDirectory>,
@@ -229,21 +226,69 @@ impl From<ExifIter<'_>> for Exif {
 
 /// TIFF Header
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct TiffHeader {
+pub(crate) struct TiffHeader {
     pub endian: Endianness,
     pub ifd0_offset: u32,
 }
 
+impl Default for TiffHeader {
+    fn default() -> Self {
+        Self {
+            endian: Endianness::Big,
+            ifd0_offset: 0,
+        }
+    }
+}
+
+pub(crate) const IFD_ENTRY_SIZE: usize = 12;
+
 impl TiffHeader {
     pub fn parse(input: &[u8]) -> IResult<&[u8], TiffHeader> {
         let (remain, endian) = TiffHeader::parse_endian(input)?;
-        map(
-            tuple((verify(u16(endian), |magic| *magic == 0x2a), u32(endian))),
-            move |(_, offset)| TiffHeader {
-                endian,
-                ifd0_offset: offset,
-            },
-        )(remain)
+        let (_, (_, offset)) =
+            tuple((verify(u16(endian), |magic| *magic == 0x2a), u32(endian)))(remain)?;
+
+        let header = Self {
+            endian,
+            ifd0_offset: offset,
+        };
+
+        Ok((remain, header))
+    }
+
+    // `input` should contains complete TIFF header data
+    #[tracing::instrument(skip_all)]
+    pub fn parse_ifd_entry_num<'a>(
+        input: &'a [u8],
+        offset: usize,
+        endian: Endianness,
+    ) -> IResult<&'a [u8], u16> {
+        // jump to ifd0
+        let (remain, _) = take::<_, _, nom::error::Error<_>>((offset) as usize)(input)?;
+        if remain.is_empty() {
+            return Ok((remain, 0));
+        }
+
+        let (remain, num) = nom::number::complete::u16(endian)(remain)?; // Safe-slice
+        if num == 0 {
+            return Ok((remain, 0));
+        }
+
+        // 12 bytes per entry
+        let size = (num as usize)
+            .checked_mul(IFD_ENTRY_SIZE)
+            .expect("should be fit");
+
+        if size > remain.len() {
+            tracing::error!(
+                data_size = remain.len(),
+                entry_num = num,
+                "ifd entry num is too big"
+            );
+            return fail(remain);
+        }
+
+        Ok((remain, num))
     }
 
     // pub fn first_ifd<'a>(&self, input: &'a [u8], tag_ids: HashSet<u16>) -> IResult<&'a [u8], IFD> {
@@ -296,14 +341,14 @@ mod tests {
     fn header() {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 
-        let buf = [0x4d, 0x4d, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x08];
+        let buf = [0x4d, 0x4d, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x08, 0x00];
 
         let (_, header) = TiffHeader::parse(&buf).unwrap();
         assert_eq!(
             header,
             TiffHeader {
                 endian: Endianness::Big,
-                ifd0_offset: 8
+                ifd0_offset: 8,
             }
         );
     }

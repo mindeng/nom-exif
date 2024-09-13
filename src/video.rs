@@ -1,17 +1,14 @@
 use std::{
     collections::{btree_map::IntoIter, BTreeMap},
     fmt::Display,
-    io::Read,
 };
 
 use crate::{
     ebml::webm::parse_webm,
     error::ParsingError,
-    file::{Mime, MimeVideo},
-    loader::{BufLoader, Load},
+    file::MimeVideo,
     mov::{extract_moov_body_from_buf, parse_mp4, parse_qt},
-    skip::Skip,
-    EntryValue, FileFormat, GPSInfo,
+    EntryValue, GPSInfo,
 };
 
 /// Try to keep the tag name consistent with [`crate::ExifTag`], and add some

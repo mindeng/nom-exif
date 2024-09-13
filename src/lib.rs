@@ -1,6 +1,6 @@
 //! nom-exif is an Exif/metadata parsing library written in pure Rust with
 //! [nom](https://github.com/rust-bakery/nom). Both images
-//! (jpeg/heif/heic/jpg/png/tiff etc.) and videos/audios
+//! (jpeg/heif/heic/jpg/tiff etc.) and videos/audios
 //! (mov/mp4/3gp/webm/mkv/mka, etc.) are supported.
 //!
 //! Supporting both *sync* and *async* interfaces. The interface design is
@@ -59,7 +59,6 @@
 //! - Image
 //!   - *.heic, *.heif, etc.
 //!   - *.jpg, *.jpeg
-//!   - *.png
 //!   - *.tiff, *.tif
 //! - Video/Audio
 //!   - ISO base media file format (ISOBMFF): *.mp4, *.mov, *.3gp, etc.
@@ -214,8 +213,10 @@ pub use jpeg::parse_jpeg_exif;
 
 pub use error::Error;
 pub type Result<T> = std::result::Result<T, Error>;
-pub use file::FileFormat;
 pub(crate) use skip::{Seekable, Unseekable};
+
+#[allow(deprecated)]
+pub use file::FileFormat;
 
 #[allow(deprecated)]
 pub use mov::{parse_metadata, parse_mov_metadata};

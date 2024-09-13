@@ -11,13 +11,15 @@ pub use tags::ExifTag;
 use std::io::Read;
 
 pub(crate) mod ifd;
-pub(crate) use parser::{check_exif_header, input_to_exif, input_to_iter, ExifParser};
+pub(crate) use parser::{check_exif_header, input_to_exif, input_to_iter, ExifParser, TiffHeader};
 
 mod exif_iter;
 mod gps;
 mod parser;
 mod tags;
 
+/// *Deprecated*: Please use [`crate::MediaParser`] instead.
+///
 /// Read exif data from `reader`, and build an [`ExifIter`] for it.
 ///
 /// If `format` is None, the parser will detect the file format automatically.
@@ -26,7 +28,6 @@ mod tags;
 ///
 /// - *.heic, *.heif, etc.
 /// - *.jpg, *.jpeg, etc.
-/// - *.png
 /// - *.tiff
 ///
 /// All entries are lazy-parsed. That is, only when you iterate over
@@ -44,6 +45,7 @@ mod tags;
 /// - An `Ok<Some<ExifIter>>` if Exif data is found and parsed successfully.
 /// - An `Ok<None>` if Exif data is not found.
 /// - An `Err` if Exif data is found but parsing failed.
+#[deprecated(since = "2.0.0")]
 pub fn parse_exif<T: Read>(
     reader: T,
     format: Option<FileFormat>,

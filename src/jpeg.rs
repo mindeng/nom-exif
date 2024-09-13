@@ -84,10 +84,7 @@ fn find_exif_segment(input: &[u8]) -> IResult<&[u8], Option<Segment<'_>>> {
     }
 }
 
-/// len of input should be >= 2
 pub fn check_jpeg(input: &[u8]) -> crate::Result<()> {
-    assert!(input.len() >= 2);
-
     // check soi marker [0xff, 0xd8]
     let (_, (_, code)) = tuple((nom::bytes::complete::tag([0xFF]), number::complete::u8))(input)?;
 
