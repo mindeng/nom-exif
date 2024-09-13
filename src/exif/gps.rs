@@ -48,7 +48,7 @@ impl GPSInfo {
             if self.latitude_ref == 'N' { '+' } else { '-' },
             if self.longitude_ref == 'E' { '+' } else { '-' },
             if self.altitude.0 == 0 {
-                "".to_string()
+                String::new()
             } else {
                 format!(
                     "{}{altitude:.3}",

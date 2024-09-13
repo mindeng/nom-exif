@@ -1,6 +1,7 @@
+use core::fmt::Display;
 use nom::{bytes::complete, multi::many0, IResult};
-use std::{fmt::Display, io::Read};
 use FileFormat::*;
+use std::io::Read;
 
 use crate::{
     bbox::BoxHolder,
@@ -111,12 +112,13 @@ impl TryFrom<&[u8]> for FileFormat {
 }
 
 impl Display for FileFormat {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Jpeg => "JPEG".fmt(f),
-            Heif => "HEIF/HEIC".fmt(f),
-            QuickTime => "QuickTime".fmt(f),
-            MP4 => "MP4".fmt(f),
+    #[inline]
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            Self::Jpeg => "JPEG".fmt(f),
+            Self::Heif => "HEIF/HEIC".fmt(f),
+            Self::QuickTime => "QuickTime".fmt(f),
+            Self::MP4 => "MP4".fmt(f),
         }
     }
 }

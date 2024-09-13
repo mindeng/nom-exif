@@ -1,4 +1,7 @@
-use std::{cell::RefCell, fmt::Debug, sync::Arc};
+extern crate alloc;
+
+use alloc::{fmt::Debug, sync::Arc};
+use core::cell::RefCell;
 
 use nom::{
     number::{complete, Endianness},
@@ -42,7 +45,7 @@ impl Clone for ExifIter<'_> {
             ifds.push(ifd0.clone());
         }
         Self {
-            input: self.input.clone(),
+            input: Arc::clone(&self.input),
             endian: self.endian,
             tz: self.tz.clone(),
             ifd0: self.ifd0.clone(),

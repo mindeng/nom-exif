@@ -349,7 +349,7 @@ mod tests {
 
     #[test_case("exif.jpg")]
     fn exif_iter(path: &str) {
-        use std::fmt::Write;
+        use core::fmt::Write;
         let buf = read_sample(path).unwrap();
         let (_, data) = extract_exif_data(&buf).unwrap();
         let data = data
@@ -394,7 +394,7 @@ mod tests {
 
     #[test_case("exif.jpg")]
     fn clone_exif_iter_to_thread(path: &str) {
-        use std::fmt::Write;
+        use core::fmt::Write;
         let buf = read_sample(path).unwrap();
         let (_, data) = extract_exif_data(&buf).unwrap();
         let data = data

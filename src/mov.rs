@@ -1,8 +1,5 @@
-use std::{
-    cmp,
-    io::{Read, Seek},
-    ops::Range,
-};
+use core::{cmp, ops::Range};
+use std::io::{Read, Seek};
 
 use chrono::DateTime;
 use nom::{bytes::streaming, IResult};
@@ -88,7 +85,7 @@ pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, E
     if let Some(pos) = entries.iter().position(|x| x.0 == CREATIONDATE_KEY) {
         if let EntryValue::Text(ref s) = entries[pos].1 {
             if let Ok(t) = DateTime::parse_from_str(s, "%+") {
-                let _ = std::mem::replace(
+                let _ = core::mem::replace(
                     &mut entries[pos],
                     (CREATIONDATE_KEY.to_string(), EntryValue::Time(t)),
                 );

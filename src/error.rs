@@ -1,4 +1,8 @@
-use std::{io, string::FromUtf8Error};
+extern crate alloc;
+
+use alloc::string::FromUtf8Error;
+use std::io;
+
 use thiserror::Error;
 
 type FallbackError = Box<dyn std::error::Error + Send + Sync>;

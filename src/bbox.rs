@@ -1,10 +1,10 @@
-use std::fmt::Display;
+use core::fmt::Display;
 
 use nom::{
     bytes::{complete, streaming},
     combinator::{fail, map_res},
     error::context,
-    number, AsChar, IResult, Needed,
+    number, IResult, Needed,
 };
 
 mod idat;
@@ -31,9 +31,9 @@ pub enum Error {
 impl std::error::Error for Error {}
 
 impl Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Error::UnsupportedConstructionMethod(x) => {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            Self::UnsupportedConstructionMethod(x) => {
                 write!(f, "unsupported construction method ({x})")
             }
         }
@@ -542,7 +542,7 @@ mod tests {
         // gps info
         assert_eq!(
             "+27.2939+112.6932/",
-            std::str::from_utf8(&bbox.body_data()[4..]).unwrap() // Safe-slice in test_case
+            core::str::from_utf8(&bbox.body_data()[4..]).unwrap() // Safe-slice in test_case
         );
     }
 

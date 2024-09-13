@@ -1,4 +1,4 @@
-use std::ops::Range;
+use core::ops::Range;
 
 pub trait SliceChecked {
     fn slice_checked(&self, range: Range<usize>) -> Option<&Self>;

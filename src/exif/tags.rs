@@ -1,7 +1,7 @@
 //! Define exif tags and related enums, see
 //! https://exiftool.org/TagNames/EXIF.html
 
-use std::fmt::{Debug, Display};
+use core::fmt::{Debug, Display};
 
 #[cfg(feature = "json_dump")]
 use serde::{Deserialize, Serialize};
@@ -49,10 +49,10 @@ impl From<u16> for ExifTagCode {
 }
 
 impl Debug for ExifTagCode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ExifTagCode::Tag(t) => write!(f, "{t}"),
-            ExifTagCode::Code(c) => write!(f, "Unrecognized(0x{c:04x})"),
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            Self::Tag(t) => write!(f, "{t}"),
+            Self::Code(c) => write!(f, "Unrecognized(0x{c:04x})"),
         }
     }
 }
@@ -202,7 +202,8 @@ impl ExifTag {
 }
 
 impl Display for ExifTag {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    #[inline]
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             #[allow(deprecated)]
             ExifTag::Unknown => write!(f, "Unknown(0x{:04x})", self.code()),

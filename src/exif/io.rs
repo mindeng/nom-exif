@@ -80,9 +80,9 @@ pub(crate) async fn read_exif_async<T>(
     format: Option<FileFormat>,
 ) -> crate::Result<Option<Input<'static>>>
 where
-    T: AsyncRead + std::marker::Unpin,
+    T: AsyncRead + Unpin + Send,
 {
-    use std::ops::Deref;
+    use core::ops::Deref;
     const INIT_BUF_SIZE: usize = 4096;
     const MIN_GROW_SIZE: usize = 4096;
     const MAX_GROW_SIZE: usize = 1000 * 4096;

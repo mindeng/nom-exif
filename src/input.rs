@@ -1,10 +1,13 @@
-use crate::slice::SubsliceRange as _;
+extern crate alloc;
 
-use std::borrow::Borrow;
-use std::borrow::Cow;
-use std::ops::Deref;
-use std::ops::Range;
-use std::slice;
+use alloc::borrow::Cow;
+use core::{
+    borrow::Borrow,
+    ops::{Deref, Range},
+    slice,
+};
+
+use crate::slice::SubsliceRange as _;
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub(crate) struct Input<'a> {
