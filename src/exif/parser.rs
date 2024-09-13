@@ -22,7 +22,9 @@ use super::{
 };
 
 /// Parses Exif information from the `input` TIFF data.
-pub(crate) fn input_to_iter<'a>(input: impl Into<input::Input<'a>>) -> crate::Result<ExifIter<'a>> {
+pub(crate) fn input_to_iter<'a, I: Into<input::Input<'a>>>(
+    input: I,
+) -> crate::Result<ExifIter<'a>> {
     let input = input.into();
     let parser = ExifParser::new(input);
     let iter: ExifIter<'a> = parser.parse_iter()?;
@@ -30,7 +32,7 @@ pub(crate) fn input_to_iter<'a>(input: impl Into<input::Input<'a>>) -> crate::Re
 }
 
 /// Parses Exif information from the `input` TIFF data.
-pub(crate) fn input_to_exif<'a>(input: impl Into<input::Input<'a>>) -> crate::Result<Exif> {
+pub(crate) fn input_to_exif<'a, I: Into<input::Input<'a>>>(input: I) -> crate::Result<Exif> {
     Ok(input_to_iter(input)?.into())
 }
 
@@ -47,7 +49,7 @@ impl<'a> ExifParser<'a> {
     /// - A `&'a [u8]`, which will be auto converted to an `Input<'a>`,
     ///   therefore an `ExifParser<'a>` will be returned.
     ///
-    pub fn new(input: impl Into<input::Input<'a>>) -> ExifParser<'a> {
+    pub fn new<I: Into<input::Input<'a>>>(input: I) -> Self {
         Self {
             inner: Inner::new(input),
         }
