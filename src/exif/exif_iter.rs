@@ -92,7 +92,7 @@ impl<'a> ExifIter<'a> {
         };
 
         let offset = match gps.take_result() {
-            Ok(v) => v.as_u32().unwrap() as usize,
+            Ok(v) => v.as_u32().ok_or("gps info offset is too big")? as usize,
             Err(e) => return Err(e),
         };
 
