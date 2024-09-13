@@ -66,7 +66,7 @@ impl BoxHeader {
         } else if size < 8 {
             context("invalid box header: box_size is too small", fail)(remain)?
         } else {
-            (remain, size as u64)
+            (remain, u64::from(size))
         };
 
         let header_size = input.len() - remain.len();
@@ -297,7 +297,7 @@ impl<O, T: ParseBody<O>> ParseBox<O> for T {
             header.box_size >= header.header_size as u64,
             "box_size = {}, header_size = {}",
             header.box_size,
-            header.header_size
+            header.header_size as u64,
         );
 
         // // limit parsing size

@@ -193,12 +193,11 @@ fn read_image_data<T: Read + Seek>(mut reader: T) -> crate::Result<Vec<u8>> {
                 }
             }
             return Ok(data);
-        } else {
-            // skip other markers
-            reader.read_exact(&mut header)?;
-            let len = u16::from_be_bytes([header[0], header[1]]);
-            reader.seek(std::io::SeekFrom::Current(len as i64 - 2))?;
         }
+
+        reader.read_exact(&mut header)?;
+        let len = u16::from_be_bytes([header[0], header[1]]);
+        reader.seek(std::io::SeekFrom::Current(i64::from(len) - 2))?;
     }
 }
 

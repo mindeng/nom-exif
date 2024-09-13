@@ -36,14 +36,14 @@ impl ParseBody<Self> for IlocBox {
             map_res(be_u8, |res| Ok::<(u8, u8), ()>((res >> 4, res & 0xF)))(remain)?;
 
         let (remain, item_count) = if version < 2 {
-            map_res(be_u16, |x| Ok::<u32, ()>(x as u32))(remain)?
+            map_res(be_u16, |x| Ok::<u32, ()>(u32::from(x)))(remain)?
         } else {
             be_u32(remain)?
         };
 
         let (remain, items) = many_m_n(item_count as usize, item_count as usize, |remain| {
             let (remain, item_id) = if version < 2 {
-                map_res(be_u16, |x| Ok::<u32, ()>(x as u32))(remain)?
+                map_res(be_u16, |x| Ok::<u32, ()>(u32::from(x)))(remain)?
             } else {
                 be_u32(remain)?
             };
@@ -135,7 +135,7 @@ struct ItemLocationExtent {
 
 fn parse_base_offset<'a>(size: u8, remain: &'a [u8], msg: &'static str) -> IResult<&'a [u8], u64> {
     Ok(if size == 4 {
-        map_res(be_u32, |x| Ok::<u64, ()>(x as u64))(remain)?
+        map_res(be_u32, |x| Ok::<u64, ()>(u64::from(x)))(remain)?
     } else if size == 8 {
         be_u64(remain)?
     } else if size == 0 {

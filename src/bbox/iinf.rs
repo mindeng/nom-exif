@@ -26,7 +26,7 @@ impl ParseBody<Self> for IinfBox {
         let (remain, item_count) = if version > 0 {
             be_u32(remain)?
         } else {
-            map_res(be_u16, |x| Ok::<u32, ()>(x as u32))(remain)?
+            map_res(be_u16, |x| Ok::<u32, ()>(u32::from(x)))(remain)?
         };
 
         let (remain, entries) =
@@ -68,7 +68,7 @@ impl ParseBody<Self> for InfeBox {
         let (remain, id) = if version > 2 {
             be_u32(remain)?
         } else {
-            map_res(be_u16, |x| Ok::<u32, ()>(x as u32))(remain)?
+            map_res(be_u16, |x| Ok::<u32, ()>(u32::from(x)))(remain)?
         };
 
         let (remain, protection_index) = be_u16(remain)?;

@@ -87,8 +87,8 @@ impl ParseBody<Self> for TkhdBox {
                 layer,
                 alt_group,
                 volume,
-                width: width as u32,
-                height: height as u32,
+                width: u32::from(width),
+                height: u32::from(height),
             },
         ))
     }

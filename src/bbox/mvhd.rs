@@ -36,7 +36,7 @@ pub struct MvhdBox {
 
 impl MvhdBox {
     pub fn duration_ms(&self) -> u32 {
-        ((self.duration as f64) / (self.time_scale as f64) * 1000_f64) as u32
+        (f64::from(self.duration) / f64::from(self.time_scale) * 1000_f64) as u32
     }
 
     fn creation_time_naive(&self) -> NaiveDateTime {
@@ -44,7 +44,7 @@ impl MvhdBox {
             .unwrap()
             .and_hms_opt(0, 0, 0)
             .unwrap()
-            + Duration::seconds(self.creation_time as i64)
+            + Duration::seconds(i64::from(self.creation_time))
     }
 
     pub fn creation_time(&self) -> DateTime<FixedOffset> {
