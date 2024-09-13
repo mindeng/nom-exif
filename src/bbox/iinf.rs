@@ -19,8 +19,8 @@ pub struct IinfBox {
     entries: HashMap<String, InfeBox>,
 }
 
-impl ParseBody<IinfBox> for IinfBox {
-    fn parse_body(remain: &[u8], header: FullBoxHeader) -> IResult<&[u8], IinfBox> {
+impl ParseBody<Self> for IinfBox {
+    fn parse_body(remain: &[u8], header: FullBoxHeader) -> IResult<&[u8], Self> {
         let version = header.version;
 
         let (remain, item_count) = if version > 0 {
@@ -37,7 +37,7 @@ impl ParseBody<IinfBox> for IinfBox {
             .map(|e| (e.key().to_owned(), e))
             .collect::<HashMap<_, _>>();
 
-        Ok((remain, IinfBox { header, entries }))
+        Ok((remain, Self { header, entries }))
     }
 }
 
@@ -60,9 +60,9 @@ pub(crate) struct InfeBox {
     uri_type: Option<String>,
 }
 
-impl ParseBody<InfeBox> for InfeBox {
+impl ParseBody<Self> for InfeBox {
     #[tracing::instrument(skip_all)]
-    fn parse_body<'a>(remain: &'a [u8], header: FullBoxHeader) -> IResult<&'a [u8], InfeBox> {
+    fn parse_body<'a>(remain: &'a [u8], header: FullBoxHeader) -> IResult<&'a [u8], Self> {
         let version = header.version;
 
         let (remain, id) = if version > 2 {
@@ -108,7 +108,7 @@ impl ParseBody<InfeBox> for InfeBox {
 
         Ok((
             remain,
-            InfeBox {
+            Self {
                 header,
                 id,
                 protection_index,

@@ -37,8 +37,8 @@ pub struct TkhdBox {
     pub height: u32,
 }
 
-impl ParseBody<TkhdBox> for TkhdBox {
-    fn parse_body(body: &[u8], header: FullBoxHeader) -> nom::IResult<&[u8], TkhdBox> {
+impl ParseBody<Self> for TkhdBox {
+    fn parse_body(body: &[u8], header: FullBoxHeader) -> nom::IResult<&[u8], Self> {
         let (
             remain,
             (
@@ -78,7 +78,7 @@ impl ParseBody<TkhdBox> for TkhdBox {
 
         Ok((
             remain,
-            TkhdBox {
+            Self {
                 header,
                 creation_time,
                 modification_time,

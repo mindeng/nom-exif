@@ -25,11 +25,11 @@ pub struct IlstBox {
 }
 
 impl IlstBox {
-    pub fn parse_box(input: &[u8]) -> nom::IResult<&[u8], IlstBox> {
+    pub fn parse_box(input: &[u8]) -> nom::IResult<&[u8], Self> {
         let (remain, header) = BoxHeader::parse(input)?;
         let (remain, items) = many0(IlstItem::parse)(remain)?;
 
-        Ok((remain, IlstBox { header, items }))
+        Ok((remain, Self { header, items }))
     }
 }
 
@@ -49,7 +49,7 @@ pub struct IlstItem {
 }
 
 impl IlstItem {
-    fn parse<'a>(input: &'a [u8]) -> nom::IResult<&'a [u8], IlstItem> {
+    fn parse<'a>(input: &'a [u8]) -> nom::IResult<&'a [u8], Self> {
         let (remain, (size, index, data_len, _, type_set, type_code, local)) =
             tuple((be_u32, be_u32, be_u32, tag("data"), u8, be_u24, be_u32))(input)?;
 
@@ -68,7 +68,7 @@ impl IlstItem {
 
         Ok((
             remain,
-            IlstItem {
+            Self {
                 size,
                 index,
                 data_len,

@@ -49,7 +49,7 @@ pub struct BoxHeader {
 }
 
 impl BoxHeader {
-    pub fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], BoxHeader> {
+    pub fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], Self> {
         let (remain, size) = number::streaming::be_u32(input)?;
 
         let (remain, box_type) = map_res(streaming::take(4_usize), |res: &'a [u8]| {
@@ -78,7 +78,7 @@ impl BoxHeader {
 
         Ok((
             remain,
-            BoxHeader {
+            Self {
                 box_size,
                 box_type,
                 header_size,
@@ -103,7 +103,7 @@ pub struct FullBoxHeader {
 }
 
 impl FullBoxHeader {
-    fn parse(input: &[u8]) -> IResult<&[u8], FullBoxHeader> {
+    fn parse(input: &[u8]) -> IResult<&[u8], Self> {
         let (remain, header) = BoxHeader::parse(input)?;
 
         let (remain, version) = number::streaming::u8(remain)?;
@@ -118,7 +118,7 @@ impl FullBoxHeader {
 
         Ok((
             remain,
-            FullBoxHeader {
+            Self {
                 box_type: header.box_type,
                 box_size: header.box_size,
                 header_size,

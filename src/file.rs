@@ -1,6 +1,5 @@
 use core::fmt::Display;
 use nom::{bytes::complete, multi::many0, IResult};
-use FileFormat::*;
 use std::io::Read;
 
 use crate::{
@@ -63,21 +62,23 @@ impl FileFormat {
         &self,
         input: &'a [u8],
     ) -> IResult<&'a [u8], Option<&'a [u8]>> {
-        match self {
-            Jpeg => jpeg::extract_exif_data(input),
-            Heif => heif::extract_exif_data(input),
-            QuickTime => {
+        match *self {
+            Self::Jpeg => jpeg::extract_exif_data(input),
+            Self::Heif => heif::extract_exif_data(input),
+            Self::QuickTime => {
                 nom::error::context("no exif data in QuickTime file", nom::combinator::fail)(input)
             }
-            MP4 => nom::error::context("no exif data in MP4 file", nom::combinator::fail)(input),
+            Self::MP4 => {
+                nom::error::context("no exif data in MP4 file", nom::combinator::fail)(input)
+            }
         }
     }
 
     pub(crate) fn check(&self, input: &[u8]) -> crate::Result<()> {
-        match self {
-            Jpeg => check_jpeg(input),
-            Heif => check_heif(input),
-            QuickTime => {
+        match *self {
+            Self::Jpeg => check_jpeg(input),
+            Self::Heif => check_heif(input),
+            Self::QuickTime => {
                 let ff = check_qt_mp4(input)?;
                 if ff == *self {
                     Ok(())
@@ -85,7 +86,7 @@ impl FileFormat {
                     Err("not a QuickTime file".into())
                 }
             }
-            MP4 => {
+            Self::MP4 => {
                 let ff = check_qt_mp4(input)?;
                 if ff == *self {
                     Ok(())

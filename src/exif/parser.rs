@@ -236,11 +236,11 @@ struct Header {
 }
 
 impl Header {
-    pub fn parse(input: &[u8]) -> IResult<&[u8], Header> {
-        let (remain, endian) = Header::parse_endian(input)?;
+    pub fn parse(input: &[u8]) -> IResult<&[u8], Self> {
+        let (remain, endian) = Self::parse_endian(input)?;
         map(
             tuple((verify(u16(endian), |magic| *magic == 0x2a), u32(endian))),
-            move |(_, offset)| Header {
+            move |(_, offset)| Self {
                 endian,
                 ifd0_offset: offset,
             },

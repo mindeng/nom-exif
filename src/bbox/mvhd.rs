@@ -61,14 +61,14 @@ impl MvhdBox {
     }
 }
 
-impl ParseBody<MvhdBox> for MvhdBox {
-    fn parse_body(body: &[u8], header: FullBoxHeader) -> nom::IResult<&[u8], MvhdBox> {
+impl ParseBody<Self> for MvhdBox {
+    fn parse_body(body: &[u8], header: FullBoxHeader) -> nom::IResult<&[u8], Self> {
         let (remain, (creation_time, modification_time, time_scale, duration, _, next_track_id)) =
             tuple((be_u32, be_u32, be_u32, be_u32, take(76usize), be_u32))(body)?;
 
         Ok((
             remain,
-            MvhdBox {
+            Self {
                 header,
                 creation_time,
                 modification_time,

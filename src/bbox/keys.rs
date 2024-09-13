@@ -19,15 +19,15 @@ pub struct KeysBox {
     pub entries: Vec<KeyEntry>,
 }
 
-impl ParseBody<KeysBox> for KeysBox {
-    fn parse_body(body: &[u8], header: FullBoxHeader) -> nom::IResult<&[u8], KeysBox> {
+impl ParseBody<Self> for KeysBox {
+    fn parse_body(body: &[u8], header: FullBoxHeader) -> nom::IResult<&[u8], Self> {
         let (remain, entry_count) = be_u32(body)?;
         let (remain, entries) =
             many_m_n(entry_count as usize, entry_count as usize, KeyEntry::parse)(remain)?;
 
         Ok((
             remain,
-            KeysBox {
+            Self {
                 header,
                 entry_count,
                 entries,
@@ -44,7 +44,7 @@ pub struct KeyEntry {
 }
 
 impl KeyEntry {
-    fn parse<'a>(input: &'a [u8]) -> nom::IResult<&'a [u8], KeyEntry> {
+    fn parse<'a>(input: &'a [u8]) -> nom::IResult<&'a [u8], Self> {
         let (remain, s) = map_res(
             flat_map(
                 map_res(be_u32, |len| {

@@ -5,14 +5,15 @@ use nom::{bytes::streaming, IResult};
 use crate::bbox::BoxHeader;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IdatBox<'a> {
+#[allow(unused)]
+struct IdatBox<'a> {
     header: BoxHeader,
     data: &'a [u8],
 }
 
-#[allow(unused)]
 impl<'a> IdatBox<'a> {
-    pub fn parse(input: &'a [u8]) -> IResult<&'a [u8], IdatBox> {
+    #[allow(unused)]
+    pub(crate) fn parse(input: &'a [u8]) -> IResult<&'a [u8], Self> {
         let (remain, header) = BoxHeader::parse(input)?;
         let ct = TryInto::<usize>::try_into(header.box_size - header.header_size as u64);
 
@@ -28,7 +29,8 @@ impl<'a> IdatBox<'a> {
         Ok((remain, IdatBox { header, data }))
     }
 
-    pub fn get_data(&self, range: Range<usize>) -> crate::Result<&[u8]> {
+    #[allow(unused)]
+    pub(crate) fn get_data(&self, range: Range<usize>) -> crate::Result<&[u8]> {
         if range.len() > self.data.len() {
             Err("idat data is too small".into())
         } else {

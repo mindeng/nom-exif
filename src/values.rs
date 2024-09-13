@@ -69,7 +69,7 @@ impl From<EntryError> for crate::Error {
 
 impl From<chrono::ParseError> for EntryError {
     fn from(value: chrono::ParseError) -> Self {
-        EntryError::InvalidData(format!("invalid time format: {value}"))
+        Self::InvalidData(format!("invalid time format: {value}"))
     }
 }
 
@@ -127,7 +127,7 @@ impl EntryValue {
         let components_num = entry.components_num;
 
         if data.is_empty() || components_num == 0 {
-            return Ok(EntryValue::variant_default(data_format));
+            return Ok(Self::variant_default(data_format));
         }
 
         let exif_tag: Result<ExifTag, _> = tag.try_into();
@@ -159,7 +159,7 @@ impl EntryValue {
                     t.with_timezone(t.offset())
                 };
 
-                return Ok(EntryValue::Time(t));
+                return Ok(Self::Time(t));
             }
         }
 
@@ -170,7 +170,7 @@ impl EntryValue {
                     "usigned byte with {x} components"
                 ))),
             },
-            DataFormat::Text => Ok(EntryValue::Text(
+            DataFormat::Text => Ok(Self::Text(
                 get_cstr(data).map_err(|e| Error::InvalidData(e.to_string()))?,
             )),
             DataFormat::U16 => {
@@ -240,7 +240,7 @@ impl EntryValue {
         }
     }
 
-    fn variant_default(data_format: DataFormat) -> EntryValue {
+    fn variant_default(data_format: DataFormat) -> Self {
         match data_format {
             DataFormat::U8 => Self::U8(0),
             DataFormat::Text => Self::Text(String::default()),
@@ -259,8 +259,8 @@ impl EntryValue {
 
     #[inline]
     pub fn as_str(&self) -> Option<&str> {
-        match self {
-            EntryValue::Text(v) => Some(v),
+        match *self {
+            Self::Text(ref v) => Some(v),
             _ => None,
         }
     }
@@ -443,18 +443,18 @@ impl Display for EntryValue {
                     f64::from(v.0) / f64::from(v.1)
                 )
             }
-            EntryValue::U32(v) => Display::fmt(&v, f),
-            EntryValue::U16(v) => Display::fmt(&v, f),
-            EntryValue::U64(v) => Display::fmt(&v, f),
-            EntryValue::I16(v) => Display::fmt(&v, f),
-            EntryValue::I32(v) => Display::fmt(&v, f),
-            EntryValue::I64(v) => Display::fmt(&v, f),
-            EntryValue::F32(v) => Display::fmt(&v, f),
-            EntryValue::F64(v) => Display::fmt(&v, f),
-            EntryValue::U8(v) => Display::fmt(&v, f),
-            EntryValue::I8(v) => Display::fmt(&v, f),
-            EntryValue::Time(v) => Display::fmt(&v.to_rfc3339(), f),
-            EntryValue::Undefined(v) => {
+            Self::U32(v) => Display::fmt(&v, f),
+            Self::U16(v) => Display::fmt(&v, f),
+            Self::U64(v) => Display::fmt(&v, f),
+            Self::I16(v) => Display::fmt(&v, f),
+            Self::I32(v) => Display::fmt(&v, f),
+            Self::I64(v) => Display::fmt(&v, f),
+            Self::F32(v) => Display::fmt(&v, f),
+            Self::F64(v) => Display::fmt(&v, f),
+            Self::U8(v) => Display::fmt(&v, f),
+            Self::I8(v) => Display::fmt(&v, f),
+            Self::Time(v) => Display::fmt(&v.to_rfc3339(), f),
+            Self::Undefined(ref v) => {
                 // Display up to MAX_DISPLAY_NUM components, and replace the rest with ellipsis
                 const MAX_DISPLAY_NUM: usize = 8;
                 let s = v
@@ -473,10 +473,10 @@ impl Display for EntryValue {
                     .join(", ");
                 write!(f, "Undefined[{}]", s)
             }
-            EntryValue::URationalArray(v) => {
+            Self::URationalArray(ref v) => {
                 write!(f, "URationalArray[{}]", rationals_to_string::<u32>(v))
             }
-            EntryValue::IRationalArray(v) => {
+            Self::IRationalArray(ref v) => {
                 write!(f, "IRationalArray[{}]", rationals_to_string::<i32>(v))
             }
         }

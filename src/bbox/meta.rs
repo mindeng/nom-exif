@@ -15,8 +15,8 @@ pub struct MetaBox {
     // idat: Option<IdatBox<'a>>,
 }
 
-impl ParseBody<MetaBox> for MetaBox {
-    fn parse_body<'a>(remain: &'a [u8], header: FullBoxHeader) -> IResult<&'a [u8], MetaBox> {
+impl ParseBody<Self> for MetaBox {
+    fn parse_body<'a>(remain: &'a [u8], header: FullBoxHeader) -> IResult<&'a [u8], Self> {
         let (remain, boxes) = many0(|remain: &'a [u8]| {
             if remain.is_empty() {
                 // stop many0 parsing to prevent Incomplete error
@@ -54,7 +54,7 @@ impl ParseBody<MetaBox> for MetaBox {
 
         Ok((
             remain,
-            MetaBox {
+            Self {
                 header,
                 iinf,
                 iloc,
