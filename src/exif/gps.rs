@@ -2,7 +2,7 @@ use crate::values::{IRational, URational};
 
 /// Represents gps information stored in [`GPSInfo`](crate::ExifTag::GPSInfo)
 /// subIFD.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct GPSInfo {
     /// N, S
     pub latitude_ref: char,
@@ -29,7 +29,7 @@ pub struct GPSInfo {
 }
 
 /// degree, minute, second,
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct LatLng(pub URational, pub URational, pub URational);
 
 impl GPSInfo {
