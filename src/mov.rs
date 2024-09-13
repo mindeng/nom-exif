@@ -315,7 +315,7 @@ fn extract_moov_body_from_buf(input: &[u8]) -> Result<Range<usize>, Error> {
 
 type EntriesResult<'a> = IResult<&'a [u8], Option<Vec<(String, EntryValue)>>>;
 
-fn parse_moov_body(input: &[u8]) -> EntriesResult {
+fn parse_moov_body(input: &[u8]) -> EntriesResult<'_> {
     let (remain, Some(meta)) = find_box(input, "meta")? else {
         return Ok((input, None));
     };

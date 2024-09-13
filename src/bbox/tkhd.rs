@@ -106,7 +106,7 @@ pub fn parse_video_tkhd_in_moov(input: &[u8]) -> crate::Result<Option<TkhdBox>> 
     Ok(Some(tkhd))
 }
 
-fn find_video_track(input: &[u8]) -> crate::Result<Option<BoxHolder>> {
+fn find_video_track(input: &[u8]) -> crate::Result<Option<BoxHolder<'_>>> {
     let (_, bbox) = travel_while(input, |b| {
         // find video track
         if b.box_type() != "trak" {

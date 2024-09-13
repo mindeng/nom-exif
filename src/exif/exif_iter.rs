@@ -61,7 +61,7 @@ impl<'a> ExifIter<'a> {
         endian: Endianness,
         tz: Option<String>,
         ifd0: Option<ImageFileDirectoryIter>,
-    ) -> ExifIter<'a> {
+    ) -> Self {
         let mut ifds = Vec::new();
         if let Some(ref ifd0) = ifd0 {
             ifds.push(ifd0.clone());
@@ -250,7 +250,7 @@ impl Debug for ParsedExifEntry {
 
 const MAX_IFD_DEPTH: usize = 8;
 
-impl<'a> Iterator for ExifIter<'a> {
+impl Iterator for ExifIter<'_> {
     type Item = ParsedExifEntry;
 
     #[inline]

@@ -183,7 +183,7 @@ pub(crate) fn check_qt_mp4(input: &[u8]) -> crate::Result<FileFormat> {
     .into())
 }
 
-fn get_ftyp_and_major_brand(input: &[u8]) -> crate::Result<(BoxHolder, Option<&[u8]>)> {
+fn get_ftyp_and_major_brand(input: &[u8]) -> crate::Result<(BoxHolder<'_>, Option<&[u8]>)> {
     let (_, bbox) = BoxHolder::parse(input).map_err(|e| format!("parse ftyp failed: {e}"))?;
 
     if bbox.box_type() == "ftyp" {

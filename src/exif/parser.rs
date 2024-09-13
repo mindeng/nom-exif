@@ -72,7 +72,7 @@ struct Inner<'a> {
 }
 
 impl<'a> Inner<'a> {
-    fn new(input: impl Into<input::Input<'a>>) -> Inner<'a> {
+    fn new(input: impl Into<input::Input<'a>>) -> Self {
         Self {
             input: input.into(),
         }

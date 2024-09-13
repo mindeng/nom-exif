@@ -143,7 +143,7 @@ pub struct BoxHolder<'a> {
 
 impl<'a> BoxHolder<'a> {
     #[tracing::instrument(skip_all)]
-    pub fn parse(input: &'a [u8]) -> IResult<&'a [u8], BoxHolder<'a>> {
+    pub fn parse(input: &'a [u8]) -> IResult<&'a [u8], Self> {
         let (_, header) = BoxHeader::parse(input)?;
         let Ok(box_size) = TryInto::<usize>::try_into(header.box_size) else {
             return Err(nom::Err::Failure(nom::error::Error::new(

@@ -63,20 +63,20 @@ impl From<(Vec<u8>, Range<usize>)> for Input<'static> {
     }
 }
 
-impl<'a> Deref for Input<'a> {
+impl Deref for Input<'_> {
     type Target = [u8];
     fn deref(&self) -> &Self::Target {
         &self.data[self.range.clone()]
     }
 }
 
-impl<'a> AsRef<[u8]> for Input<'a> {
+impl AsRef<[u8]> for Input<'_> {
     fn as_ref(&self) -> &[u8] {
         &self.data[self.range.clone()]
     }
 }
 
-impl<'a> Borrow<[u8]> for Input<'a> {
+impl Borrow<[u8]> for Input<'_> {
     fn borrow(&self) -> &[u8] {
         &self.data[self.range.clone()]
     }

@@ -113,7 +113,7 @@ impl EntryValue {
     /// # Data format
     ///
     /// See: [`DataFormat`].
-    pub(crate) fn parse(entry: &EntryData, tz: &Option<String>) -> Result<EntryValue, Error> {
+    pub(crate) fn parse(entry: &EntryData<'_>, tz: &Option<String>) -> Result<Self, Error> {
         if entry.data.is_empty() {
             return Err(Error::InvalidData(
                 "invalid DirectoryEntry: entry data is empty".into(),
