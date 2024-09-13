@@ -94,7 +94,7 @@ unsafe impl Send for AssociatedInput {}
 unsafe impl Sync for AssociatedInput {}
 
 impl AssociatedInput {
-    pub fn new(input: &[u8]) -> Self {
+    pub const fn new(input: &[u8]) -> Self {
         let data = input.as_ptr();
         Self {
             ptr: data,

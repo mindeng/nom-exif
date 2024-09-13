@@ -75,7 +75,7 @@ pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, E
                         .iter()
                         .map(|b| *b as char)
                         .collect::<String>();
-                    entries.push((LOCATION_KEY.to_owned(), location.into()))
+                    entries.push((LOCATION_KEY.to_owned(), location.into()));
                 }
             }
         }
@@ -149,6 +149,7 @@ pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, E
 /// ("height", U32(1280))"#,
 /// );
 /// ```
+#[inline]
 pub fn parse_mov_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, EntryValue)>> {
     parse_metadata(reader)
 }

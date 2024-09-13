@@ -47,6 +47,7 @@ pub enum FileFormat {
 }
 
 impl FileFormat {
+    #[inline]
     pub fn try_from_read<T: Read>(reader: T) -> crate::Result<Self> {
         const BUF_SIZE: usize = 4096;
         let mut buf = Vec::with_capacity(BUF_SIZE);
@@ -100,6 +101,7 @@ impl FileFormat {
 impl TryFrom<&[u8]> for FileFormat {
     type Error = crate::Error;
 
+    #[inline]
     fn try_from(input: &[u8]) -> Result<Self, Self::Error> {
         if check_jpeg(input).is_ok() {
             Ok(Self::Jpeg)

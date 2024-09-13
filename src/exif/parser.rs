@@ -117,8 +117,8 @@ pub struct Exif {
 }
 
 impl Exif {
-    fn new(gps_info: Option<GPSInfo>) -> Exif {
-        Exif {
+    const fn new(gps_info: Option<GPSInfo>) -> Self {
+        Self {
             ifds: Vec::new(),
             gps_info,
         }
@@ -138,6 +138,7 @@ impl Exif {
     /// - If you have any custom defined tag which does not exist in
     ///   [`ExifTag`], you can always get the entry value by a raw tag code,
     ///   see [`Self::get_by_tag_code`].
+    #[inline]
     pub fn get(&self, tag: ExifTag) -> Option<&EntryValue> {
         self.get_by_tag_code(tag.code())
     }
@@ -152,6 +153,7 @@ impl Exif {
     ///
     /// - If you want to handle parsing error, please consider to use
     ///   [`ExifIter`].
+    #[inline]
     pub fn get_by_tag_code(&self, tag: u16) -> Option<&EntryValue> {
         self.ifd0().and_then(|ifd0| ifd0.get(tag))
     }
@@ -165,6 +167,7 @@ impl Exif {
         since = "1.5.0",
         note = "please use [`Self::get`] or [`ExifIter`] instead"
     )]
+    #[inline]
     pub fn get_values<'b>(&self, tags: &'b [ExifTag]) -> Vec<(&'b ExifTag, EntryValue)> {
         tags.iter()
             .zip(tags.iter())
@@ -179,6 +182,7 @@ impl Exif {
 
     /// Get entry value for the specified `tag` in ifd0 (the main image).
     #[deprecated(since = "1.5.0", note = "please use [`Self::get`] instead")]
+    #[inline]
     pub fn get_value(&self, tag: &ExifTag) -> crate::Result<Option<EntryValue>> {
         #[allow(deprecated)]
         self.get_value_by_tag_code(tag.code())
@@ -186,16 +190,18 @@ impl Exif {
 
     /// Get entry value for the specified `tag` in ifd0 (the main image).
     #[deprecated(since = "1.5.0", note = "please use [`Self::get_by_tag_code`] instead")]
+    #[inline]
     pub fn get_value_by_tag_code(&self, tag: u16) -> crate::Result<Option<EntryValue>> {
-        Ok(self.get_by_tag_code(tag).map(|x| x.to_owned()))
+        Ok(self.get_by_tag_code(tag).map(ToOwned::to_owned))
     }
 
     /// Get parsed GPS information.
-    pub fn get_gps_info(&self) -> crate::Result<Option<GPSInfo>> {
-        Ok(self.gps_info.clone())
+    #[inline]
+    pub const fn get_gps_info(&self) -> crate::Result<Option<GPSInfo>> {
+        Ok(self.gps_info)
     }
 
-    fn put(&mut self, res: ParsedExifEntry) {
+    fn put(&mut self, res: &ParsedExifEntry) {
         while self.ifds.len() < res.ifd_index() + 1 {
             self.ifds.push(ParsedImageFileDirectory::new());
         }
@@ -210,12 +216,13 @@ impl Exif {
 }
 
 impl From<ExifIter<'_>> for Exif {
+    #[inline]
     fn from(iter: ExifIter<'_>) -> Self {
         let gps_info = iter.parse_gps_info().ok().flatten();
-        let mut exif = Exif::new(gps_info);
+        let mut exif = Self::new(gps_info);
 
         for it in iter {
-            exif.put(it);
+            exif.put(&it);
         }
 
         exif
@@ -264,9 +271,9 @@ impl Header {
 
 pub(crate) fn check_exif_header(data: &[u8]) -> bool {
     use nom::bytes::complete;
-    assert!(data.len() >= 6);
-
     const EXIF_IDENT: &str = "Exif\0\0";
+
+    assert!(data.len() >= 6);
     complete::tag::<_, _, nom::error::Error<_>>(EXIF_IDENT)(data).is_ok()
 }
 
@@ -344,7 +351,7 @@ mod tests {
                 speed_ref,
                 speed,
             }
-        )
+        );
     }
 
     #[test_case("exif.jpg")]

@@ -35,6 +35,7 @@ pub struct LatLng(pub URational, pub URational, pub URational);
 impl GPSInfo {
     /// Returns an ISO 6709 geographic point location string such as
     /// `+48.8577+002.295/`.
+    #[inline]
     pub fn format_iso6709(&self) -> String {
         let latitude = self.latitude.0.as_float()
             + self.latitude.1.as_float() / 60.0
@@ -62,12 +63,14 @@ impl GPSInfo {
     /// `+48.8577+002.295/`.
     #[deprecated(since = "1.2.3", note = "please use `format_iso6709` instead")]
     #[allow(clippy::wrong_self_convention)]
+    #[inline]
     pub fn to_iso6709(&self) -> String {
         self.format_iso6709()
     }
 }
 
 impl From<[(u32, u32); 3]> for LatLng {
+    #[inline]
     fn from(value: [(u32, u32); 3]) -> Self {
         let res: [URational; 3] = value.map(|x| x.into());
         res.into()
@@ -82,12 +85,14 @@ impl From<[(u32, u32); 3]> for LatLng {
 }
 
 impl From<[URational; 3]> for LatLng {
+    #[inline]
     fn from(value: [URational; 3]) -> Self {
         Self(value[0], value[1], value[2])
     }
 }
 
 impl FromIterator<(u32, u32)> for LatLng {
+    #[inline]
     fn from_iter<T: IntoIterator<Item = (u32, u32)>>(iter: T) -> Self {
         let rationals: Vec<URational> = iter.into_iter().take(3).map(|x| x.into()).collect();
         assert!(rationals.len() >= 3);
@@ -98,6 +103,7 @@ impl FromIterator<(u32, u32)> for LatLng {
 impl TryFrom<Vec<URational>> for LatLng {
     type Error = crate::Error;
 
+    #[inline]
     fn try_from(value: Vec<URational>) -> Result<Self, Self::Error> {
         if value.len() < 3 {
             Err("convert to LatLng failed; need at least 3 (u32, u32)".into())
@@ -108,6 +114,7 @@ impl TryFrom<Vec<URational>> for LatLng {
 }
 
 impl FromIterator<URational> for LatLng {
+    #[inline]
     fn from_iter<T: IntoIterator<Item = URational>>(iter: T) -> Self {
         let mut values = iter.into_iter();
         Self(
@@ -119,6 +126,7 @@ impl FromIterator<URational> for LatLng {
 }
 
 impl<'a> FromIterator<&'a URational> for LatLng {
+    #[inline]
     fn from_iter<T: IntoIterator<Item = &'a URational>>(iter: T) -> Self {
         let mut values = iter.into_iter();
         Self(
@@ -130,6 +138,7 @@ impl<'a> FromIterator<&'a URational> for LatLng {
 }
 
 impl<'a> FromIterator<&'a IRational> for LatLng {
+    #[inline]
     fn from_iter<T: IntoIterator<Item = &'a IRational>>(iter: T) -> Self {
         let mut values = iter.into_iter();
         Self(

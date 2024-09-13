@@ -39,6 +39,7 @@ pub struct ExifIter<'a> {
 }
 
 impl Clone for ExifIter<'_> {
+    #[inline]
     fn clone(&self) -> Self {
         let mut ifds = Vec::new();
         if let Some(ref ifd0) = self.ifd0 {
@@ -83,6 +84,7 @@ impl<'a> ExifIter<'a> {
     /// - An `Ok<Some<GPSInfo>>` if gps info is found and parsed successfully.
     /// - An `Ok<None>` if gps info is not found.
     /// - An `Err` if gps info is found but parsing failed.
+    #[inline]
     pub fn parse_gps_info(&self) -> crate::Result<Option<GPSInfo>> {
         let mut iter = self.shallow_clone();
         let Some(gps) = iter.find(|x| x.tag.tag().is_some_and(|t| t == ExifTag::GPSInfo)) else {
@@ -120,6 +122,7 @@ impl<'a> ExifIter<'a> {
 }
 
 impl Default for ExifIter<'static> {
+    #[inline]
     fn default() -> Self {
         Self::new(Input::default(), Endianness::Big, None, None)
     }
@@ -137,7 +140,8 @@ impl ParsedExifEntry {
     /// Get the IFD index value where this entry is located.
     /// - 0: ifd0 (main image)
     /// - 1: ifd1 (thumbnail)
-    pub fn ifd_index(&self) -> usize {
+    #[inline]
+    pub const fn ifd_index(&self) -> usize {
         self.ifd
     }
 
@@ -149,7 +153,8 @@ impl ParsedExifEntry {
     ///
     /// **Note**: You can always get the raw tag code via [`Self::tag_code`],
     /// no matter if it's recognized.
-    pub fn tag(&self) -> Option<ExifTag> {
+    #[inline]
+    pub const fn tag(&self) -> Option<ExifTag> {
         match self.tag {
             ExifTagCode::Tag(t) => Some(t),
             ExifTagCode::Code(_) => None,
@@ -161,7 +166,8 @@ impl ParsedExifEntry {
     /// In case you have some custom defined tags which doesn't exist in
     /// [`ExifTag`], you can use this method to get the raw tag code of this
     /// entry.
-    pub fn tag_code(&self) -> u16 {
+    #[inline]
+    pub const fn tag_code(&self) -> u16 {
         self.tag.code()
     }
 
@@ -171,6 +177,7 @@ impl ParsedExifEntry {
     /// - An error occurred while parsing this entry
     /// - The value has been taken by calling [`Self::take_value`] or
     ///   [`Self::take_result`] methods.
+    #[inline]
     pub fn has_value(&self) -> bool {
         self.res
             .borrow()
@@ -184,11 +191,9 @@ impl ParsedExifEntry {
     /// **Note**: This method can only be called once! Once it has been called,
     /// calling it again always returns `None`. You may want to check it by
     /// calling [`Self::has_value`] before calling this method.
+    #[inline]
     pub fn take_value(&self) -> Option<EntryValue> {
-        match self.res.take() {
-            Some(v) => v.ok(),
-            None => None,
-        }
+        self.res.take().and_then(Result::ok)
     }
 
     /// Takes out the parsed result of this entry.
@@ -204,14 +209,14 @@ impl ParsedExifEntry {
     /// - Otherwise, an Ok([`EntryValue`]) is returned.
     ///
     /// **Note**: This method can only be called once!
+    #[inline]
     pub fn take_result(&self) -> crate::Result<EntryValue> {
-        match self.res.take() {
-            Some(v) => v,
-            None => Err(crate::Error::EntryHasBeenTaken),
-        }
+        self.res
+            .take()
+            .map_or_else(|| Err(crate::Error::EntryHasBeenTaken), |v| v)
     }
 
-    fn make_ok(ifd: usize, tag: ExifTagCode, v: EntryValue) -> Self {
+    const fn make_ok(ifd: usize, tag: ExifTagCode, v: EntryValue) -> Self {
         Self {
             ifd,
             tag,
@@ -229,7 +234,8 @@ impl ParsedExifEntry {
 }
 
 impl Debug for ParsedExifEntry {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    #[inline]
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let value = match self.take_result() {
             Ok(v) => format!("{v}"),
             Err(e) => format!("{e:?}"),
@@ -247,6 +253,7 @@ const MAX_IFD_DEPTH: usize = 8;
 impl<'a> Iterator for ExifIter<'a> {
     type Item = ParsedExifEntry;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         let endian = self.endian;
         loop {
@@ -561,52 +568,46 @@ pub(crate) enum IfdEntry {
 }
 
 impl IfdEntry {
-    pub fn as_u8(&self) -> Option<u8> {
-        if let IfdEntry::Entry(EntryValue::U8(v)) = self {
-            Some(*v)
-        } else {
-            None
+    pub const fn as_u8(&self) -> Option<u8> {
+        if let Self::Entry(EntryValue::U8(v)) = *self {
+            return Some(v);
         }
+        None
     }
 
     pub fn as_char(&self) -> Option<char> {
-        if let IfdEntry::Entry(EntryValue::Text(s)) = self {
-            s.chars().next()
-        } else {
-            None
+        if let Self::Entry(EntryValue::Text(ref s)) = *self {
+            return s.chars().next();
         }
+        None
     }
 
-    fn as_irational(&self) -> Option<&IRational> {
-        if let IfdEntry::Entry(EntryValue::IRational(v)) = self {
-            Some(v)
-        } else {
-            None
+    const fn as_irational(&self) -> Option<&IRational> {
+        if let Self::Entry(EntryValue::IRational(ref v)) = *self {
+            return Some(v);
         }
+        None
     }
 
-    fn as_irational_array(&self) -> Option<&Vec<IRational>> {
-        if let IfdEntry::Entry(EntryValue::IRationalArray(v)) = self {
-            Some(v)
-        } else {
-            None
+    const fn as_irational_array(&self) -> Option<&Vec<IRational>> {
+        if let Self::Entry(EntryValue::IRationalArray(ref v)) = *self {
+            return Some(v);
         }
+        None
     }
 
-    fn as_urational(&self) -> Option<&URational> {
-        if let IfdEntry::Entry(EntryValue::URational(v)) = self {
-            Some(v)
-        } else {
-            None
+    const fn as_urational(&self) -> Option<&URational> {
+        if let Self::Entry(EntryValue::URational(ref v)) = *self {
+            return Some(v);
         }
+        None
     }
 
-    fn as_urational_array(&self) -> Option<&Vec<URational>> {
-        if let IfdEntry::Entry(EntryValue::URationalArray(v)) = self {
-            Some(v)
-        } else {
-            None
+    const fn as_urational_array(&self) -> Option<&Vec<URational>> {
+        if let Self::Entry(EntryValue::URationalArray(ref v)) = *self {
+            return Some(v);
         }
+        None
     }
 }
 
@@ -632,18 +633,20 @@ impl Iterator for ImageFileDirectoryIter {
             if offset == 0 {
                 // IFD parsing completed
                 return None;
-            } else if offset >= self.input.len() {
+            }
+
+            if offset >= self.input.len() {
                 // Ignore this error
                 return None;
-            } else {
-                return Some((
-                    ExifTagCode::Code(0),
-                    IfdEntry::Ifd {
-                        idx: self.ifd_idx + 1,
-                        offset,
-                    },
-                ));
             }
+
+            return Some((
+                ExifTagCode::Code(0),
+                IfdEntry::Ifd {
+                    idx: self.ifd_idx + 1,
+                    offset,
+                },
+            ));
         }
 
         let entry_data = self.input.slice_checked(self.pos..self.pos + ENTRY_SIZE)?;

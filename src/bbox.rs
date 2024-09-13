@@ -86,7 +86,7 @@ impl BoxHeader {
         ))
     }
 
-    pub fn body_size(&self) -> u64 {
+    pub const fn body_size(&self) -> u64 {
         self.box_size - self.header_size as u64
     }
 }
@@ -128,7 +128,7 @@ impl FullBoxHeader {
         ))
     }
 
-    pub fn body_size(&self) -> u64 {
+    pub const fn body_size(&self) -> u64 {
         self.box_size - self.header_size as u64
     }
 }
@@ -159,7 +159,7 @@ impl<'a> BoxHolder<'a> {
     }
 
     #[allow(unused)]
-    pub fn box_size(&self) -> u64 {
+    pub const fn box_size(&self) -> u64 {
         self.header.box_size
     }
 
@@ -167,7 +167,7 @@ impl<'a> BoxHolder<'a> {
         &self.header.box_type
     }
 
-    pub fn header_size(&self) -> usize {
+    pub const fn header_size(&self) -> usize {
         self.header.header_size
     }
 

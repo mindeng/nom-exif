@@ -46,6 +46,7 @@ use crate::{
 ///     .collect::<Vec<_>>()
 /// );
 /// ```
+#[inline]
 pub fn parse_heif_exif<R: Read + Seek>(reader: R) -> crate::Result<Option<Exif>> {
     read_exif(reader, Some(FileFormat::Heif))?
         .map(input_to_exif)

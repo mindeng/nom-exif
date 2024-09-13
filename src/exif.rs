@@ -35,6 +35,7 @@ use std::io::Read;
 /// - An `Ok<Some<ExifIter>>` if Exif data is found and parsed successfully.
 /// - An `Ok<None>` if Exif data is not found.
 /// - An `Err` if Exif data is found but parsing failed.
+#[inline]
 pub fn parse_exif<T: Read>(
     reader: T,
     format: Option<FileFormat>,
@@ -47,7 +48,8 @@ use tokio::io::AsyncRead;
 
 /// `async` version of [`parse_exif`].
 #[cfg(feature = "async")]
-pub async fn parse_exif_async<T: AsyncRead + Unpin>(
+#[inline]
+pub async fn parse_exif_async<T: AsyncRead + Unpin + Send>(
     reader: T,
     format: Option<FileFormat>,
 ) -> crate::Result<Option<ExifIter<'static>>> {

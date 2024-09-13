@@ -40,6 +40,7 @@ use crate::exif::{check_exif_header, input_to_exif, Exif};
 ///     .collect::<Vec<_>>()
 /// );
 /// ```
+#[inline]
 pub fn parse_jpeg_exif<R: Read>(reader: R) -> crate::Result<Option<Exif>> {
     read_exif(reader, Some(FileFormat::Jpeg))?
         .map(input_to_exif)
@@ -65,8 +66,8 @@ struct Segment<'a> {
     payload: &'a [u8],
 }
 
-impl<'a> Segment<'a> {
-    pub fn payload_len(&self) -> usize {
+impl Segment<'_> {
+    pub const fn payload_len(&self) -> usize {
         self.payload.len()
     }
 }
@@ -217,7 +218,7 @@ enum MarkerCode {
 }
 
 impl MarkerCode {
-    fn code(self) -> u8 {
+    const fn code(self) -> u8 {
         self as u8
     }
 }

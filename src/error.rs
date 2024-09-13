@@ -28,33 +28,36 @@ pub enum Error {
     EntryHasBeenTaken,
 }
 
-use Error::*;
-
 impl From<io::Error> for Error {
+    #[inline]
     fn from(value: io::Error) -> Self {
-        ParseFailed(value.into())
+        Self::ParseFailed(value.into())
     }
 }
 
 impl From<String> for Error {
-    fn from(src: String) -> Error {
-        ParseFailed(src.into())
+    #[inline]
+    fn from(src: String) -> Self {
+        Self::ParseFailed(src.into())
     }
 }
 
 impl From<&str> for Error {
-    fn from(src: &str) -> Error {
+    #[inline]
+    fn from(src: &str) -> Self {
         src.to_string().into()
     }
 }
 
 impl From<FromUtf8Error> for Error {
+    #[inline]
     fn from(value: FromUtf8Error) -> Self {
-        ParseFailed(value.into())
+        Self::ParseFailed(value.into())
     }
 }
 
 impl From<nom::Err<nom::error::Error<&[u8]>>> for crate::Error {
+    #[inline]
     fn from(e: nom::Err<nom::error::Error<&[u8]>>) -> Self {
         convert_parse_error(e, "")
     }
@@ -63,8 +66,7 @@ impl From<nom::Err<nom::error::Error<&[u8]>>> for crate::Error {
 pub(crate) fn convert_parse_error(e: nom::Err<nom::error::Error<&[u8]>>, message: &str) -> Error {
     let s = match e {
         nom::Err::Incomplete(_) => format!("{e}; {message}"),
-        nom::Err::Error(e) => format!("{}; {message}", e.code.description()),
-        nom::Err::Failure(e) => format!("{}; {message}", e.code.description()),
+        nom::Err::Failure(e) | nom::Err::Error(e) => format!("{}; {message}", e.code.description()),
     };
 
     s.into()

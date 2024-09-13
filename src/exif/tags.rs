@@ -21,18 +21,18 @@ impl ExifTagCode {
     /// Get recognized Exif tag, maybe return [`ExifTag::Unknown`] if it's
     /// unrecognized (you can get raw tag code via [`Self::code`] in this
     /// case).
-    pub(crate) fn tag(&self) -> Option<ExifTag> {
-        match self {
-            ExifTagCode::Tag(t) => Some(t.to_owned()),
-            ExifTagCode::Code(_) => None,
+    pub(crate) const fn tag(&self) -> Option<ExifTag> {
+        match *self {
+            Self::Tag(t) => Some(t),
+            Self::Code(_) => None,
         }
     }
 
     /// Get the raw tag code value.
-    pub(crate) fn code(&self) -> u16 {
-        match self {
-            ExifTagCode::Tag(t) => t.code(),
-            ExifTagCode::Code(c) => *c,
+    pub(crate) const fn code(&self) -> u16 {
+        match *self {
+            Self::Tag(t) => t.code(),
+            Self::Code(c) => c,
         }
     }
 }
@@ -40,11 +40,7 @@ impl ExifTagCode {
 impl From<u16> for ExifTagCode {
     fn from(v: u16) -> Self {
         let tag: crate::Result<ExifTag> = v.try_into();
-        if let Ok(tag) = tag {
-            ExifTagCode::Tag(tag)
-        } else {
-            ExifTagCode::Code(v)
-        }
+        tag.map_or(Self::Code(v), Self::Tag)
     }
 }
 
@@ -196,6 +192,7 @@ pub enum ExifTag {
 }
 
 impl ExifTag {
+    #[inline]
     pub const fn code(self) -> u16 {
         self as u16
     }
@@ -345,6 +342,8 @@ impl Display for ExifTag {
 
 impl TryFrom<u16> for ExifTag {
     type Error = crate::Error;
+
+    #[inline]
     fn try_from(v: u16) -> Result<Self, Self::Error> {
         match v {
             #[allow(deprecated)]
