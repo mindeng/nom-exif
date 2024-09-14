@@ -1,9 +1,14 @@
 use std::{fmt::Debug, sync::Arc};
 
-use nom::{number::complete, sequence::tuple};
+use nom::{
+    number::{complete, streaming, Endianness},
+    sequence::tuple,
+    IResult, Needed,
+};
 use thiserror::Error;
 
 use crate::{
+    error::ParsingError,
     input::{AssociatedInput, Input},
     slice::SliceChecked,
     values::{DataFormat, EntryData, IRational, ParseEntryError, URational},
@@ -88,14 +93,16 @@ impl<'a> ExifIter<'a> {
     /// through Arc.
     pub fn clone_and_rewind(&self) -> Self {
         let mut ifds = Vec::new();
-        if let Some(ref ifd0) = self.ifd0 {
-            ifds.push(ifd0.clone_and_rewind());
+        let mut ifd0 = None;
+        if let Some(ref ifd) = self.ifd0 {
+            ifd0 = Some(ifd.clone_and_rewind());
+            ifds.push(ifd.clone_and_rewind());
         }
         Self {
             input: self.input.clone(),
             tiff_header: self.tiff_header.clone(),
             tz: self.tz.clone(),
-            ifd0: self.ifd0.as_ref().map(|x| x.clone_and_rewind()),
+            ifd0,
             ifds,
         }
     }
@@ -116,16 +123,15 @@ impl<'a> ExifIter<'a> {
         };
 
         let offset = match gps.get_result() {
-            Ok(v) => v.as_u32().unwrap() as usize,
+            Ok(v) => v.as_u32().unwrap(),
             Err(e) => return Err(e.clone().into()),
         };
 
-        let data = &iter.input[..];
         let mut gps_subifd = match ImageFileDirectoryIter::try_new(
             gps.ifd,
-            iter.input.make_associated(data),
-            iter.tiff_header.clone(),
+            iter.input.make_associated(&iter.input[offset as usize..]),
             offset,
+            iter.tiff_header.endian,
             iter.tz.clone(),
         ) {
             Ok(ifd0) => ifd0,
@@ -142,6 +148,13 @@ impl<'a> ExifIter<'a> {
             self.tz.clone(),
             self.ifd0.as_ref().map(|x| x.clone_and_rewind()),
         )
+    }
+
+    fn get_data_pos(&'a self, value_or_offset: u32) -> u32 {
+        self.ifd0
+            .as_ref()
+            .map(|x| value_or_offset.saturating_sub(x.offset))
+            .unwrap_or(0)
     }
 }
 
@@ -301,8 +314,13 @@ const MAX_IFD_DEPTH: usize = 8;
 impl<'a> Iterator for ExifIter<'a> {
     type Item = ParsedExifEntry;
 
+    #[tracing::instrument(skip_all)]
     fn next(&mut self) -> Option<Self::Item> {
         loop {
+            if self.ifds.is_empty() {
+                return None;
+            }
+
             if self.ifds.len() > MAX_IFD_DEPTH {
                 self.ifds.clear();
                 tracing::error!(
@@ -316,49 +334,52 @@ impl<'a> Iterator for ExifIter<'a> {
 
             let mut ifd = self.ifds.pop()?;
             match ifd.next() {
-                Some((tag_code, entry)) => match entry {
-                    IfdEntry::Ifd { idx, offset } => {
-                        let is_subifd = if idx == ifd.ifd_idx {
-                            // Push the current ifd before enter sub-ifd.
-                            self.ifds.push(ifd);
-                            true
-                        } else {
-                            // Otherwise this is a next ifd. It means that the
-                            // current ifd has been parsed, so we don't need to
-                            // push it.
-                            false
-                        };
+                Some((tag_code, entry)) => {
+                    tracing::debug!(ifd = ifd.ifd_idx, ?tag_code, ?entry, "next tag entry");
 
-                        if let Ok(ifd) = ImageFileDirectoryIter::try_new(
-                            idx,
-                            self.input.make_associated(&self.input[..]),
-                            self.tiff_header.clone(),
-                            offset,
-                            self.tz.clone(),
-                        ) {
-                            self.ifds.push(ifd);
-                        }
+                    match entry {
+                        IfdEntry::IfdNew(new_ifd) => {
+                            let is_subifd = if new_ifd.ifd_idx == ifd.ifd_idx {
+                                // Push the current ifd before enter sub-ifd.
+                                self.ifds.push(ifd);
+                                true
+                            } else {
+                                // Otherwise this is a next ifd. It means that the
+                                // current ifd has been parsed, so we don't need to
+                                // push it.
+                                false
+                            };
 
-                        if is_subifd {
-                            // Return sub-ifd as an entry
-                            return Some(ParsedExifEntry::make_ok(
-                                idx,
-                                tag_code,
-                                EntryValue::U32(offset as u32),
-                            ));
+                            let (ifd_idx, offset) = (new_ifd.ifd_idx, new_ifd.offset);
+                            tracing::debug!(
+                                ifd = new_ifd.ifd_idx,
+                                offset = format!("0x{:08x}", new_ifd.offset),
+                                entry_num = new_ifd.entry_num,
+                                "new ifd"
+                            );
+                            self.ifds.push(new_ifd);
+
+                            if is_subifd {
+                                // Return sub-ifd as an entry
+                                return Some(ParsedExifEntry::make_ok(
+                                    ifd_idx,
+                                    tag_code,
+                                    EntryValue::U32(offset),
+                                ));
+                            }
+                        }
+                        IfdEntry::Entry(v) => {
+                            let res = Some(ParsedExifEntry::make_ok(ifd.ifd_idx, tag_code, v));
+                            self.ifds.push(ifd);
+                            return res;
+                        }
+                        IfdEntry::Err(e) => {
+                            let res = Some(ParsedExifEntry::make_err(ifd.ifd_idx, tag_code, e));
+                            self.ifds.push(ifd);
+                            return res;
                         }
                     }
-                    IfdEntry::Entry(v) => {
-                        let res = Some(ParsedExifEntry::make_ok(ifd.ifd_idx, tag_code, v));
-                        self.ifds.push(ifd);
-                        return res;
-                    }
-                    IfdEntry::Err(e) => {
-                        let res = Some(ParsedExifEntry::make_err(ifd.ifd_idx, tag_code, e));
-                        self.ifds.push(ifd);
-                        return res;
-                    }
-                },
+                }
                 None => continue,
             }
         }
@@ -367,20 +388,28 @@ impl<'a> Iterator for ExifIter<'a> {
 
 #[derive(Debug, Clone)]
 pub(crate) struct ImageFileDirectoryIter {
-    pub ifd_idx: usize,
-    pub input: AssociatedInput,
-    pub tiff_header: TiffHeader,
-    pub pos: usize,
-    pub entry_num: u16,
+    ifd_idx: usize,
+
+    // starts from "ifd/sub-ifd entries" (two bytes of ifd/sub-ifd entry num)
+    input: AssociatedInput,
+
+    // IFD data offset relative to the TIFF header.
+    offset: u32,
+
     pub tz: Option<String>,
+    endian: Endianness,
+    entry_num: u16,
 
     // Iterating status
-    pub index: u16,
+    index: u16,
+    pos: usize,
 }
 
 impl ImageFileDirectoryIter {
     pub fn rewind(&mut self) {
         self.index = 0;
+        // Skip the first two bytes, which is the entry num
+        self.pos = 2;
     }
 
     pub fn clone_and_rewind(&self) -> Self {
@@ -389,29 +418,38 @@ impl ImageFileDirectoryIter {
         it
     }
 
+    #[tracing::instrument(skip(input))]
     pub fn try_new(
         ifd_idx: usize,
         input: AssociatedInput,
-        tiff_header: TiffHeader,
-        pos: usize,
+        offset: u32,
+        endian: Endianness,
         tz: Option<String>,
     ) -> crate::Result<Self> {
+        if input.len() < 2 {
+            return Err(crate::Error::ParseFailed(
+                "ifd data is too small to decode entry num".into(),
+            ));
+        }
         // should use the complete header data to parse ifd entry num
-        let (_, entry_num) = TiffHeader::parse_ifd_entry_num(&input, pos, tiff_header.endian)?;
+        let (_, entry_num) = TiffHeader::parse_ifd_entry_num(&input[..], endian)?;
+        tracing::debug!(entry_num);
 
         Ok(Self {
             ifd_idx,
             input,
-            tiff_header,
-            pos: pos + 2, // Skip ifd entry num field
+            offset,
             entry_num,
             tz,
+            endian,
+            // Skip the first two bytes, which is the entry num
+            pos: 2,
             index: 0,
         })
     }
 
     fn parse_tag_entry(&self, entry_data: &[u8]) -> Option<(u16, IfdEntry)> {
-        let endian = self.tiff_header.endian;
+        let endian = self.endian;
         let (_, (tag, data_format, components_num, value_or_offset)) = tuple((
             complete::u16::<_, nom::error::Error<_>>(endian),
             complete::u16(endian),
@@ -420,12 +458,20 @@ impl ImageFileDirectoryIter {
         ))(entry_data)
         .ok()?;
 
+        if tag == 0 {
+            return None;
+        }
+
         let df: DataFormat = match data_format.try_into() {
             Ok(df) => df,
             Err(e) => return Some((tag, IfdEntry::Err(e))),
         };
         let (tag, res) = self.parse_entry(tag, df, components_num, entry_data, value_or_offset);
         Some((tag, res))
+    }
+
+    fn get_data_pos(&self, value_or_offset: u32) -> u32 {
+        value_or_offset.saturating_sub(self.offset)
     }
 
     fn parse_entry(
@@ -444,33 +490,31 @@ impl ImageFileDirectoryIter {
         let data = if size <= 4 {
             &entry_data[8..8 + size] // Safe-slice
         } else {
-            let start = value_or_offset as usize;
+            let start = self.get_data_pos(value_or_offset) as usize;
             let end = start + size;
             let Some(data) = self.input.slice_checked(start..end) else {
+                tracing::error!(
+                    "entry data overflow, self.offset: {:08x} tag: {:04x} start: {:08x} end: {:08x} ifd data len {:08x}",
+                    self.offset,
+                    tag,
+                    start,
+                    end,
+                    self.input.len(),
+                );
                 return (tag, IfdEntry::Err(ParseEntryError::EntrySizeTooBig));
             };
-
-            // Is `start` should be greater than or equal to `pos + ENTRY_SIZE` ?
 
             data
         };
 
         if SUBIFD_TAGS.contains(&tag) {
-            if (value_or_offset as usize) < self.input.len() {
-                return (
-                    tag,
-                    IfdEntry::Ifd {
-                        idx: self.ifd_idx,
-                        offset: value_or_offset as usize,
-                    },
-                );
-            } else {
-                return (tag, IfdEntry::Err(ParseEntryError::EntrySizeTooBig));
+            if let Some(value) = self.new_ifd_iter(self.ifd_idx, value_or_offset, tag) {
+                return value;
             }
         }
 
         let entry = EntryData {
-            endian: self.tiff_header.endian,
+            endian: self.endian,
             tag,
             data,
             data_format,
@@ -482,8 +526,40 @@ impl ImageFileDirectoryIter {
         }
     }
 
+    fn new_ifd_iter(
+        &self,
+        ifd_idx: usize,
+        value_or_offset: u32,
+        tag: u16,
+    ) -> Option<(u16, IfdEntry)> {
+        let pos = self.get_data_pos(value_or_offset) as usize;
+        if pos < self.input.len() {
+            match ImageFileDirectoryIter::try_new(
+                ifd_idx,
+                self.input.make_associated(&self.input[pos..]),
+                value_or_offset,
+                self.endian,
+                self.tz.clone(),
+            ) {
+                Ok(iter) => return Some((tag, IfdEntry::IfdNew(iter))),
+                Err(e) => {
+                    tracing::debug!(?tag, ?e, "parse sub ifd error");
+                }
+            }
+            // return (
+            //     tag,
+            //     // IfdEntry::Ifd {
+            //     //     idx: self.ifd_idx,
+            //     //     offset: value_or_offset,
+            //     // },
+            //     IfdEntry::IfdNew(),
+            // );
+        }
+        None
+    }
+
     pub fn find_tz_offset(&self) -> Option<String> {
-        let endian = self.tiff_header.endian;
+        let endian = self.endian;
         // find ExifOffset
         for i in 0..self.entry_num {
             let pos = self.pos + i as usize * IFD_ENTRY_SIZE;
@@ -513,10 +589,16 @@ impl ImageFileDirectoryIter {
             let (tag, res) = self.parse_tag_entry(entry_data)?;
             if TZ_OFFSET_TAGS.contains(&tag) {
                 return match res {
-                    IfdEntry::Ifd { idx: _, offset: _ } => unreachable!(),
+                    IfdEntry::IfdNew(_) => {
+                        tracing::error!("shouldn't be here");
+                        continue;
+                    }
                     IfdEntry::Entry(v) => match v {
-                        EntryValue::Text(v) => Some(v),
-                        _ => unreachable!(),
+                        EntryValue::Text(v) => return Some(v),
+                        _ => {
+                            tracing::error!("shouldn't be here");
+                            continue;
+                        }
                     },
                     IfdEntry::Err(_) => None,
                 };
@@ -603,7 +685,7 @@ impl ImageFileDirectoryIter {
 
 #[derive(Debug)]
 pub(crate) enum IfdEntry {
-    Ifd { idx: usize, offset: usize }, // ifd index
+    IfdNew(ImageFileDirectoryIter), // ifd index
     Entry(EntryValue),
     Err(ParseEntryError),
 }
@@ -668,29 +750,38 @@ const TZ_OFFSET_TAGS: &[u16] = &[
 impl Iterator for ImageFileDirectoryIter {
     type Item = (ExifTagCode, IfdEntry);
 
+    #[tracing::instrument(skip(self))]
     fn next(&mut self) -> Option<Self::Item> {
-        let endian = self.tiff_header.endian;
-        if self.index >= self.entry_num {
+        tracing::debug!(
+            ifd = self.ifd_idx,
+            index = self.index,
+            entry_num = self.entry_num,
+            pos = format!("{:08x}", self.pos),
+            "next IFD entry"
+        );
+        if self.input.len() < self.pos + IFD_ENTRY_SIZE {
+            return None;
+        }
+
+        let endian = self.endian;
+        if self.index > self.entry_num {
+            return None;
+        }
+        if self.index == self.entry_num {
+            tracing::debug!(index = self.index, pos = self.pos, "next IFD");
+            self.index += 1;
             // next IFD
             let (_, offset) =
                 complete::u32::<_, nom::error::Error<_>>(endian)(&self.input[self.pos..]).ok()?;
-            let offset = offset as usize;
 
             if offset == 0 {
                 // IFD parsing completed
                 return None;
-            } else if offset >= self.input.len() {
-                // Ignore this error
-                return None;
-            } else {
-                return Some((
-                    ExifTagCode::Code(0),
-                    IfdEntry::Ifd {
-                        idx: self.ifd_idx + 1,
-                        offset,
-                    },
-                ));
             }
+
+            return self
+                .new_ifd_iter(self.ifd_idx + 1, offset, 0xffff_u16)
+                .map(|x| (x.0.into(), x.1));
         }
 
         let entry_data = self
@@ -704,3 +795,172 @@ impl Iterator for ImageFileDirectoryIter {
         Some((tag.into(), res)) // Safe-slice
     }
 }
+
+// Only iterates headers, don't parse entries.
+pub(crate) struct IFDHeaderIter<'a> {
+    // starts from "ifd/sub-ifd entries" (two bytes of ifd/sub-ifd entry num)
+    ifd_data: &'a [u8],
+
+    // IFD data offset relative to the TIFF header.
+    offset: u32,
+
+    endian: Endianness,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct EntryInfo<'a> {
+    pub tag: u16,
+    pub data: &'a [u8],
+    pub data_format: DataFormat,
+    pub data_offset: Option<u32>,
+    pub sub_ifd_offset: Option<u32>,
+}
+
+impl<'a> IFDHeaderIter<'a> {
+    pub fn new(input: &'a [u8], offset: u32, endian: Endianness) -> Self {
+        Self {
+            ifd_data: input,
+            endian,
+            offset,
+        }
+    }
+
+    #[tracing::instrument(skip_all)]
+    fn parse_tag_entry(
+        &'a self,
+        entry_data: &'a [u8],
+        pos: usize,
+    ) -> IResult<&'a [u8], Option<EntryInfo<'a>>> {
+        let endian = self.endian;
+        let (remain, (tag, data_format, components_num, value_or_offset)) = tuple((
+            streaming::u16::<_, nom::error::Error<_>>(endian),
+            streaming::u16(endian),
+            streaming::u32(endian),
+            streaming::u32(endian),
+        ))(entry_data)?;
+
+        if tag == 0 {
+            return Ok((remain, None));
+        }
+
+        let data_format: DataFormat = match data_format.try_into() {
+            Ok(df) => df,
+            // Ignore errors here
+            Err(e) => {
+                tracing::error!(?e);
+                return Ok((&[][..], None));
+            }
+        };
+
+        // get component_size according to data format
+        let component_size = data_format.component_size();
+
+        // get entry data
+        let size = components_num as usize * component_size;
+        let (data, data_offset) = if size > 4 {
+            let start = self.get_data_pos(value_or_offset) as usize;
+            let end = start + size;
+            tracing::debug!(
+                components_num,
+                size,
+                "tag {:04x} entry data @ offset {:08x} start {:08x} end {:08x} my_offset: {:08x} data len {:08x}",
+                tag,
+                value_or_offset,
+                start,
+                end,
+                self.offset,
+                self.ifd_data.len()
+            );
+            if end > self.ifd_data.len() {
+                return Err(nom::Err::Incomplete(Needed::new(end - self.ifd_data.len())));
+            }
+            (&self.ifd_data[start..end], Some(start as u32))
+        } else {
+            (entry_data, None)
+        };
+
+        let sub_ifd_offset = if SUBIFD_TAGS.contains(&tag) {
+            let offset = self.get_data_pos(value_or_offset);
+            Some(offset)
+        } else {
+            None
+        };
+
+        let entry = EntryInfo {
+            tag,
+            data,
+            data_format,
+            data_offset,
+            sub_ifd_offset,
+        };
+        Ok((&[][..], Some(entry)))
+    }
+
+    fn get_data_pos(&'a self, value_or_offset: u32) -> u32 {
+        value_or_offset.saturating_sub(self.offset)
+    }
+
+    fn parse_ifd_entry(&self, pos: u32) -> IResult<&[u8], Option<IFDHeaderIter<'a>>> {
+        let (remain, entry_data) =
+            nom::bytes::streaming::take(IFD_ENTRY_SIZE)(&self.ifd_data[pos as usize..])?;
+        let pos = self.ifd_data.len() - remain.len();
+
+        let (remain, entry) = self.parse_tag_entry(entry_data, pos)?;
+
+        if let Some(entry) = entry {
+            // if !cb(&entry) {
+            //     return Ok((&[][..], ()));
+            // }
+
+            if let Some(offset) = entry.sub_ifd_offset {
+                let tag: ExifTag = entry.tag.try_into().unwrap();
+                println!("sub-ifd: {:?}", tag);
+                let sub_ifd =
+                    IFDHeaderIter::new(&self.ifd_data[offset as usize..], offset, self.endian);
+                return Ok((remain, Some(sub_ifd)));
+            }
+        }
+
+        Ok((remain, None))
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn parse_ifd(&mut self, depth: usize) -> Result<(), ParsingError> {
+        if depth > 1 {
+            let msg = "depth shouldn't be greater than 1";
+            tracing::error!(msg);
+            return Err(ParsingError::Failed(msg.into()));
+        }
+
+        tracing::debug!(ifd_data_len = self.ifd_data.len(), offset = self.offset);
+        let (remain, entry_num) = TiffHeader::parse_ifd_entry_num(self.ifd_data, self.endian)?;
+        let mut pos = self.ifd_data.len() - remain.len();
+
+        let mut sub_ifds = Vec::new();
+
+        // parse entries
+        for _ in 0..entry_num {
+            let (_, sub_ifd) = self.parse_ifd_entry(pos as u32)?;
+            pos += IFD_ENTRY_SIZE;
+
+            if let Some(ifd) = sub_ifd {
+                sub_ifds.push(ifd);
+            }
+        }
+
+        for mut ifd in sub_ifds {
+            ifd.parse_ifd(depth + 1)?;
+        }
+
+        // ignore ifd1
+        Ok(())
+    }
+}
+
+// fn keep_incomplete_err_only<T: Debug>(e: nom::Err<T>) -> nom::Err<String> {
+//     match e {
+//         nom::Err::Incomplete(n) => nom::Err::Incomplete(n),
+//         nom::Err::Error(e) => nom::Err::Error(format!("parse ifd error: {:?}", e)),
+//         nom::Err::Failure(_) => nom::Err::Failure("parse ifd failure".to_string()),
+//     }
+// }

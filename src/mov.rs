@@ -331,7 +331,7 @@ pub(crate) fn extract_moov_body_from_buf(input: &[u8]) -> Result<Range<usize>, P
     .map_err(|e| convert_error(e, "search atom moov failed"))?;
 
     if to_skip > 0 {
-        return Err(ParsingError::ClearAndSkip(to_skip));
+        return Err(ParsingError::ClearAndSkip(to_skip + input.len(), None));
     }
 
     let (_, body) = streaming::take(header.body_size())(remain)
@@ -408,8 +408,6 @@ mod tests {
 
     #[test_case("meta.mov")]
     fn mov_parse(path: &str) {
-        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
-
         let reader = open_sample(path).unwrap();
         let entries = parse_metadata(reader).unwrap();
         assert_eq!(

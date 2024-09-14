@@ -61,13 +61,19 @@ fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
         let iter: ExifIter = parser.parse(ms)?;
         iter.into_iter()
             .filter_map(|mut x| {
-                let v = x.take_value()?;
-                Some((
-                    x.tag()
-                        .map(|x| x.to_string())
-                        .unwrap_or_else(|| format!("Unknown(0x{:04x})", x.tag_code())),
-                    v,
-                ))
+                let res = x.take_result();
+                match res {
+                    Ok(v) => Some((
+                        x.tag()
+                            .map(|x| x.to_string())
+                            .unwrap_or_else(|| format!("Unknown(0x{:04x})", x.tag_code())),
+                        v,
+                    )),
+                    Err(e) => {
+                        tracing::error!(?e);
+                        None
+                    }
+                }
             })
             .collect::<Vec<_>>()
     } else {

@@ -1,4 +1,8 @@
-use std::{fmt::Debug, io, string::FromUtf8Error};
+use std::{
+    fmt::Debug,
+    io::{self, SeekFrom},
+    string::FromUtf8Error,
+};
 use thiserror::Error;
 
 type FallbackError = Box<dyn std::error::Error + Send + Sync>;
@@ -69,8 +73,8 @@ pub enum ParsingError {
     #[error("need more bytes: {0}")]
     Need(usize),
 
-    #[error("clear and skip bytes: {0}")]
-    ClearAndSkip(usize),
+    #[error("clear and skip bytes: {0:?}, state: {1:?}")]
+    ClearAndSkip(usize, Option<ParsingState>),
 
     #[error("{0}")]
     Failed(String),
@@ -99,6 +103,8 @@ impl From<ParsedError> for crate::Error {
 }
 
 use Error::*;
+
+use crate::parser::ParsingState;
 
 impl From<io::Error> for Error {
     fn from(value: io::Error) -> Self {

@@ -1,24 +1,25 @@
 use nom::{
     branch::alt,
-    bytes::complete::{tag, take},
+    bytes::streaming::{tag, take},
     combinator::{fail, map, verify},
     number::{
-        complete::{u16, u32},
+        streaming::{u16, u32},
         Endianness,
     },
     sequence::tuple,
-    IResult,
+    IResult, Needed,
 };
 
 use crate::{
     error::{ParsedError, ParsingError},
     exif::{ExifTag, GPSInfo},
     input::{self, Input},
+    parser::ParsingState,
     EntryValue,
 };
 
 use super::{
-    exif_iter::{ExifIter, ImageFileDirectoryIter, ParsedExifEntry},
+    exif_iter::{ExifIter, IFDHeaderIter, ImageFileDirectoryIter, ParsedExifEntry},
     ifd::ParsedImageFileDirectory,
 };
 
@@ -26,7 +27,7 @@ use super::{
 pub(crate) fn input_to_iter<'a>(input: impl Into<input::Input<'a>>) -> crate::Result<ExifIter<'a>> {
     let input = input.into();
     let parser = ExifParser::new(input);
-    let iter: ExifIter<'a> = parser.parse_iter()?;
+    let iter: ExifIter<'a> = parser.parse_iter(None)?;
     Ok(iter)
 }
 
@@ -62,10 +63,10 @@ impl<'a> ExifParser<'a> {
     /// The one exception is the time zone entries. The method will try to find
     /// and parse the time zone data first, so we can correctly parse all time
     /// information in subsequent iterates.
-    pub fn parse_iter(self) -> Result<ExifIter<'a>, ParsedError> {
-        let iter = self.inner.try_into_iter().map_err(|e| match e {
+    pub fn parse_iter(self, state: Option<ParsingState>) -> Result<ExifIter<'a>, ParsedError> {
+        let iter = self.inner.try_into_iter(state).map_err(|e| match e {
             ParsingError::Need(_) => unreachable!(),
-            ParsingError::ClearAndSkip(_) => unreachable!(),
+            ParsingError::ClearAndSkip(_, _) => unreachable!(),
             ParsingError::Failed(v) => ParsedError::Failed(v),
         })?;
         Ok(iter)
@@ -83,19 +84,34 @@ impl<'a> Inner<'a> {
         }
     }
 
-    fn try_into_iter(self) -> Result<ExifIter<'a>, ParsingError> {
-        let data = &self.input[..];
-        let (remain, header) = TiffHeader::parse(data)?;
+    fn try_into_iter(self, state: Option<ParsingState>) -> Result<ExifIter<'a>, ParsingError> {
+        let (header, start) = match state {
+            // header has been parsed, and header has been skipped, input data
+            // is the IFD data
+            Some(ParsingState::TiffHeader(header)) => (header, 0),
+            None => {
+                // header has not been parsed, input data includes IFD header
+                let (_, header) = TiffHeader::parse(&self.input[..])?;
+                let start = header.ifd0_offset as usize;
+                if start > self.input.len() {
+                    return Err(ParsingError::ClearAndSkip(
+                        start,
+                        Some(ParsingState::TiffHeader(header)),
+                    ));
+                    // return Err(ParsingError::Need(start - data.len()));
+                }
 
-        if remain.is_empty() {
-            return Ok(ExifIter::default());
-        }
+                (header, start)
+            }
+        };
+
+        let data = &self.input[..];
 
         let mut ifd0 = match ImageFileDirectoryIter::try_new(
             0,
-            self.input.make_associated(data),
-            header.clone(),
-            header.ifd0_offset as usize,
+            self.input.make_associated(&data[start..]),
+            header.ifd0_offset,
+            header.endian,
             None,
         ) {
             Ok(ifd0) => ifd0,
@@ -256,20 +272,9 @@ impl TiffHeader {
         Ok((remain, header))
     }
 
-    // `input` should contains complete TIFF header data
     #[tracing::instrument(skip_all)]
-    pub fn parse_ifd_entry_num<'a>(
-        input: &'a [u8],
-        offset: usize,
-        endian: Endianness,
-    ) -> IResult<&'a [u8], u16> {
-        // jump to ifd0
-        let (remain, _) = take::<_, _, nom::error::Error<_>>((offset) as usize)(input)?;
-        if remain.is_empty() {
-            return Ok((remain, 0));
-        }
-
-        let (remain, num) = nom::number::complete::u16(endian)(remain)?; // Safe-slice
+    pub fn parse_ifd_entry_num<'a>(input: &'a [u8], endian: Endianness) -> IResult<&'a [u8], u16> {
+        let (remain, num) = nom::number::streaming::u16(endian)(input)?; // Safe-slice
         if num == 0 {
             return Ok((remain, 0));
         }
@@ -280,12 +285,7 @@ impl TiffHeader {
             .expect("should be fit");
 
         if size > remain.len() {
-            tracing::error!(
-                data_size = remain.len(),
-                entry_num = num,
-                "ifd entry num is too big"
-            );
-            return fail(remain);
+            return Err(nom::Err::Incomplete(Needed::new(size - remain.len())));
         }
 
         Ok((remain, num))
@@ -408,7 +408,7 @@ mod tests {
             .map(|x| Input::from_vec_range(buf, x))
             .unwrap();
         let parser = ExifParser::new(data);
-        let iter = parser.parse_iter().unwrap();
+        let iter = parser.parse_iter(None).unwrap();
         let gps = iter.parse_gps_info().unwrap().unwrap();
         assert_eq!(gps.format_iso6709(), "+22.53113+114.02148/");
     }
@@ -422,7 +422,7 @@ mod tests {
             .map(|x| Input::from_vec_range(buf, x))
             .unwrap();
         let parser = ExifParser::new(data);
-        let iter = parser.parse_iter().unwrap();
+        let iter = parser.parse_iter(None).unwrap();
         let iter2 = iter.clone();
 
         let mut expect = String::new();

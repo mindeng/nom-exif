@@ -196,6 +196,8 @@ pub enum ExifTag {
     ThumbnailOffset = 0x0000_0201,
     ThumbnailLength = 0x0000_0202,
     Compression = 0x0000_0103,
+    BitsPerSample = 0x0000_0102,
+    PhotometricInterpretation = 0x0000_0106,
 }
 
 impl ExifTag {
@@ -332,6 +334,8 @@ impl From<ExifTag> for &str {
             ExifTag::ThumbnailOffset => "ThumbnailOffset",
             ExifTag::ThumbnailLength => "ThumbnailLength",
             ExifTag::Compression => "Compression",
+            ExifTag::BitsPerSample => "BitsPerSample",
+            ExifTag::PhotometricInterpretation => "PhotometricInterpretation",
         }
     }
 }
@@ -460,6 +464,8 @@ impl TryFrom<u16> for ExifTag {
             x if x == ThumbnailOffset.code() => Self::ThumbnailOffset,
             x if x == ThumbnailLength.code() => Self::ThumbnailLength,
             x if x == Compression.code() => Self::Compression,
+            x if x == BitsPerSample.code() => Self::BitsPerSample,
+            x if x == PhotometricInterpretation.code() => Self::PhotometricInterpretation,
 
             o => return Err(format!("Unrecognized ExifTag 0x{o:04x}").into()),
         };

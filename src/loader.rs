@@ -57,10 +57,10 @@ pub(crate) trait Load: BufLoad {
         loop {
             match parse(self.buf(), at) {
                 Ok(o) => return Ok(o),
-                Err(ParsingError::ClearAndSkip(n)) => {
+                Err(ParsingError::ClearAndSkip(n, _)) => {
                     tracing::debug!(n, "clear and skip bytes");
+                    self.skip(n - self.buf().len())?;
                     self.clear();
-                    self.skip(n)?;
                     self.read_buf(INIT_BUF_SIZE)?;
                 }
                 Err(ParsingError::Need(i)) => {
@@ -104,10 +104,10 @@ pub(crate) trait AsyncLoad: BufLoad {
         loop {
             match parse(self.buf(), at) {
                 Ok(o) => return Ok(o),
-                Err(ParsingError::ClearAndSkip(n)) => {
+                Err(ParsingError::ClearAndSkip(n, _)) => {
                     tracing::debug!(n, "clear and skip bytes");
+                    self.skip(n - self.buf().len()).await?;
                     self.clear();
-                    self.skip(n).await?;
                     self.read_buf(INIT_BUF_SIZE).await?;
                 }
                 Err(ParsingError::Need(i)) => {

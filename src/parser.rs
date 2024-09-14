@@ -10,15 +10,15 @@ use std::{
 
 use crate::{
     error::{ParsedError, ParsingError},
-    exif::ExifParser,
+    exif::{ExifParser, IFDHeaderIter, TiffHeader},
     file::Mime,
     heif,
     input::Input,
     jpeg,
     skip::Skip,
-    slice::SubsliceRange,
+    slice::SubsliceRange as _,
     video::parse_track_info,
-    ExifIter, Seekable, TrackInfo, Unseekable,
+    ExifIter, Seekable, TrackInfo, Unseekable, ZB,
 };
 
 /// `MediaSource` represents a media data source that can be parsed by
@@ -122,6 +122,14 @@ pub(crate) trait Buffer {
     fn buffer(&self) -> &[u8];
     fn fill_buf<R: Read>(&mut self, read: &mut R, size: usize) -> io::Result<usize>;
     fn clear(&mut self);
+
+    fn set_position(&mut self, pos: usize);
+    fn position(&self) -> usize;
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum ParsingState {
+    TiffHeader(TiffHeader),
 }
 
 pub(crate) trait BufParse: Buffer {
@@ -131,9 +139,13 @@ pub(crate) trait BufParse: Buffer {
         mut parse: P,
     ) -> Result<O, ParsedError>
     where
-        P: FnMut(&[u8]) -> Result<O, ParsingError>,
+        P: FnMut(&[u8], Option<ParsingState>) -> Result<O, ParsingError>,
     {
-        self.load_and_parse_with_offset::<R, S, _, _>(reader, |data, _| parse(data), 0)
+        self.load_and_parse_with_offset::<R, S, _, _>(
+            reader,
+            |data, _, state| parse(data, state),
+            0,
+        )
     }
 
     #[tracing::instrument(skip_all)]
@@ -144,21 +156,29 @@ pub(crate) trait BufParse: Buffer {
         offset: usize,
     ) -> Result<O, ParsedError>
     where
-        P: FnMut(&[u8], usize) -> Result<O, ParsingError>,
+        P: FnMut(&[u8], usize, Option<ParsingState>) -> Result<O, ParsingError>,
     {
         if offset >= self.buffer().len() {
             self.fill_buf(reader, MIN_GROW_SIZE)?;
         }
 
+        let mut parsing_state: Option<ParsingState> = None;
         loop {
-            match parse(self.buffer(), offset) {
+            match parse(self.buffer(), offset, parsing_state.take()) {
                 Ok(o) => return Ok(o),
-                Err(ParsingError::ClearAndSkip(n)) => {
-                    tracing::debug!(n, "clear and skip bytes");
-                    self.clear();
-                    // self.skip(read, n)?;
-                    S::skip(reader, n.try_into().unwrap())?;
-                    self.fill_buf(reader, MIN_GROW_SIZE)?;
+                Err(ParsingError::ClearAndSkip(n, skip_state)) => {
+                    tracing::debug!(n, ?skip_state, "ClearAndSkip");
+                    if n <= self.buffer().len() {
+                        tracing::debug!(n, "set_position");
+                        self.set_position(n);
+                    } else {
+                        let skip_n = n - self.buffer().len();
+                        tracing::debug!(skip_n, "clear and skip bytes");
+                        S::skip(reader, skip_n.try_into().unwrap())?;
+                        self.clear();
+                        self.fill_buf(reader, MIN_GROW_SIZE)?;
+                    }
+                    parsing_state = skip_state;
                 }
                 Err(ParsingError::Need(i)) => {
                     tracing::debug!(need = i, "need more bytes");
@@ -181,7 +201,7 @@ impl<T: Buffer> BufParse for T {}
 
 impl Buffer for MediaParser {
     fn buffer(&self) -> &[u8] {
-        &self.buf
+        &self.buf[self.position()..]
     }
 
     fn fill_buf<R: Read>(&mut self, read: &mut R, size: usize) -> io::Result<usize> {
@@ -197,6 +217,14 @@ impl Buffer for MediaParser {
 
     fn clear(&mut self) {
         self.buf.clear();
+    }
+
+    fn set_position(&mut self, pos: usize) {
+        self.position = pos;
+    }
+
+    fn position(&self) -> usize {
+        self.position
     }
 }
 
@@ -278,28 +306,55 @@ pub trait ParseOutput<'a, R, S>: Sized + 'a {
 
 impl<'a, R: Read, S: Skip<R>> ParseOutput<'a, R, S> for ExifIter<'a> {
     fn parse(parser: &'a mut MediaParser, mf: &mut MediaSource<R, S>) -> crate::Result<Self> {
-        let range =
-            parser.load_and_parse::<R, S, _, Option<Range<_>>>(mf.read.by_ref(), |buf| match mf
-                .mime
-            {
+        let out = parser.load_and_parse::<R, S, _, Option<(Range<_>, Option<ParsingState>)>>(
+            mf.read.by_ref(),
+            |buf, state| match mf.mime {
                 Mime::Image(img) => {
                     let (_, exif_data) = match img {
                         crate::file::MimeImage::Jpeg => jpeg::extract_exif_data(buf)?,
                         crate::file::MimeImage::Heic | crate::file::MimeImage::Heif => {
                             heif::extract_exif_data(buf)?
                         }
-                        crate::file::MimeImage::Tiff => todo!(),
+                        crate::file::MimeImage::Tiff => {
+                            let (header, data_start) = match state.as_ref() {
+                                Some(ParsingState::TiffHeader(h)) => (h.to_owned(), 0),
+                                None => {
+                                    let (_, header) = TiffHeader::parse(buf)?;
+                                    if header.ifd0_offset as usize > buf.len() {
+                                        return Err(ParsingError::ClearAndSkip(
+                                            header.ifd0_offset as usize,
+                                            Some(ParsingState::TiffHeader(header)),
+                                        ));
+                                    }
+                                    let start = header.ifd0_offset as usize;
+                                    (header, start)
+                                }
+                            };
+
+                            // full fill TIFF data
+                            let mut iter = IFDHeaderIter::new(
+                                &buf[data_start..],
+                                header.ifd0_offset,
+                                header.endian,
+                            );
+                            iter.parse_ifd(0)?;
+
+                            (ZB, Some(buf))
+                        }
                     };
 
-                    Ok(exif_data.and_then(|x| buf.subslice_range(x)))
+                    Ok(exif_data
+                        .and_then(|x| buf.subslice_range(x))
+                        .map(|x| (x, state)))
                 }
                 Mime::Video(_) => Err("not an image".into()),
-            })?;
+            },
+        )?;
 
-        if let Some(range) = range {
+        if let Some((range, state)) = out {
             let input: Input<'a> = parser.buffer()[range].into();
             let parser = ExifParser::new(input);
-            let iter = parser.parse_iter()?;
+            let iter = parser.parse_iter(state)?;
             Ok(iter)
         } else {
             Err("parse exif failed".into())
@@ -312,7 +367,9 @@ impl<'a, R: Read, S: Skip<R>> ParseOutput<'a, R, S> for TrackInfo {
         let out = match mf.mime {
             Mime::Image(_) => return Err("not a track".into()),
             Mime::Video(v) => parser
-                .load_and_parse::<R, S, _, _>(mf.read.by_ref(), |data| parse_track_info(data, v))?,
+                .load_and_parse::<R, S, _, _>(mf.read.by_ref(), |data, _| {
+                    parse_track_info(data, v)
+                })?,
         };
 
         Ok(out)
@@ -323,24 +380,21 @@ impl<'a, R: Read, S: Skip<R>> ParseOutput<'a, R, S> for TrackInfo {
 ///
 /// MediaParser manages an inner parse buffer that can be shared between
 /// multiple parsing tasks, thus avoiding frequent memory allocations.
+#[derive(Debug, Default)]
 pub struct MediaParser {
     buf: Vec<u8>,
-}
-
-impl Default for MediaParser {
-    fn default() -> Self {
-        Self::new()
-    }
+    position: usize,
 }
 
 impl MediaParser {
     pub fn new() -> Self {
-        Self::with_capacity(INIT_BUF_SIZE)
+        Self::default()
     }
 
     fn with_capacity(size: usize) -> Self {
         Self {
             buf: Vec::with_capacity(size),
+            position: 0,
         }
     }
 }
@@ -385,8 +439,7 @@ mod tests {
     #[case("mkv_640x360.mkv", Track)]
     #[case("exif-one-entry.heic", Exif)]
     #[case("no-exif.jpg", NoData)]
-    // TODO:
-    // #[case("tif.tif", Exif)]
+    #[case("tif.tif", Exif)]
     #[case("ramdisk.img", Invalid)]
     #[case("webm_480.webm", Track)]
     fn parse_media(path: &str, te: TrackExif) {

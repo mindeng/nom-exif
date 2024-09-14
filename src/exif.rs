@@ -12,6 +12,7 @@ use std::io::Read;
 
 pub(crate) mod ifd;
 pub(crate) use parser::{check_exif_header, input_to_exif, input_to_iter, ExifParser, TiffHeader};
+pub(crate) use exif_iter::IFDHeaderIter;
 
 mod exif_iter;
 mod gps;
@@ -28,7 +29,6 @@ mod tags;
 ///
 /// - *.heic, *.heif, etc.
 /// - *.jpg, *.jpeg, etc.
-/// - *.tiff
 ///
 /// All entries are lazy-parsed. That is, only when you iterate over
 /// [`ExifIter`] will the IFD entries be parsed one by one.

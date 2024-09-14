@@ -99,7 +99,6 @@ impl AssociatedInput {
         }
     }
 
-    #[allow(unused)]
     pub(crate) fn make_associated(&self, subslice: &[u8]) -> AssociatedInput {
         let _ = self
             .subslice_range(subslice)
