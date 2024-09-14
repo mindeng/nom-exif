@@ -156,11 +156,31 @@ impl Exif {
     /// - If you have any custom defined tag which does not exist in
     ///   [`ExifTag`], you can always get the entry value by a raw tag code,
     ///   see [`Self::get_by_tag_code`].
+    ///
+    ///   ## Example
+    ///
+    ///   ```rust
+    ///   use nom_exif::*;
+    ///
+    ///   fn main() -> Result<()> {
+    ///       let mut parser = MediaParser::new();
+    ///       
+    ///       let ms = MediaSource::file_path("./testdata/exif.jpg")?;
+    ///       let iter: ExifIter = parser.parse(ms)?;
+    ///       let exif: Exif = iter.into();
+    ///
+    ///       assert_eq!(exif.get(ExifTag::Model).unwrap(), &"vivo X90 Pro+".into());
+    ///       Ok(())
+    ///   }
     pub fn get(&self, tag: ExifTag) -> Option<&EntryValue> {
-        self.get_by_tag_code(tag.code())
+        self.get_by_ifd_tag_code(0, tag.code())
     }
 
-    /// Get entry value for the specified `tag` in ifd0 (the main image).
+    /// Get entry value for the specified `tag` in the specified `ifd`.
+    ///
+    /// `ifd` value range:
+    /// - 0: ifd0 (the main image)
+    /// - 1: ifd1 (thumbnail image)
     ///
     /// *Note*:
     ///
@@ -170,8 +190,26 @@ impl Exif {
     ///
     /// - If you want to handle parsing error, please consider to use
     ///   [`ExifIter`].
-    pub fn get_by_tag_code(&self, tag: u16) -> Option<&EntryValue> {
-        self.ifd0().and_then(|ifd0| ifd0.get(tag))
+    ///
+    ///   ## Example
+    ///
+    ///   ```rust
+    ///   use nom_exif::*;
+    ///
+    ///   fn main() -> Result<()> {
+    ///       let mut parser = MediaParser::new();
+    ///       
+    ///       let ms = MediaSource::file_path("./testdata/exif.jpg")?;
+    ///       let iter: ExifIter = parser.parse(ms)?;
+    ///       let exif: Exif = iter.into();
+    ///
+    ///       assert_eq!(exif.get_by_ifd_tag_code(0, 0x0110).unwrap(), &"vivo X90 Pro+".into());
+    ///       assert_eq!(exif.get_by_ifd_tag_code(1, 0xa002).unwrap(), &240_u32.into());
+    ///       Ok(())
+    ///   }
+    ///   ```
+    pub fn get_by_ifd_tag_code(&self, ifd: usize, tag: u16) -> Option<&EntryValue> {
+        self.ifds.get(ifd).and_then(|ifd| ifd.get(tag))
     }
 
     /// Get entry values for the specified `tags` in ifd0 (the main image).
@@ -205,7 +243,7 @@ impl Exif {
     /// Get entry value for the specified `tag` in ifd0 (the main image).
     #[deprecated(since = "1.5.0", note = "please use [`Self::get_by_tag_code`] instead")]
     pub fn get_value_by_tag_code(&self, tag: u16) -> crate::Result<Option<EntryValue>> {
-        Ok(self.get_by_tag_code(tag).map(|x| x.to_owned()))
+        Ok(self.get_by_ifd_tag_code(0, tag).map(|x| x.to_owned()))
     }
 
     /// Get parsed GPS information.
