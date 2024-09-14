@@ -1,12 +1,12 @@
 use std::{
     error::Error,
     fs::File,
-    io::{self, Seek},
+    io::{self},
     process::ExitCode,
 };
 
 use clap::Parser;
-use nom_exif::{parse_exif, ExifIter, MediaParser, MediaSource, TrackInfo};
+use nom_exif::{ExifIter, MediaParser, MediaSource, TrackInfo};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Registry};
 
 #[derive(Parser, Debug)]

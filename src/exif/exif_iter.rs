@@ -150,11 +150,13 @@ impl<'a> ExifIter<'a> {
         )
     }
 
-    fn get_data_pos(&'a self, value_or_offset: u32) -> u32 {
-        self.ifd0
-            .as_ref()
-            .map(|x| value_or_offset.saturating_sub(x.offset))
-            .unwrap_or(0)
+    pub(crate) fn to_owned(&self) -> ExifIter<'static> {
+        ExifIter::new(
+            self.input.to_vec(),
+            self.tiff_header.clone(),
+            self.tz.clone(),
+            self.ifd0.as_ref().map(|x| x.clone_and_rewind()),
+        )
     }
 }
 
@@ -810,8 +812,11 @@ pub(crate) struct IFDHeaderIter<'a> {
 #[derive(Debug, Clone)]
 pub(crate) struct EntryInfo<'a> {
     pub tag: u16,
+    #[allow(unused)]
     pub data: &'a [u8],
+    #[allow(unused)]
     pub data_format: DataFormat,
+    #[allow(unused)]
     pub data_offset: Option<u32>,
     pub sub_ifd_offset: Option<u32>,
 }
@@ -826,11 +831,7 @@ impl<'a> IFDHeaderIter<'a> {
     }
 
     #[tracing::instrument(skip_all)]
-    fn parse_tag_entry(
-        &'a self,
-        entry_data: &'a [u8],
-        pos: usize,
-    ) -> IResult<&'a [u8], Option<EntryInfo<'a>>> {
+    fn parse_tag_entry(&'a self, entry_data: &'a [u8]) -> IResult<&'a [u8], Option<EntryInfo<'a>>> {
         let endian = self.endian;
         let (remain, (tag, data_format, components_num, value_or_offset)) = tuple((
             streaming::u16::<_, nom::error::Error<_>>(endian),
@@ -901,11 +902,10 @@ impl<'a> IFDHeaderIter<'a> {
     }
 
     fn parse_ifd_entry(&self, pos: u32) -> IResult<&[u8], Option<IFDHeaderIter<'a>>> {
-        let (remain, entry_data) =
+        let (_, entry_data) =
             nom::bytes::streaming::take(IFD_ENTRY_SIZE)(&self.ifd_data[pos as usize..])?;
-        let pos = self.ifd_data.len() - remain.len();
 
-        let (remain, entry) = self.parse_tag_entry(entry_data, pos)?;
+        let (remain, entry) = self.parse_tag_entry(entry_data)?;
 
         if let Some(entry) = entry {
             // if !cb(&entry) {

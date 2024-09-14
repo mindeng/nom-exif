@@ -7,6 +7,7 @@ use std::{
 use chrono::DateTime;
 use nom::{bytes::streaming, IResult};
 
+#[allow(deprecated)]
 use crate::{
     bbox::{
         find_box, parse_video_tkhd_in_moov, travel_header, IlstBox, KeysBox, MvhdBox, ParseBox,
@@ -58,6 +59,7 @@ use crate::{
 /// ```
 #[deprecated(since = "2.0.0")]
 #[tracing::instrument(skip_all)]
+#[allow(deprecated)]
 pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, EntryValue)>> {
     let mut loader = BufLoader::<Seekable, _>::new(reader);
     let ff = FileFormat::try_from_load(&mut loader)?;
@@ -130,7 +132,7 @@ pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, E
 pub(crate) fn parse_qt(
     moov_body: &[u8],
 ) -> Result<BTreeMap<TrackInfoTag, EntryValue>, ParsingError> {
-    let (_, entries) = match parse_moov_body(&moov_body) {
+    let (_, entries) = match parse_moov_body(moov_body) {
         Ok((remain, Some(entries))) => (remain, entries),
         Ok((remain, None)) => (remain, Vec::new()),
         Err(_) => {
@@ -152,7 +154,7 @@ pub(crate) fn parse_qt(
 pub(crate) fn parse_mp4(
     moov_body: &[u8],
 ) -> Result<BTreeMap<TrackInfoTag, EntryValue>, ParsingError> {
-    let (_, entries) = match parse_moov_body(&moov_body) {
+    let (_, entries) = match parse_moov_body(moov_body) {
         Ok((remain, Some(entries))) => (remain, entries),
         Ok((remain, None)) => (remain, Vec::new()),
         Err(_) => {

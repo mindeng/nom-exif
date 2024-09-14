@@ -1,7 +1,7 @@
 use nom::{
     branch::alt,
-    bytes::streaming::{tag, take},
-    combinator::{fail, map, verify},
+    bytes::streaming::tag,
+    combinator::{map, verify},
     number::{
         streaming::{u16, u32},
         Endianness,
@@ -19,21 +19,18 @@ use crate::{
 };
 
 use super::{
-    exif_iter::{ExifIter, IFDHeaderIter, ImageFileDirectoryIter, ParsedExifEntry},
+    exif_iter::{ExifIter, ImageFileDirectoryIter, ParsedExifEntry},
     ifd::ParsedImageFileDirectory,
 };
 
 /// Parses Exif information from the `input` TIFF data.
-pub(crate) fn input_to_iter<'a>(input: impl Into<input::Input<'a>>) -> crate::Result<ExifIter<'a>> {
+pub(crate) fn input_to_exif_iter<'a>(
+    input: impl Into<input::Input<'a>>,
+) -> crate::Result<ExifIter<'a>> {
     let input = input.into();
     let parser = ExifParser::new(input);
     let iter: ExifIter<'a> = parser.parse_iter(None)?;
     Ok(iter)
-}
-
-/// Parses Exif information from the `input` TIFF data.
-pub(crate) fn input_to_exif<'a>(input: impl Into<input::Input<'a>>) -> crate::Result<Exif> {
-    Ok(input_to_iter(input)?.into())
 }
 
 pub(crate) struct ExifParser<'a> {
@@ -259,10 +256,6 @@ impl Exif {
             self.ifds[res.ifd_index()].put(res.tag_code(), v);
         }
     }
-
-    fn ifd0(&self) -> Option<&ParsedImageFileDirectory> {
-        self.ifds.first()
-    }
 }
 
 impl From<ExifIter<'_>> for Exif {
@@ -419,7 +412,7 @@ mod tests {
         let buf = read_sample(path).unwrap();
 
         // skip first 12 bytes
-        let exif = input_to_exif(&buf[12..]).unwrap(); // Safe-slice in test_case
+        let exif: Exif = input_to_exif_iter(&buf[12..]).unwrap().into(); // Safe-slice in test_case
 
         let gps = exif.get_gps_info().unwrap().unwrap();
         assert_eq!(

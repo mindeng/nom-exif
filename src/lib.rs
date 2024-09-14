@@ -27,9 +27,9 @@
 //!     `examples/rexiftool` is also a good example.
 //!
 //!   - Two style APIs for Exif: *iterator* style ([`ExifIter`]) and *get*
-//!     style ([`Exif`]). The former is lazy-loading and parse-on-demand
-//!     (therefore, more detailed error information can also be captured), and
-//!     the latter is simple and easy to use.
+//!     style ([`Exif`]). The former is parse-on-demand, and therefore, more
+//!     detailed error information can be captured; the latter is simpler and
+//!     easier to use.
 //!   
 //! - Performance
 //!
@@ -205,10 +205,13 @@ pub use video::{TrackInfo, TrackInfoTag};
 
 #[cfg(feature = "async")]
 pub use exif::parse_exif_async;
+#[allow(deprecated)]
 pub use exif::{parse_exif, Exif, ExifIter, ExifTag, GPSInfo, LatLng, ParsedExifEntry};
 pub use values::EntryValue;
 
+#[allow(deprecated)]
 pub use heif::parse_heif_exif;
+#[allow(deprecated)]
 pub use jpeg::parse_jpeg_exif;
 
 pub use error::Error;

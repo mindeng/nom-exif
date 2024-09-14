@@ -2,7 +2,9 @@ use crate::error::ParsingError;
 use crate::loader::{BufLoad, BufLoader, Load};
 use crate::skip::Unseekable;
 use crate::slice::SubsliceRange;
+#[allow(deprecated)]
 use crate::{input::Input, FileFormat};
+use crate::{MediaParser, MediaSource};
 pub use exif_iter::{ExifIter, ParsedExifEntry};
 pub use gps::{GPSInfo, LatLng};
 pub use parser::Exif;
@@ -11,8 +13,8 @@ pub use tags::ExifTag;
 use std::io::Read;
 
 pub(crate) mod ifd;
-pub(crate) use parser::{check_exif_header, input_to_exif, input_to_iter, ExifParser, TiffHeader};
 pub(crate) use exif_iter::IFDHeaderIter;
+pub(crate) use parser::{check_exif_header, input_to_exif_iter, ExifParser, TiffHeader};
 
 mod exif_iter;
 mod gps;
@@ -23,12 +25,16 @@ mod tags;
 ///
 /// Read exif data from `reader`, and build an [`ExifIter`] for it.
 ///
-/// If `format` is None, the parser will detect the file format automatically.
+/// ~~If `format` is None, the parser will detect the file format automatically.~~
+/// *The `format` param will be ignored from v2.0.0.*
 ///
 /// Currently supported file formats are:
 ///
 /// - *.heic, *.heif, etc.
 /// - *.jpg, *.jpeg, etc.
+///
+/// *.tiff/*.tif is not supported by this function, please use `MediaParser`
+/// instead.
 ///
 /// All entries are lazy-parsed. That is, only when you iterate over
 /// [`ExifIter`] will the IFD entries be parsed one by one.
@@ -46,17 +52,22 @@ mod tags;
 /// - An `Ok<None>` if Exif data is not found.
 /// - An `Err` if Exif data is found but parsing failed.
 #[deprecated(since = "2.0.0")]
+#[allow(deprecated)]
 pub fn parse_exif<T: Read>(
     reader: T,
-    format: Option<FileFormat>,
+    _: Option<FileFormat>,
 ) -> crate::Result<Option<ExifIter<'static>>> {
-    read_exif(reader, format)?.map(input_to_iter).transpose()
+    // read_exif(reader, format)?.map(input_to_iter).transpose()
+    let mut parser = MediaParser::new();
+    let exif: ExifIter = parser.parse(MediaSource::unseekable(reader)?)?;
+    Ok(Some(exif.to_owned()))
 }
 
 #[cfg(feature = "async")]
 use tokio::io::AsyncRead;
 
 /// `async` version of [`parse_exif`].
+#[allow(deprecated)]
 #[cfg(feature = "async")]
 pub async fn parse_exif_async<T: AsyncRead + Unpin>(
     reader: T,
@@ -64,13 +75,14 @@ pub async fn parse_exif_async<T: AsyncRead + Unpin>(
 ) -> crate::Result<Option<ExifIter<'static>>> {
     read_exif_async(reader, format)
         .await?
-        .map(input_to_iter)
+        .map(input_to_exif_iter)
         .transpose()
 }
 
 /// Read exif data from `reader`, if `format` is None, the parser will detect
 /// the file format automatically.
 #[tracing::instrument(skip(read))]
+#[allow(deprecated)]
 pub(crate) fn read_exif<R: Read>(
     read: R,
     format: Option<FileFormat>,
@@ -96,6 +108,7 @@ pub(crate) fn read_exif<R: Read>(
 /// format based on the read content.
 #[cfg(feature = "async")]
 #[tracing::instrument(skip(read))]
+#[allow(deprecated)]
 pub(crate) async fn read_exif_async<T>(
     read: T,
     format: Option<FileFormat>,
@@ -129,6 +142,7 @@ where
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use crate::testkit::open_sample;
     use test_case::test_case;

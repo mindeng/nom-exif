@@ -4,13 +4,15 @@ use nom::combinator::fail;
 use nom::{number::complete::be_u32, IResult};
 
 use crate::bbox::find_box;
-use crate::exif::{input_to_exif, read_exif, Exif};
-use crate::file::FileFormat;
+use crate::exif::Exif;
 use crate::{
     bbox::{BoxHolder, MetaBox, ParseBox},
     exif::check_exif_header,
 };
+use crate::{ExifIter, MediaParser, MediaSource};
 
+/// *Deprecated*: Please use [`MediaParser`] + [`MediaSource`] instead.
+///
 /// Analyze the byte stream in the `reader` as a HEIF/HEIC file, attempting to
 /// extract Exif data it may contain.
 ///
@@ -33,10 +35,11 @@ use crate::{
 /// ```
 ///
 /// See also: [`parse_exif`](crate::parse_exif).
+#[deprecated(since = "2.0.0")]
 pub fn parse_heif_exif<R: Read + Seek>(reader: R) -> crate::Result<Option<Exif>> {
-    read_exif(reader, Some(FileFormat::Heif))?
-        .map(input_to_exif)
-        .transpose()
+    let parser = &mut MediaParser::new();
+    let iter: ExifIter = parser.parse(MediaSource::seekable(reader)?)?;
+    Ok(Some(iter.into()))
 }
 
 /// Extract Exif TIFF data from the bytes of a HEIF/HEIC file.
@@ -65,13 +68,11 @@ pub(crate) fn extract_exif_data(input: &[u8]) -> IResult<&[u8], Option<&[u8]>> {
     }
 }
 
+#[allow(deprecated)]
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        file::{check_heif, FileFormat},
-        testkit::*,
-    };
+    use crate::testkit::*;
     use test_case::test_case;
 
     #[test_case("exif.heic")]
@@ -95,20 +96,6 @@ mod tests {
 
         let reader = open_sample(path).unwrap();
         parse_heif_exif(reader).expect_err("should be ParseFailed error");
-    }
-
-    #[test_case("compatible-brands.heic", Some(FileFormat::Heif))]
-    #[test_case("compatible-brands-fail.heic", None)]
-    fn heic_compatible_brands(path: &str, ft: Option<FileFormat>) {
-        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
-
-        let buf = read_sample(path).unwrap();
-        let got = check_heif(&buf);
-        if ft.is_some() {
-            got.unwrap();
-        } else {
-            got.unwrap_err();
-        }
     }
 
     #[test_case("exif-one-entry.heic", 0x24-10)]

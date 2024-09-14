@@ -1,6 +1,6 @@
 use std::{
     fmt::Debug,
-    io::{self, SeekFrom},
+    io::{self},
     string::FromUtf8Error,
 };
 use thiserror::Error;

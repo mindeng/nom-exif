@@ -18,6 +18,10 @@ impl Input<'_> {
         Self::from_vec_range(data, range)
     }
 
+    pub(crate) fn to_vec(&self) -> Vec<u8> {
+        Vec::from(self.data.clone())
+    }
+
     pub(crate) fn from_vec_range(data: Vec<u8>, range: Range<usize>) -> Input<'static> {
         assert!(range.end <= data.len());
         Input {

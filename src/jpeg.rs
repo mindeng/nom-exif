@@ -1,10 +1,12 @@
-use crate::{exif::read_exif, file::FileFormat};
+use crate::{ExifIter, MediaParser, MediaSource};
 use std::io::{Read, Seek};
 
 use nom::{bytes::streaming, combinator::fail, number, sequence::tuple, IResult};
 
-use crate::exif::{check_exif_header, input_to_exif, Exif};
+use crate::exif::{check_exif_header, Exif};
 
+/// *Deprecated*: Please use [`MediaParser`] + [`MediaSource`] instead.
+///
 /// Analyze the byte stream in the `reader` as a JPEG file, attempting to
 /// extract Exif data it may contain.
 ///
@@ -40,14 +42,15 @@ use crate::exif::{check_exif_header, input_to_exif, Exif};
 ///     .collect::<Vec<_>>()
 /// );
 /// ```
-pub fn parse_jpeg_exif<R: Read>(reader: R) -> crate::Result<Option<Exif>> {
-    read_exif(reader, Some(FileFormat::Jpeg))?
-        .map(input_to_exif)
-        .transpose()
+#[deprecated(since = "2.0.0")]
+pub fn parse_jpeg_exif<R: Read + Seek>(reader: R) -> crate::Result<Option<Exif>> {
+    let mut parser = MediaParser::new();
+    let iter: ExifIter = parser.parse(MediaSource::unseekable(reader)?)?;
+    Ok(Some(iter.into()))
 }
 
 /// Extract Exif TIFF data from the bytes of a JPEG file.
-pub fn extract_exif_data(input: &[u8]) -> IResult<&[u8], Option<&[u8]>> {
+pub(crate) fn extract_exif_data(input: &[u8]) -> IResult<&[u8], Option<&[u8]>> {
     let (remain, segment) = find_exif_segment(input)?;
     let data = segment.and_then(|segment| {
         if segment.payload_len() <= 6 {
@@ -56,7 +59,6 @@ pub fn extract_exif_data(input: &[u8]) -> IResult<&[u8], Option<&[u8]>> {
             Some(&segment.payload[6..]) // Safe-slice
         }
     });
-
     Ok((remain, data))
 }
 
@@ -368,6 +370,7 @@ mod tests {
         );
     }
 
+    #[allow(deprecated)]
     #[test]
     fn broken_jpg() {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();

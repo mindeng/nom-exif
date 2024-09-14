@@ -30,7 +30,7 @@ use crate::{
 ///
 ///   - Use `MediaSource::seekable(reader)` to create a MediaSource from a `Read + Seek`
 ///   
-///   - Use `MediaSource::unseekable(read)` to create a MediaSource from a
+///   - Use `MediaSource::unseekable(reader)` to create a MediaSource from a
 ///     reader that only impl `Read`
 ///   
 /// `seekable` is preferred to `unseekable`, since the former is more efficient
@@ -42,7 +42,7 @@ use crate::{
 
 #[derive(Debug)]
 pub struct MediaSource<R, S = Seekable> {
-    read: R,
+    reader: R,
     buf: Vec<u8>,
     mime: Mime,
     phantom: PhantomData<S>,
@@ -52,15 +52,16 @@ pub struct MediaSource<R, S = Seekable> {
 const HEADER_PARSE_BUF_SIZE: usize = 128;
 
 impl<R: Read, S: Skip<R>> MediaSource<R, S> {
-    fn build(mut read: R) -> crate::Result<Self> {
+    fn build(mut reader: R) -> crate::Result<Self> {
         // TODO: reuse MediaParser to parse header
         let mut buf = Vec::with_capacity(HEADER_PARSE_BUF_SIZE);
-        read.by_ref()
+        reader
+            .by_ref()
             .take(HEADER_PARSE_BUF_SIZE as u64)
             .read_to_end(&mut buf)?;
         let mime: Mime = buf.as_slice().try_into()?;
         Ok(Self {
-            read,
+            reader,
             buf,
             mime,
             phantom: PhantomData,
@@ -83,14 +84,14 @@ impl<R: Read, S: Skip<R>> MediaSource<R, S> {
 }
 
 impl<R: Read + Seek> MediaSource<R, Seekable> {
-    pub fn seekable(read: R) -> crate::Result<Self> {
-        Self::build(read)
+    pub fn seekable(reader: R) -> crate::Result<Self> {
+        Self::build(reader)
     }
 }
 
 impl<R: Read> MediaSource<R, Unseekable> {
-    pub fn unseekable(read: R) -> crate::Result<Self> {
-        Self::build(read)
+    pub fn unseekable(reader: R) -> crate::Result<Self> {
+        Self::build(reader)
     }
 }
 
@@ -120,7 +121,7 @@ const MAX_REUSE_BUF_SIZE: usize = 16 * 1024 * 1024;
 
 pub(crate) trait Buffer {
     fn buffer(&self) -> &[u8];
-    fn fill_buf<R: Read>(&mut self, read: &mut R, size: usize) -> io::Result<usize>;
+    fn fill_buf<R: Read>(&mut self, reader: &mut R, size: usize) -> io::Result<usize>;
     fn clear(&mut self);
 
     fn set_position(&mut self, pos: usize);
@@ -204,10 +205,10 @@ impl Buffer for MediaParser {
         &self.buf[self.position()..]
     }
 
-    fn fill_buf<R: Read>(&mut self, read: &mut R, size: usize) -> io::Result<usize> {
+    fn fill_buf<R: Read>(&mut self, reader: &mut R, size: usize) -> io::Result<usize> {
         self.buf.reserve_exact(size);
 
-        let n = read.take(size as u64).read_to_end(self.buf.as_mut())?;
+        let n = reader.take(size as u64).read_to_end(self.buf.as_mut())?;
         if n == 0 {
             return Err(std::io::ErrorKind::UnexpectedEof.into());
         }
@@ -294,21 +295,21 @@ impl MediaParser {
         }
 
         self.buf.append(&mut ms.buf);
-        self.fill_buf(ms.read.by_ref(), INIT_BUF_SIZE)?;
+        self.fill_buf(ms.reader.by_ref(), INIT_BUF_SIZE)?;
 
-        ParseOutput::parse(self, &mut ms)
+        ParseOutput::parse(self, ms)
     }
 }
 
 pub trait ParseOutput<'a, R, S>: Sized + 'a {
-    fn parse(parser: &'a mut MediaParser, mf: &mut MediaSource<R, S>) -> crate::Result<Self>;
+    fn parse(parser: &'a mut MediaParser, ms: MediaSource<R, S>) -> crate::Result<Self>;
 }
 
 impl<'a, R: Read, S: Skip<R>> ParseOutput<'a, R, S> for ExifIter<'a> {
-    fn parse(parser: &'a mut MediaParser, mf: &mut MediaSource<R, S>) -> crate::Result<Self> {
+    fn parse(parser: &'a mut MediaParser, mut ms: MediaSource<R, S>) -> crate::Result<Self> {
         let out = parser.load_and_parse::<R, S, _, Option<(Range<_>, Option<ParsingState>)>>(
-            mf.read.by_ref(),
-            |buf, state| match mf.mime {
+            ms.reader.by_ref(),
+            |buf, state| match ms.mime {
                 Mime::Image(img) => {
                     let (_, exif_data) = match img {
                         crate::file::MimeImage::Jpeg => jpeg::extract_exif_data(buf)?,
@@ -362,12 +363,21 @@ impl<'a, R: Read, S: Skip<R>> ParseOutput<'a, R, S> for ExifIter<'a> {
     }
 }
 
+// TODO:
+// impl<'a, R: Read, S: Skip<R>> ParseOutput<'a, R, S> for Exif {
+//     fn parse(parser: &mut MediaParser, ms: MediaSource<R, S>) -> crate::Result<Self> {
+//         let iter: ExifIter = parser.parse(ms)?;
+//         let exif: Exif = iter.into();
+//         Ok(exif)
+//     }
+// }
+
 impl<'a, R: Read, S: Skip<R>> ParseOutput<'a, R, S> for TrackInfo {
-    fn parse(parser: &mut MediaParser, mf: &mut MediaSource<R, S>) -> crate::Result<Self> {
-        let out = match mf.mime {
+    fn parse(parser: &mut MediaParser, mut ms: MediaSource<R, S>) -> crate::Result<Self> {
+        let out = match ms.mime {
             Mime::Image(_) => return Err("not a track".into()),
             Mime::Video(v) => parser
-                .load_and_parse::<R, S, _, _>(mf.read.by_ref(), |data, _| {
+                .load_and_parse::<R, S, _, _>(ms.reader.by_ref(), |data, _| {
                     parse_track_info(data, v)
                 })?,
         };
@@ -380,10 +390,16 @@ impl<'a, R: Read, S: Skip<R>> ParseOutput<'a, R, S> for TrackInfo {
 ///
 /// MediaParser manages an inner parse buffer that can be shared between
 /// multiple parsing tasks, thus avoiding frequent memory allocations.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct MediaParser {
     buf: Vec<u8>,
     position: usize,
+}
+
+impl Default for MediaParser {
+    fn default() -> Self {
+        Self::with_capacity(INIT_BUF_SIZE)
+    }
 }
 
 impl MediaParser {
@@ -465,6 +481,8 @@ mod tests {
 
                     let exif: crate::Exif = it.clone_and_rewind().into();
                     assert!(exif.get(ExifTag::Orientation).is_some());
+                } else {
+                    let _: crate::Exif = it.clone_and_rewind().into();
                 }
             }
             NoData => {
