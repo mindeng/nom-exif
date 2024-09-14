@@ -64,6 +64,42 @@
 //!   - ISO base media file format (ISOBMFF): *.mp4, *.mov, *.3gp, etc.
 //!   - Matroska based file format: *.webm, *.mkv, *.mka, etc.
 //!
+//! ## Media type auto-detecting
+//!
+//! ```rust
+//! use nom_exif::*;
+//! use std::fs::File;
+//!
+//! fn main() -> Result<()> {
+//!     let mut parser = MediaParser::new();
+//!     
+//!     // The file can be an image, a video, or an audio.
+//!     let ms = MediaSource::file_path("./testdata/exif.heic")?;
+//!     if ms.has_exif() {
+//!         let mut iter: ExifIter = parser.parse(ms)?;
+//!         let exif: Exif = iter.into();
+//!         assert_eq!(exif.get(ExifTag::Make).unwrap().as_str().unwrap(), "Apple");
+//!     } else if ms.has_track() {
+//!         // parse the file as a track
+//!     }
+//!
+//!     let ms = MediaSource::file_path("./testdata/meta.mov")?;
+//!     if ms.has_track() {
+//!         let info: TrackInfo = parser.parse(ms)?;
+//!         assert_eq!(info.get(TrackInfoTag::Make), Some(&"Apple".into()));
+//!         assert_eq!(info.get(TrackInfoTag::Model), Some(&"iPhone X".into()));
+//!         assert_eq!(info.get(TrackInfoTag::GpsIso6709), Some(&"+27.1281+100.2508+000.000/".into()));
+//!         assert_eq!(info.get_gps_info().unwrap().latitude_ref, 'N');
+//!         assert_eq!(
+//!             info.get_gps_info().unwrap().latitude,
+//!             [(27, 1), (7, 1), (68, 100)].into(),
+//!         );
+//!     }
+//!
+//!     Ok(())
+//! }
+//! ```
+//!
 //! ## Sync API Usage
 //!
 //! ```rust
@@ -71,8 +107,9 @@
 //! use std::fs::File;
 //!
 //! fn main() -> Result<()> {
-//!     let f = File::open("./testdata/exif.heic")?;
-//!     let mut iter = parse_exif(f, None)?.unwrap();
+//!     let mut parser = MediaParser::new();
+//!     let ms = MediaSource::file_path("./testdata/exif.heic")?;
+//!     let mut iter: ExifIter = parser.parse(ms)?;
 //!
 //!     // Use `next()` API
 //!     let entry = iter.next().unwrap();
@@ -82,9 +119,8 @@
 //!     assert_eq!(entry.get_value().unwrap().as_str().unwrap(), "Apple");
 //!
 //!     // You can also iterate it in a `for` loop. Clone it first so we won't
-//!     // consume the original one. Note that the new cloned `ExifIter` will
-//!     // always start from the first entry.
-//!     for entry in iter.clone() {
+//!     // consume the original one.
+//!     for entry in iter.clone_and_rewind() {
 //!         if entry.tag().unwrap() == ExifTag::Make {
 //!             assert_eq!(entry.get_result().unwrap().as_str().unwrap(), "Apple");
 //!             break;
