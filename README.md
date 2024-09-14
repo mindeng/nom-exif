@@ -70,7 +70,6 @@ simple and easy to use.
 
 ```rust
 use nom_exif::*;
-use std::fs::File;
 
 fn main() -> Result<()> {
     let mut parser = MediaParser::new();
@@ -78,15 +77,17 @@ fn main() -> Result<()> {
     // The file can be an image, a video, or an audio.
     let ms = MediaSource::file_path("./testdata/exif.heic")?;
     if ms.has_exif() {
+        // Parse the file as an Exif-compatible file
         let mut iter: ExifIter = parser.parse(ms)?;
         let exif: Exif = iter.into();
         assert_eq!(exif.get(ExifTag::Make).unwrap().as_str().unwrap(), "Apple");
     } else if ms.has_track() {
-        // parse the file as a track
+        // Parse the file as a track
     }
 
     let ms = MediaSource::file_path("./testdata/meta.mov")?;
     if ms.has_track() {
+        // Parse the file as a track
         let info: TrackInfo = parser.parse(ms)?;
         assert_eq!(info.get(TrackInfoTag::Make), Some(&"Apple".into()));
         assert_eq!(info.get(TrackInfoTag::Model), Some(&"iPhone X".into()));
@@ -106,7 +107,6 @@ fn main() -> Result<()> {
 
 ```rust
 use nom_exif::*;
-use std::fs::File;
 
 fn main() -> Result<()> {
     let mut parser = MediaParser::new();
