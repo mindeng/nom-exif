@@ -97,6 +97,9 @@
 //!         );
 //!     }
 //!
+//!     // `MediaSource` can also be created from any `Read`, such as a `TcpStream`:
+//!     // let ms = MediaSource::tcp_stream(stream)?;
+//!
 //!     Ok(())
 //! }
 //! ```
@@ -159,50 +162,7 @@
 //! nom-exif = { version = "1", features = ["async"] }
 //! ```
 //!
-//! Since parsing process is a CPU-bound task, you may want to move the job to
-//! a separated thread (better to use rayon crate). There is a simple example
-//! below.
-//!     
-//! You can safely and cheaply clone an [`ExifIter`] in multiple tasks/threads
-//! concurrently, since it use `Arc` to share the underlying memory.
-//!
-//! ```rust
-//! #[cfg(feature = "async")]
-//! use nom_exif::{parse_exif_async, ExifIter, Exif, ExifTag};
-//! #[cfg(feature = "async")]
-//! use tokio::task::spawn_blocking;
-//! #[cfg(feature = "async")]
-//! use tokio::fs::File;
-//!
-//! #[cfg(feature = "async")]
-//! #[tokio::main]
-//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let mut f = File::open("./testdata/exif.heic").await?;
-//!     let mut iter = parse_exif_async(f, None).await?.unwrap();
-//!
-//!     for entry in iter.clone() {
-//!         if entry.tag().unwrap() == ExifTag::Make {
-//!             entry.get_value().unwrap().as_str().unwrap();
-//!             break;
-//!         }
-//!     }
-//!
-//!     // Convert an `ExifIter` into an `Exif` in a separated thread.
-//!     let exif = spawn_blocking(move || {
-//!         let exif: Exif = iter.into();
-//!         exif
-//!     }).await?;
-//!     
-//!     assert_eq!(
-//!         exif.get(ExifTag::Model).unwrap().to_string(),
-//!         "iPhone 12 Pro"
-//!     );
-//!     Ok(())
-//! }
-//!
-//! #[cfg(not(feature = "async"))]
-//! fn main() {}
-//! ```
+//! For detailed usage, please refer to: [`AsyncMediaParser::parse`].
 //!
 //! ## GPS Info
 //!
@@ -240,9 +200,14 @@ pub use parser::{MediaParser, MediaSource};
 pub use video::{TrackInfo, TrackInfoTag};
 
 #[cfg(feature = "async")]
-pub use exif::parse_exif_async;
+pub use parser_async::{AsyncMediaParser, AsyncMediaSource};
+
 #[allow(deprecated)]
-pub use exif::{parse_exif, Exif, ExifIter, ExifTag, GPSInfo, LatLng, ParsedExifEntry};
+pub use exif::parse_exif;
+#[cfg(feature = "async")]
+#[allow(deprecated)]
+pub use exif::parse_exif_async;
+pub use exif::{Exif, ExifIter, ExifTag, GPSInfo, LatLng, ParsedExifEntry};
 pub use values::EntryValue;
 
 #[allow(deprecated)]
@@ -273,6 +238,8 @@ mod jpeg;
 mod loader;
 mod mov;
 mod parser;
+#[cfg(feature = "async")]
+mod parser_async;
 mod skip;
 mod slice;
 mod values;

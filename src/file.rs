@@ -1,4 +1,4 @@
-use nom::{bytes::complete, multi::many0, FindSubstring, IResult};
+use nom::{bytes::complete, multi::many0, FindSubstring};
 use std::{
     fmt::Display,
     io::{Cursor, Read},
@@ -9,8 +9,7 @@ use crate::{
     ebml::element::parse_ebml_doc_type,
     error::{ParsedError, ParsingError},
     exif::TiffHeader,
-    heif,
-    jpeg::{self, check_jpeg},
+    jpeg::check_jpeg,
     loader::Load,
     slice::SubsliceRange,
 };
@@ -143,25 +142,6 @@ impl FileFormat {
             x.try_into()
                 .map_err(|_| ParsingError::Failed("unrecognized file format".to_string()))
         })
-    }
-
-    pub(crate) fn extract_exif_data<'a>(
-        &self,
-        input: &'a [u8],
-    ) -> IResult<&'a [u8], Option<&'a [u8]>> {
-        match self {
-            FileFormat::Jpeg => jpeg::extract_exif_data(input),
-            FileFormat::Heif => heif::extract_exif_data(input),
-            FileFormat::QuickTime => {
-                nom::error::context("no exif data in QuickTime file", nom::combinator::fail)(input)
-            }
-            FileFormat::MP4 => {
-                nom::error::context("no exif data in MP4 file", nom::combinator::fail)(input)
-            }
-            FileFormat::Ebml => {
-                nom::error::context("no exif data in EBML file", nom::combinator::fail)(input)
-            }
-        }
     }
 }
 

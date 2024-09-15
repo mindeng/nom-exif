@@ -1,20 +1,22 @@
 use crate::error::ParsingError;
-use crate::loader::{BufLoad, BufLoader, Load};
-use crate::skip::Unseekable;
+use crate::file::Mime;
+use crate::parser::{BufParser, Buffer, ParsingState};
+use crate::skip::Skip;
 use crate::slice::SubsliceRange;
+use crate::{heif, jpeg, MediaParser, MediaSource, ZB};
 #[allow(deprecated)]
 use crate::{input::Input, FileFormat};
-use crate::{MediaParser, MediaSource};
 pub use exif_iter::{ExifIter, ParsedExifEntry};
 pub use gps::{GPSInfo, LatLng};
 pub use parser::Exif;
 pub use tags::ExifTag;
 
 use std::io::Read;
+use std::ops::Range;
 
 pub(crate) mod ifd;
 pub(crate) use exif_iter::IFDHeaderIter;
-pub(crate) use parser::{check_exif_header, input_to_exif_iter, ExifParser, TiffHeader};
+pub(crate) use parser::{check_exif_header, ExifParser, TiffHeader};
 
 mod exif_iter;
 mod gps;
@@ -57,94 +59,110 @@ pub fn parse_exif<T: Read>(
     reader: T,
     _: Option<FileFormat>,
 ) -> crate::Result<Option<ExifIter<'static>>> {
-    // read_exif(reader, format)?.map(input_to_iter).transpose()
     let mut parser = MediaParser::new();
     let exif: ExifIter = parser.parse(MediaSource::unseekable(reader)?)?;
     Ok(Some(exif.to_owned()))
 }
 
+pub(crate) fn parse_exif_iter<'a, R: Read, S: Skip<R>>(
+    parser: &'a mut MediaParser,
+    mut ms: MediaSource<R, S>,
+) -> Result<ExifIter<'a>, crate::Error> {
+    let out = parser.load_and_parse::<R, S, _, Option<(Range<_>, Option<ParsingState>)>>(
+        ms.reader.by_ref(),
+        |buf, state| match ms.mime {
+            Mime::Image(img) => {
+                let exif_data = extract_exif_data(img, buf, state.as_ref())?;
+                Ok(exif_data
+                    .and_then(|x| buf.subslice_range(x))
+                    .map(|x| (x, state)))
+            }
+            Mime::Video(_) => Err("not an image".into()),
+        },
+    )?;
+
+    if let Some((range, state)) = out {
+        let input: Input<'a> = parser.buffer()[range].into();
+        let parser = ExifParser::new(input);
+        let iter = parser.parse_iter(state)?;
+        Ok(iter)
+    } else {
+        Err("parse exif failed".into())
+    }
+}
+
+pub(crate) fn extract_exif_data<'a>(
+    img: crate::file::MimeImage,
+    buf: &'a [u8],
+    state: Option<&ParsingState>,
+) -> Result<Option<&'a [u8]>, ParsingError> {
+    let (_, exif_data) = match img {
+        crate::file::MimeImage::Jpeg => jpeg::extract_exif_data(buf)?,
+        crate::file::MimeImage::Heic | crate::file::MimeImage::Heif => {
+            heif::extract_exif_data(buf)?
+        }
+        crate::file::MimeImage::Tiff => {
+            let (header, data_start) = match state.as_ref() {
+                Some(ParsingState::TiffHeader(h)) => (h.to_owned(), 0),
+                None => {
+                    let (_, header) = TiffHeader::parse(buf)?;
+                    if header.ifd0_offset as usize > buf.len() {
+                        return Err(ParsingError::ClearAndSkip(
+                            header.ifd0_offset as usize,
+                            Some(ParsingState::TiffHeader(header)),
+                        ));
+                    }
+                    let start = header.ifd0_offset as usize;
+                    (header, start)
+                }
+            };
+
+            // full fill TIFF data
+            let mut iter =
+                IFDHeaderIter::new(&buf[data_start..], header.ifd0_offset, header.endian);
+            iter.parse_ifd(0)?;
+
+            (ZB, Some(buf))
+        }
+    };
+    Ok(exif_data)
+}
+
 #[cfg(feature = "async")]
 use tokio::io::AsyncRead;
 
+/// *Deprecated*: Please use [`crate::MediaParser`] instead.
+///
 /// `async` version of [`parse_exif`].
 #[allow(deprecated)]
 #[cfg(feature = "async")]
-pub async fn parse_exif_async<T: AsyncRead + Unpin>(
+#[deprecated(since = "2.0.0")]
+pub async fn parse_exif_async<T: AsyncRead + Unpin + Send>(
     reader: T,
-    format: Option<FileFormat>,
+    _: Option<FileFormat>,
 ) -> crate::Result<Option<ExifIter<'static>>> {
-    read_exif_async(reader, format)
-        .await?
-        .map(input_to_exif_iter)
-        .transpose()
-}
+    use crate::{AsyncMediaParser, AsyncMediaSource};
 
-/// Read exif data from `reader`, if `format` is None, the parser will detect
-/// the file format automatically.
-#[tracing::instrument(skip(read))]
-#[allow(deprecated)]
-pub(crate) fn read_exif<R: Read>(
-    read: R,
-    format: Option<FileFormat>,
-) -> crate::Result<Option<Input<'static>>> {
-    let mut loader = BufLoader::<Unseekable, R>::new(read);
-    let ff = match format {
-        Some(ff) => ff,
-        None => loader.load_and_parse(|x| {
-            x.try_into()
-                .map_err(|_| ParsingError::Failed("unrecognized file format".to_string()))
-        })?,
-    };
-
-    let exif_data = loader.load_and_parse(|buf| match ff.extract_exif_data(buf) {
-        Ok((_, data)) => Ok(data.and_then(|x| buf.subslice_range(x))),
-        Err(e) => Err(e.into()),
-    })?;
-
-    Ok(exif_data.map(|x| Input::from_vec_range(loader.into_vec(), x)))
-}
-
-/// Read exif data from `reader`, if `format` is None, then guess the file
-/// format based on the read content.
-#[cfg(feature = "async")]
-#[tracing::instrument(skip(read))]
-#[allow(deprecated)]
-pub(crate) async fn read_exif_async<T>(
-    read: T,
-    format: Option<FileFormat>,
-) -> crate::Result<Option<Input<'static>>>
-where
-    T: AsyncRead + std::marker::Unpin,
-{
-    use crate::loader::{AsyncBufLoader, AsyncLoad};
-
-    let mut loader = AsyncBufLoader::<Unseekable, _>::new(read);
-    let ff = match format {
-        Some(ff) => ff,
-        None => {
-            loader
-                .load_and_parse(|x| {
-                    x.try_into()
-                        .map_err(|_| ParsingError::Failed("unrecognized file format".to_string()))
-                })
-                .await?
-        }
-    };
-
-    let exif_data = loader
-        .load_and_parse(|buf| match ff.extract_exif_data(buf) {
-            Ok((_, data)) => Ok(data.and_then(|x| buf.subslice_range(x))),
-            Err(e) => Err(e.into()),
-        })
+    let mut parser = AsyncMediaParser::new();
+    let exif: ExifIter = parser
+        .parse(AsyncMediaSource::unseekable(reader).await?)
         .await?;
+    Ok(Some(exif.to_owned()))
 
-    Ok(exif_data.map(|x| Input::from_vec_range(loader.into_vec(), x)))
+    // read_exif_async(reader, format)
+    //     .await?
+    //     .map(input_to_exif_iter)
+    //     .transpose()
 }
 
 #[cfg(test)]
 #[allow(deprecated)]
 mod tests {
-    use crate::testkit::open_sample;
+    use crate::{
+        file::MimeImage,
+        testkit::{open_sample, read_sample},
+        values::URational,
+    };
     use test_case::test_case;
 
     use super::*;
@@ -156,6 +174,56 @@ mod tests {
         let iter = parse_exif(f, None).unwrap().unwrap();
         let gps_info = iter.parse_gps_info().unwrap().unwrap();
         assert_eq!(gps_info.format_iso6709(), gps_str);
+    }
+
+    #[test_case(
+        "exif.jpg",
+        'N',
+        [(22, 1), (31, 1), (5208, 100)].into(),
+        'E',
+        [(114, 1), (1, 1), (1733, 100)].into(),
+        0u8,
+        (0, 1).into(),
+        None,
+        None
+    )]
+    #[allow(clippy::too_many_arguments)]
+    fn gps_info(
+        path: &str,
+        latitude_ref: char,
+        latitude: LatLng,
+        longitude_ref: char,
+        longitude: LatLng,
+        altitude_ref: u8,
+        altitude: URational,
+        speed_ref: Option<char>,
+        speed: Option<URational>,
+    ) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
+        let buf = read_sample(path).unwrap();
+        let data = extract_exif_data(MimeImage::Jpeg, &buf, None)
+            .unwrap()
+            .unwrap();
+
+        let parser = ExifParser::new(data);
+        let iter = parser.parse_iter(None).unwrap();
+        let exif: Exif = iter.into();
+
+        let gps = exif.get_gps_info().unwrap().unwrap();
+        assert_eq!(
+            gps,
+            GPSInfo {
+                latitude_ref,
+                latitude,
+                longitude_ref,
+                longitude,
+                altitude_ref,
+                altitude,
+                speed_ref,
+                speed,
+            }
+        )
     }
 
     #[test_case("exif.heic")]

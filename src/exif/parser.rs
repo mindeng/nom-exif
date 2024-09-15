@@ -23,16 +23,6 @@ use super::{
     ifd::ParsedImageFileDirectory,
 };
 
-/// Parses Exif information from the `input` TIFF data.
-pub(crate) fn input_to_exif_iter<'a>(
-    input: impl Into<input::Input<'a>>,
-) -> crate::Result<ExifIter<'a>> {
-    let input = input.into();
-    let parser = ExifParser::new(input);
-    let iter: ExifIter<'a> = parser.parse_iter(None)?;
-    Ok(iter)
-}
-
 pub(crate) struct ExifParser<'a> {
     inner: Inner<'a>,
 }
@@ -360,11 +350,9 @@ mod tests {
 
     use test_case::test_case;
 
-    use crate::exif::{GPSInfo, LatLng};
     use crate::jpeg::extract_exif_data;
     use crate::slice::SubsliceRange;
     use crate::testkit::{open_sample, read_sample};
-    use crate::values::URational;
 
     use super::*;
 
@@ -382,52 +370,6 @@ mod tests {
                 ifd0_offset: 8,
             }
         );
-    }
-
-    #[test_case(
-        "exif.jpg",
-        'N',
-        [(22, 1), (31, 1), (5208, 100)].into(),
-        'E',
-        [(114, 1), (1, 1), (1733, 100)].into(),
-        0u8,
-        (0, 1).into(),
-        None,
-        None
-    )]
-    #[allow(clippy::too_many_arguments)]
-    fn gps_info(
-        path: &str,
-        latitude_ref: char,
-        latitude: LatLng,
-        longitude_ref: char,
-        longitude: LatLng,
-        altitude_ref: u8,
-        altitude: URational,
-        speed_ref: Option<char>,
-        speed: Option<URational>,
-    ) {
-        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
-
-        let buf = read_sample(path).unwrap();
-
-        // skip first 12 bytes
-        let exif: Exif = input_to_exif_iter(&buf[12..]).unwrap().into(); // Safe-slice in test_case
-
-        let gps = exif.get_gps_info().unwrap().unwrap();
-        assert_eq!(
-            gps,
-            GPSInfo {
-                latitude_ref,
-                latitude,
-                longitude_ref,
-                longitude,
-                altitude_ref,
-                altitude,
-                speed_ref,
-                speed,
-            }
-        )
     }
 
     #[test_case("exif.jpg")]

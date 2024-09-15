@@ -42,13 +42,16 @@ pub trait Skip<R> {
 }
 
 #[cfg(feature = "async")]
-pub(crate) trait AsyncSkip<R> {
+pub trait AsyncSkip<R> {
     /// Skip the given number of bytes. If seek is not implemented by `reader`,
     /// `false` will be returned.
     ///
     /// Therefore, the caller can implement the skip function by himself,
     /// thereby reusing the caller's own buffer.
-    async fn skip_by_seek(reader: &mut R, skip: u64) -> io::Result<bool>;
+    fn skip_by_seek(
+        reader: &mut R,
+        skip: u64,
+    ) -> impl std::future::Future<Output = io::Result<bool>> + Send;
 }
 
 impl<R: Read> Skip<R> for Unseekable {
@@ -88,7 +91,7 @@ impl<R: Seek> Skip<R> for Seekable {
 }
 
 #[cfg(feature = "async")]
-impl<R: AsyncRead> AsyncSkip<R> for Unseekable {
+impl<R: AsyncRead + Unpin + Send> AsyncSkip<R> for Unseekable {
     #[inline]
     async fn skip_by_seek(_: &mut R, _: u64) -> io::Result<bool> {
         Ok(false)
@@ -96,17 +99,11 @@ impl<R: AsyncRead> AsyncSkip<R> for Unseekable {
 }
 
 #[cfg(feature = "async")]
-impl<R: AsyncSeek + Unpin> AsyncSkip<R> for Seekable {
+impl<R: AsyncSeek + Unpin + Send> AsyncSkip<R> for Seekable {
     #[inline]
     async fn skip_by_seek(reader: &mut R, skip: u64) -> io::Result<bool> {
         match reader.seek(std::io::SeekFrom::Current(skip as i64)).await {
-            Ok(n) => {
-                if n == skip {
-                    Ok(true)
-                } else {
-                    Err(std::io::ErrorKind::UnexpectedEof.into())
-                }
-            }
+            Ok(_) => Ok(true),
             Err(e) => Err(e),
         }
     }
