@@ -1,14 +1,14 @@
 //! Define exif tags and related enums, see
 //! https://exiftool.org/TagNames/EXIF.html
 
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 
 #[cfg(feature = "json_dump")]
 use serde::{Deserialize, Serialize};
 
 #[allow(unused)]
 #[cfg_attr(feature = "json_dump", derive(Serialize, Deserialize))]
-#[derive(Debug, Eq, PartialEq, Hash, Clone, Copy)]
+#[derive(Eq, PartialEq, Hash, Clone, Copy)]
 pub(crate) enum ExifTagCode {
     /// Recognized Exif tag
     Tag(ExifTag),
@@ -18,9 +18,8 @@ pub(crate) enum ExifTagCode {
 }
 
 impl ExifTagCode {
-    /// Get recognized Exif tag, maybe return [`ExifTag::Unknown`] if it's
-    /// unrecognized (you can get raw tag code via [`Self::code`] in this
-    /// case).
+    /// Get recognized Exif tag, maybe return `None` if it's unrecognized. You
+    /// can get raw tag code via [`Self::code`] in this case).
     pub(crate) fn tag(&self) -> Option<ExifTag> {
         match self {
             ExifTagCode::Tag(t) => Some(t.to_owned()),
@@ -48,11 +47,23 @@ impl From<u16> for ExifTagCode {
     }
 }
 
+impl Debug for ExifTagCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ExifTagCode::Tag(v) => f.debug_struct("ExifTagCode").field("tag", &v).finish(),
+            ExifTagCode::Code(v) => f
+                .debug_struct("ExifTagCode")
+                .field("code", &format!("Unrecognized(0x{v:04x})"))
+                .finish(),
+        }
+    }
+}
+
 impl Display for ExifTagCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ExifTagCode::Tag(t) => t.fmt(f),
-            ExifTagCode::Code(c) => format!("Unrecognized(0x{c:04x})").fmt(f),
+            ExifTagCode::Tag(t) => Display::fmt(t, f),
+            ExifTagCode::Code(c) => Display::fmt(&format!("Unrecognized(0x{c:04x})"), f),
         }
     }
 }
@@ -212,7 +223,7 @@ impl ExifTag {
 impl Display for ExifTag {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s: &str = (*self).into();
-        s.fmt(f)
+        Display::fmt(s, f)
     }
 }
 

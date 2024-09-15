@@ -4,6 +4,7 @@ use std::{
     marker::PhantomData,
     ops::Range,
     path::Path,
+    sync::Arc,
 };
 
 use tokio::{
@@ -12,13 +13,12 @@ use tokio::{
 };
 
 use crate::{
+    buffer::Buffers,
     error::{ParsedError, ParsingError},
-    exif::{extract_exif_data, ExifParser},
+    exif::{extract_exif_with_state, ExifParser},
     file::Mime,
     input::Input,
-    parser::{
-        Buffer, ParsingState, INIT_BUF_SIZE, MAX_GROW_SIZE, MAX_REUSE_BUF_SIZE, MIN_GROW_SIZE,
-    },
+    parser::{Buf, ParsingState, INIT_BUF_SIZE, MAX_GROW_SIZE, MIN_GROW_SIZE},
     skip::AsyncSkip,
     slice::SubsliceRange as _,
     video::parse_track_info,
@@ -90,7 +90,7 @@ impl AsyncMediaSource<File, Seekable> {
     }
 }
 
-pub(crate) trait AsyncBufParser: Buffer {
+pub(crate) trait AsyncBufParser: Buf {
     async fn fill_buf<R: AsyncRead + Unpin>(
         &mut self,
         reader: &mut R,
@@ -181,18 +181,16 @@ pub(crate) trait AsyncBufParser: Buffer {
     }
 }
 
-pub trait AsyncParseOutput<'a, R, S>: Sized + 'a {
+pub trait AsyncParseOutput<R, S>: Sized {
     fn parse(
-        parser: &'a mut AsyncMediaParser,
+        parser: &mut AsyncMediaParser,
         ms: AsyncMediaSource<R, S>,
     ) -> impl std::future::Future<Output = crate::Result<Self>> + Send;
 }
 
-impl<'a, R: AsyncRead + Unpin + Send, S: AsyncSkip<R> + Send> AsyncParseOutput<'a, R, S>
-    for ExifIter<'a>
-{
+impl<R: AsyncRead + Unpin + Send, S: AsyncSkip<R> + Send> AsyncParseOutput<R, S> for ExifIter {
     async fn parse(
-        parser: &'a mut AsyncMediaParser,
+        parser: &mut AsyncMediaParser,
         ms: AsyncMediaSource<R, S>,
     ) -> crate::Result<Self> {
         let mut reader = ms.reader;
@@ -202,7 +200,7 @@ impl<'a, R: AsyncRead + Unpin + Send, S: AsyncSkip<R> + Send> AsyncParseOutput<'
                 &mut reader,
                 |buf, state| match mime {
                     Mime::Image(img) => {
-                        let exif_data = extract_exif_data(img, buf, state.as_ref())?;
+                        let exif_data = extract_exif_with_state(img, buf, state.as_ref())?;
                         Ok(exif_data
                             .and_then(|x| buf.subslice_range(x))
                             .map(|x| (x, state)))
@@ -213,7 +211,7 @@ impl<'a, R: AsyncRead + Unpin + Send, S: AsyncSkip<R> + Send> AsyncParseOutput<'
             .await?;
 
         if let Some((range, state)) = out {
-            let input: Input<'a> = parser.buffer()[range].into();
+            let input: Input = (parser.share_buf(), range).into();
             let parser = ExifParser::new(input);
             let iter = parser.parse_iter(state)?;
             Ok(iter)
@@ -223,11 +221,9 @@ impl<'a, R: AsyncRead + Unpin + Send, S: AsyncSkip<R> + Send> AsyncParseOutput<'
     }
 }
 
-impl<'a, R: AsyncRead + Unpin + Send, S: AsyncSkip<R> + Send> AsyncParseOutput<'a, R, S>
-    for TrackInfo
-{
+impl<R: AsyncRead + Unpin + Send, S: AsyncSkip<R> + Send> AsyncParseOutput<R, S> for TrackInfo {
     async fn parse(
-        parser: &'a mut AsyncMediaParser,
+        parser: &mut AsyncMediaParser,
         ms: AsyncMediaSource<R, S>,
     ) -> crate::Result<Self> {
         let mut ms = ms;
@@ -249,26 +245,24 @@ impl<'a, R: AsyncRead + Unpin + Send, S: AsyncSkip<R> + Send> AsyncParseOutput<'
 /// An async version of [`crate::MediaParser`]
 #[derive(Debug)]
 pub struct AsyncMediaParser {
-    buf: Vec<u8>,
+    bb: Buffers,
+    buf: Option<Vec<u8>>,
     position: usize,
 }
 
 impl Default for AsyncMediaParser {
     fn default() -> Self {
-        Self::with_capacity(INIT_BUF_SIZE)
+        Self {
+            bb: Buffers::new(),
+            buf: None,
+            position: 0,
+        }
     }
 }
 
 impl AsyncMediaParser {
     pub fn new() -> Self {
         Self::default()
-    }
-
-    fn with_capacity(size: usize) -> Self {
-        Self {
-            buf: Vec::with_capacity(size),
-            position: 0,
-        }
     }
 
     /// `AsyncMediaParser` comes with its own buffer management, so that
@@ -336,19 +330,40 @@ impl AsyncMediaParser {
     ///
     /// - For [`TrackInfo`] as parse output, don't worry about this, because
     ///   `TrackInfo` is an owned value type.
-    pub async fn parse<'a, R: AsyncRead + Unpin, S, O: AsyncParseOutput<'a, R, S>>(
-        &'a mut self,
+    pub async fn parse<R: AsyncRead + Unpin, S, O: AsyncParseOutput<R, S>>(
+        &mut self,
         mut ms: AsyncMediaSource<R, S>,
     ) -> crate::Result<O> {
-        self.clear();
-        if self.buf.capacity() > MAX_REUSE_BUF_SIZE {
-            self.buf.shrink_to(MAX_REUSE_BUF_SIZE);
-        }
+        self.acquire_buf();
 
-        self.buf.append(&mut ms.buf);
+        self.buf_mut().append(&mut ms.buf);
         self.fill_buf(&mut ms.reader, INIT_BUF_SIZE).await?;
 
-        O::parse(self, ms).await
+        let res = O::parse(self, ms).await?;
+
+        // Ensure buf has been released
+        if let Some(buf) = self.buf.take() {
+            self.bb.release(buf);
+        }
+
+        Ok(res)
+    }
+
+    fn share_buf(&mut self) -> Arc<Vec<u8>> {
+        self.bb.release_to_share(self.buf.take().unwrap())
+    }
+
+    fn acquire_buf(&mut self) {
+        assert!(self.buf.is_none());
+        self.buf = Some(self.bb.acquire());
+    }
+
+    fn buf_mut(&mut self) -> &mut Vec<u8> {
+        self.buf.as_mut().unwrap()
+    }
+
+    fn buf(&self) -> &Vec<u8> {
+        self.buf.as_ref().unwrap()
     }
 }
 
@@ -358,12 +373,9 @@ impl AsyncBufParser for AsyncMediaParser {
         reader: &mut R,
         size: usize,
     ) -> io::Result<usize> {
-        self.buf.reserve_exact(size);
+        self.buf_mut().reserve_exact(size);
 
-        let n = reader
-            .take(size as u64)
-            .read_to_end(self.buf.as_mut())
-            .await?;
+        let n = reader.take(size as u64).read_to_end(self.buf_mut()).await?;
         if n == 0 {
             return Err(std::io::ErrorKind::UnexpectedEof.into());
         }
@@ -377,13 +389,13 @@ impl AsyncBufParser for AsyncMediaParser {
     }
 }
 
-impl Buffer for AsyncMediaParser {
+impl Buf for AsyncMediaParser {
     fn buffer(&self) -> &[u8] {
-        &self.buf[self.position()..]
+        &self.buf()[self.position()..]
     }
 
     fn clear(&mut self) {
-        self.buf.clear();
+        self.buf_mut().clear();
     }
 
     fn set_position(&mut self, pos: usize) {

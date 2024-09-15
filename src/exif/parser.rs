@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use nom::{
     branch::alt,
     bytes::streaming::tag,
@@ -23,11 +25,11 @@ use super::{
     ifd::ParsedImageFileDirectory,
 };
 
-pub(crate) struct ExifParser<'a> {
-    inner: Inner<'a>,
+pub(crate) struct ExifParser {
+    inner: Inner,
 }
 
-impl<'a> ExifParser<'a> {
+impl ExifParser {
     /// Create a new ExifParser. `input` can be:
     ///
     /// - A `Vec<u8>`, which will be auto converted to an `Input<'static>`,
@@ -36,7 +38,7 @@ impl<'a> ExifParser<'a> {
     /// - A `&'a [u8]`, which will be auto converted to an `Input<'a>`,
     ///   therefore an `ExifParser<'a>` will be returned.
     ///
-    pub fn new(input: impl Into<input::Input<'a>>) -> ExifParser<'a> {
+    pub fn new(input: impl Into<input::Input>) -> ExifParser {
         Self {
             inner: Inner::new(input),
         }
@@ -50,7 +52,7 @@ impl<'a> ExifParser<'a> {
     /// The one exception is the time zone entries. The method will try to find
     /// and parse the time zone data first, so we can correctly parse all time
     /// information in subsequent iterates.
-    pub fn parse_iter(self, state: Option<ParsingState>) -> Result<ExifIter<'a>, ParsedError> {
+    pub fn parse_iter(self, state: Option<ParsingState>) -> Result<ExifIter, ParsedError> {
         let iter = self.inner.try_into_iter(state).map_err(|e| match e {
             ParsingError::Need(_) => unreachable!(),
             ParsingError::ClearAndSkip(_, _) => unreachable!(),
@@ -60,18 +62,27 @@ impl<'a> ExifParser<'a> {
     }
 }
 
-struct Inner<'a> {
-    input: Input<'a>,
+struct Inner {
+    input: Input,
 }
 
-impl<'a> Inner<'a> {
-    fn new(input: impl Into<input::Input<'a>>) -> Inner<'a> {
+impl Debug for Inner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExifParser::Inner")
+            .field("input len", &self.input.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl Inner {
+    fn new(input: impl Into<input::Input>) -> Inner {
         Self {
             input: input.into(),
         }
     }
 
-    fn try_into_iter(self, state: Option<ParsingState>) -> Result<ExifIter<'a>, ParsingError> {
+    #[tracing::instrument]
+    fn try_into_iter(self, state: Option<ParsingState>) -> Result<ExifIter, ParsingError> {
         let (header, start) = match state {
             // header has been parsed, and header has been skipped, input data
             // is the IFD data
@@ -92,6 +103,8 @@ impl<'a> Inner<'a> {
             }
         };
 
+        tracing::debug!(?header, offset = start);
+
         let data = &self.input[..];
 
         let mut ifd0 = match ImageFileDirectoryIter::try_new(
@@ -105,9 +118,12 @@ impl<'a> Inner<'a> {
             Err(e) => return Err(ParsingError::Failed(e.to_string())),
         };
 
+        tracing::debug!(?ifd0);
+
         let tz = ifd0.find_tz_offset();
+        tracing::debug!(?tz, "time zone offset");
         ifd0.tz = tz.clone();
-        let iter: ExifIter<'a> = ExifIter::new(self.input, header, tz, Some(ifd0));
+        let iter: ExifIter = ExifIter::new(self.input, header, tz, Some(ifd0));
 
         Ok(iter)
     }
@@ -248,8 +264,8 @@ impl Exif {
     }
 }
 
-impl From<ExifIter<'_>> for Exif {
-    fn from(iter: ExifIter<'_>) -> Self {
+impl From<ExifIter> for Exif {
+    fn from(iter: ExifIter) -> Self {
         let gps_info = iter.parse_gps_info().ok().flatten();
         let mut exif = Exif::new(gps_info);
 
@@ -304,6 +320,8 @@ impl TiffHeader {
         let size = (num as usize)
             .checked_mul(IFD_ENTRY_SIZE)
             .expect("should be fit");
+
+        tracing::debug!(ifd_entry_num = num, size);
 
         if size > remain.len() {
             return Err(nom::Err::Incomplete(Needed::new(size - remain.len())));

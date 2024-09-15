@@ -34,10 +34,10 @@ use super::{parser::IFD_ENTRY_SIZE, tags::ExifTagCode, GPSInfo, TiffHeader};
 /// If you want to convert an `ExifIter` `into` an [`Exif`], you probably want
 /// to call `clone_and_rewind` and use the new cloned one. Since the iterator
 /// index may have been modified by `Iterator::next()` calls.
-#[derive(Debug, Default)]
-pub struct ExifIter<'a> {
+#[derive(Default)]
+pub struct ExifIter {
     // Use Arc to make sure we won't clone the owned data.
-    input: Arc<Input<'a>>,
+    input: Arc<Input>,
     tiff_header: TiffHeader,
     tz: Option<String>,
     ifd0: Option<ImageFileDirectoryIter>,
@@ -46,7 +46,19 @@ pub struct ExifIter<'a> {
     ifds: Vec<ImageFileDirectoryIter>,
 }
 
-impl Clone for ExifIter<'_> {
+impl Debug for ExifIter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExifIter")
+            .field("data len", &self.input.len())
+            .field("tiff_header", &self.tiff_header)
+            .field("ifd0 original ", &self.ifd0)
+            .field("ifd0 iterating", &self.ifds.first())
+            .field("ifds num", &self.ifds.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl Clone for ExifIter {
     /// ⚠️ Try to avoid calling this method. The semantics of this method are
     /// not clear at present. If you wish to clone the iterator and reset the
     /// iteration state, use [`ExifIter::clone_and_rewind`] explicitly.
@@ -67,13 +79,13 @@ impl Clone for ExifIter<'_> {
     }
 }
 
-impl<'a> ExifIter<'a> {
+impl ExifIter {
     pub(crate) fn new(
-        input: impl Into<Input<'a>>,
+        input: impl Into<Input>,
         tiff_header: TiffHeader,
         tz: Option<String>,
         ifd0: Option<ImageFileDirectoryIter>,
-    ) -> ExifIter<'a> {
+    ) -> ExifIter {
         let mut ifds = Vec::new();
         if let Some(ref ifd0) = ifd0 {
             ifds.push(ifd0.clone());
@@ -116,14 +128,28 @@ impl<'a> ExifIter<'a> {
     /// - An `Ok<Some<GPSInfo>>` if gps info is found and parsed successfully.
     /// - An `Ok<None>` if gps info is not found.
     /// - An `Err` if gps info is found but parsing failed.
+    #[tracing::instrument(skip_all)]
     pub fn parse_gps_info(&self) -> crate::Result<Option<GPSInfo>> {
-        let mut iter = self.shallow_clone();
-        let Some(gps) = iter.find(|x| x.tag.tag().is_some_and(|t| t == ExifTag::GPSInfo)) else {
+        let mut iter = self.clone_and_rewind();
+        let Some(gps) = iter.find(|x| {
+            tracing::info!(?x, "find");
+            x.tag.tag().is_some_and(|t| t == ExifTag::GPSInfo)
+        }) else {
+            tracing::warn!(ifd0 = ?iter.ifds.first(), "GPSInfo not found");
             return Ok(None);
         };
 
         let offset = match gps.get_result() {
-            Ok(v) => v.as_u32().unwrap(),
+            Ok(v) => {
+                if let Some(offset) = v.as_u32() {
+                    offset
+                } else {
+                    return Err(EntryError(ParseEntryError::InvalidData(
+                        "invalid gps offset".into(),
+                    ))
+                    .into());
+                }
+            }
             Err(e) => return Err(e.clone().into()),
         };
 
@@ -140,17 +166,45 @@ impl<'a> ExifIter<'a> {
         Ok(gps_subifd.parse_gps_info())
     }
 
-    // Make sure we won't clone the owned data.
-    fn shallow_clone(&'a self) -> Self {
-        ExifIter::new(
-            &self.input[..],
-            self.tiff_header.clone(),
-            self.tz.clone(),
-            self.ifd0.as_ref().map(|x| x.clone_and_rewind()),
-        )
+    #[tracing::instrument(skip_all)]
+    pub fn consume_parse_gps_info(mut self) -> crate::Result<Option<GPSInfo>> {
+        let Some(gps) = self.find(|x| {
+            tracing::info!(?x, "find");
+            x.tag.tag().is_some_and(|t| t == ExifTag::GPSInfo)
+        }) else {
+            tracing::warn!(ifd0 = ?self.ifds.first(), "GPSInfo not found");
+            return Ok(None);
+        };
+
+        let offset = match gps.get_result() {
+            Ok(v) => {
+                if let Some(offset) = v.as_u32() {
+                    offset
+                } else {
+                    return Err(EntryError(ParseEntryError::InvalidData(
+                        "invalid gps offset".into(),
+                    ))
+                    .into());
+                }
+            }
+            Err(e) => return Err(e.clone().into()),
+        };
+
+        let iter = self;
+        let mut gps_subifd = match ImageFileDirectoryIter::try_new(
+            gps.ifd,
+            iter.input.make_associated(&iter.input[offset as usize..]),
+            offset,
+            iter.tiff_header.endian,
+            iter.tz.clone(),
+        ) {
+            Ok(ifd0) => ifd0,
+            Err(e) => return Err(e),
+        };
+        Ok(gps_subifd.parse_gps_info())
     }
 
-    pub(crate) fn to_owned(&self) -> ExifIter<'static> {
+    pub(crate) fn to_owned(&self) -> ExifIter {
         ExifIter::new(
             self.input.to_vec(),
             self.tiff_header.clone(),
@@ -313,7 +367,7 @@ impl Debug for ParsedExifEntry {
 
 const MAX_IFD_DEPTH: usize = 8;
 
-impl<'a> Iterator for ExifIter<'a> {
+impl Iterator for ExifIter {
     type Item = ParsedExifEntry;
 
     #[tracing::instrument(skip_all)]
@@ -388,7 +442,7 @@ impl<'a> Iterator for ExifIter<'a> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(crate) struct ImageFileDirectoryIter {
     ifd_idx: usize,
 
@@ -405,6 +459,21 @@ pub(crate) struct ImageFileDirectoryIter {
     // Iterating status
     index: u16,
     pos: usize,
+}
+
+impl Debug for ImageFileDirectoryIter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ImageFileDirectoryIter")
+            .field("ifd_idx", &self.ifd_idx)
+            .field("data len", &self.input.len())
+            .field("offset", &self.offset)
+            .field("tz", &self.tz)
+            .field("endian", &self.endian)
+            .field("entry_num", &self.entry_num)
+            .field("index", &self.index)
+            .field("pos", &self.pos)
+            .finish_non_exhaustive()
+    }
 }
 
 impl ImageFileDirectoryIter {
@@ -674,6 +743,7 @@ impl ImageFileDirectoryIter {
         if has_data {
             Some(gps)
         } else {
+            tracing::warn!("GPSInfo data not found");
             None
         }
     }

@@ -5,9 +5,11 @@ use std::{
     marker::PhantomData,
     net::TcpStream,
     path::Path,
+    sync::Arc,
 };
 
 use crate::{
+    buffer::Buffers,
     error::{ParsedError, ParsingError},
     exif::{parse_exif_iter, TiffHeader},
     file::Mime,
@@ -113,10 +115,8 @@ pub(crate) const INIT_BUF_SIZE: usize = 4096 - HEADER_PARSE_BUF_SIZE;
 pub(crate) const MIN_GROW_SIZE: usize = 2 * 4096;
 // Max size of APP1 is 0xFFFF
 pub(crate) const MAX_GROW_SIZE: usize = 63 * 1024;
-// Set a reasonable value to avoid causing frequent memory allocations
-pub(crate) const MAX_REUSE_BUF_SIZE: usize = 8 * 1024 * 1024;
 
-pub(crate) trait Buffer {
+pub(crate) trait Buf {
     fn buffer(&self) -> &[u8];
     fn clear(&mut self);
 
@@ -129,7 +129,7 @@ pub(crate) enum ParsingState {
     TiffHeader(TiffHeader),
 }
 
-pub(crate) trait BufParser: Buffer {
+pub(crate) trait BufParser: Buf {
     fn fill_buf<R: Read>(&mut self, reader: &mut R, size: usize) -> io::Result<usize>;
     fn load_and_parse<R: Read, S: Skip<R>, P, O>(
         &mut self,
@@ -218,9 +218,9 @@ pub(crate) trait BufParser: Buffer {
 
 impl BufParser for MediaParser {
     fn fill_buf<R: Read>(&mut self, reader: &mut R, size: usize) -> io::Result<usize> {
-        self.buf.reserve_exact(size);
+        self.buf_mut().reserve_exact(size);
 
-        let n = reader.take(size as u64).read_to_end(self.buf.as_mut())?;
+        let n = reader.take(size as u64).read_to_end(self.buf_mut())?;
         if n == 0 {
             return Err(std::io::ErrorKind::UnexpectedEof.into());
         }
@@ -229,13 +229,13 @@ impl BufParser for MediaParser {
     }
 }
 
-impl Buffer for MediaParser {
+impl Buf for MediaParser {
     fn buffer(&self) -> &[u8] {
-        &self.buf[self.position()..]
+        &self.buf()[self.position()..]
     }
 
     fn clear(&mut self) {
-        self.buf.clear();
+        self.buf_mut().clear();
     }
 
     fn set_position(&mut self, pos: usize) {
@@ -247,7 +247,56 @@ impl Buffer for MediaParser {
     }
 }
 
+pub trait ParseOutput<R, S>: Sized {
+    fn parse(parser: &mut MediaParser, ms: MediaSource<R, S>) -> crate::Result<Self>;
+}
+
+impl<R: Read, S: Skip<R>> ParseOutput<R, S> for ExifIter {
+    fn parse(parser: &mut MediaParser, ms: MediaSource<R, S>) -> crate::Result<Self> {
+        parse_exif_iter(parser, ms)
+    }
+}
+
+impl<R: Read, S: Skip<R>> ParseOutput<R, S> for TrackInfo {
+    fn parse(parser: &mut MediaParser, mut ms: MediaSource<R, S>) -> crate::Result<Self> {
+        let out = match ms.mime {
+            Mime::Image(_) => return Err("not a track".into()),
+            Mime::Video(v) => parser
+                .load_and_parse::<R, S, _, _>(ms.reader.by_ref(), |data, _| {
+                    parse_track_info(data, v)
+                })?,
+        };
+
+        Ok(out)
+    }
+}
+
+/// A `MediaParser` can parse video/audio info from a [`MediaSource`].
+///
+/// MediaParser manages an inner parse buffer that can be shared between
+/// multiple parsing tasks, thus avoiding frequent memory allocations.
+#[derive(Debug)]
+pub struct MediaParser {
+    bb: Buffers,
+    buf: Option<Vec<u8>>,
+    position: usize,
+}
+
+impl Default for MediaParser {
+    fn default() -> Self {
+        Self {
+            bb: Buffers::new(),
+            buf: None,
+            position: 0,
+        }
+    }
+}
+
 impl MediaParser {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     /// `MediaParser` comes with its own buffer management, so that buffers can
     /// be reused during multiple parsing processes to avoid frequent memory
     /// allocations. Therefore, try to reuse a `MediaParser` instead of
@@ -304,72 +353,48 @@ impl MediaParser {
     ///
     /// - For [`TrackInfo`] as parse output, don't worry about this, because
     ///   `TrackInfo` is an owned value type.
-    pub fn parse<'a, R: Read, S, O: ParseOutput<'a, R, S>>(
-        &'a mut self,
+    pub fn parse<R: Read, S, O: ParseOutput<R, S>>(
+        &mut self,
         mut ms: MediaSource<R, S>,
     ) -> crate::Result<O> {
-        self.clear();
-        if self.buf.capacity() > MAX_REUSE_BUF_SIZE {
-            self.buf.shrink_to(MAX_REUSE_BUF_SIZE);
-        }
+        assert!(self.buf.is_none());
+        self.acquire_buf();
 
-        self.buf.append(&mut ms.buf);
+        self.buf_mut().append(&mut ms.buf);
         self.fill_buf(ms.reader.by_ref(), INIT_BUF_SIZE)?;
 
-        ParseOutput::parse(self, ms)
-    }
-}
+        let res = ParseOutput::parse(self, ms)?;
 
-pub trait ParseOutput<'a, R, S>: Sized + 'a {
-    fn parse(parser: &'a mut MediaParser, ms: MediaSource<R, S>) -> crate::Result<Self>;
-}
-
-impl<'a, R: Read, S: Skip<R>> ParseOutput<'a, R, S> for ExifIter<'a> {
-    fn parse(parser: &'a mut MediaParser, ms: MediaSource<R, S>) -> crate::Result<Self> {
-        parse_exif_iter(parser, ms)
-    }
-}
-
-impl<'a, R: Read, S: Skip<R>> ParseOutput<'a, R, S> for TrackInfo {
-    fn parse(parser: &mut MediaParser, mut ms: MediaSource<R, S>) -> crate::Result<Self> {
-        let out = match ms.mime {
-            Mime::Image(_) => return Err("not a track".into()),
-            Mime::Video(v) => parser
-                .load_and_parse::<R, S, _, _>(ms.reader.by_ref(), |data, _| {
-                    parse_track_info(data, v)
-                })?,
-        };
-
-        Ok(out)
-    }
-}
-
-/// A `MediaParser` can parse video/audio info from a [`MediaSource`].
-///
-/// MediaParser manages an inner parse buffer that can be shared between
-/// multiple parsing tasks, thus avoiding frequent memory allocations.
-#[derive(Debug)]
-pub struct MediaParser {
-    buf: Vec<u8>,
-    position: usize,
-}
-
-impl Default for MediaParser {
-    fn default() -> Self {
-        Self::with_capacity(INIT_BUF_SIZE)
-    }
-}
-
-impl MediaParser {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    fn with_capacity(size: usize) -> Self {
-        Self {
-            buf: Vec::with_capacity(size),
-            position: 0,
+        // Ensure buf has been released
+        if let Some(buf) = self.buf.take() {
+            self.bb.release(buf);
         }
+
+        Ok(res)
+    }
+
+    pub(crate) fn buf(&self) -> &Vec<u8> {
+        match self.buf.as_ref() {
+            Some(b) => b,
+            None => panic!("no buf here"),
+        }
+    }
+
+    fn buf_mut(&mut self) -> &mut Vec<u8> {
+        match self.buf.as_mut() {
+            Some(b) => b,
+            None => panic!("no buf here"),
+        }
+    }
+
+    pub fn share_buf(&mut self) -> Arc<Vec<u8>> {
+        let buf = self.buf.take().unwrap();
+        self.bb.release_to_share(buf)
+    }
+
+    fn acquire_buf(&mut self) -> &mut Vec<u8> {
+        self.buf = Some(self.bb.acquire());
+        self.buf.as_mut().unwrap()
     }
 }
 

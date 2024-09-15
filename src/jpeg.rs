@@ -113,7 +113,11 @@ where
         // Sanity check
         assert!(rem.len() < remain.len());
         remain = rem;
-        tracing::debug!(?segment.marker_code, "Got segment.");
+        tracing::info!(
+            marker = format!("0x{:04x}", segment.marker_code),
+            size = format!("0x{:04x}", segment.payload.len()),
+            "Got segment."
+        );
 
         if predicate(&segment) {
             break Ok((remain, segment));

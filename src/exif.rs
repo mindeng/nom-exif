@@ -1,6 +1,6 @@
 use crate::error::ParsingError;
 use crate::file::Mime;
-use crate::parser::{BufParser, Buffer, ParsingState};
+use crate::parser::{BufParser, ParsingState};
 use crate::skip::Skip;
 use crate::slice::SubsliceRange;
 use crate::{heif, jpeg, MediaParser, MediaSource, ZB};
@@ -55,24 +55,24 @@ mod tags;
 /// - An `Err` if Exif data is found but parsing failed.
 #[deprecated(since = "2.0.0")]
 #[allow(deprecated)]
-pub fn parse_exif<T: Read>(
-    reader: T,
-    _: Option<FileFormat>,
-) -> crate::Result<Option<ExifIter<'static>>> {
+pub fn parse_exif<T: Read>(reader: T, _: Option<FileFormat>) -> crate::Result<Option<ExifIter>> {
     let mut parser = MediaParser::new();
-    let exif: ExifIter = parser.parse(MediaSource::unseekable(reader)?)?;
-    Ok(Some(exif.to_owned()))
+    let iter: ExifIter = parser.parse(MediaSource::unseekable(reader)?)?;
+    let iter = iter.to_owned();
+    Ok(Some(iter))
 }
 
-pub(crate) fn parse_exif_iter<'a, R: Read, S: Skip<R>>(
-    parser: &'a mut MediaParser,
+#[tracing::instrument(skip_all)]
+pub(crate) fn parse_exif_iter<R: Read, S: Skip<R>>(
+    parser: &mut MediaParser,
     mut ms: MediaSource<R, S>,
-) -> Result<ExifIter<'a>, crate::Error> {
+) -> Result<ExifIter, crate::Error> {
     let out = parser.load_and_parse::<R, S, _, Option<(Range<_>, Option<ParsingState>)>>(
         ms.reader.by_ref(),
         |buf, state| match ms.mime {
             Mime::Image(img) => {
-                let exif_data = extract_exif_data(img, buf, state.as_ref())?;
+                tracing::info!(buf_len = buf.len(), ?state, ?ms.mime, "extract exif...");
+                let exif_data = extract_exif_with_state(img, buf, state.as_ref())?;
                 Ok(exif_data
                     .and_then(|x| buf.subslice_range(x))
                     .map(|x| (x, state)))
@@ -82,7 +82,8 @@ pub(crate) fn parse_exif_iter<'a, R: Read, S: Skip<R>>(
     )?;
 
     if let Some((range, state)) = out {
-        let input: Input<'a> = parser.buffer()[range].into();
+        tracing::debug!(?range);
+        let input: Input = Input::new(parser.share_buf(), range);
         let parser = ExifParser::new(input);
         let iter = parser.parse_iter(state)?;
         Ok(iter)
@@ -91,7 +92,7 @@ pub(crate) fn parse_exif_iter<'a, R: Read, S: Skip<R>>(
     }
 }
 
-pub(crate) fn extract_exif_data<'a>(
+pub(crate) fn extract_exif_with_state<'a>(
     img: crate::file::MimeImage,
     buf: &'a [u8],
     state: Option<&ParsingState>,
@@ -140,24 +141,21 @@ use tokio::io::AsyncRead;
 pub async fn parse_exif_async<T: AsyncRead + Unpin + Send>(
     reader: T,
     _: Option<FileFormat>,
-) -> crate::Result<Option<ExifIter<'static>>> {
+) -> crate::Result<Option<ExifIter>> {
     use crate::{AsyncMediaParser, AsyncMediaSource};
 
     let mut parser = AsyncMediaParser::new();
     let exif: ExifIter = parser
         .parse(AsyncMediaSource::unseekable(reader).await?)
         .await?;
-    Ok(Some(exif.to_owned()))
-
-    // read_exif_async(reader, format)
-    //     .await?
-    //     .map(input_to_exif_iter)
-    //     .transpose()
+    Ok(Some(exif))
 }
 
 #[cfg(test)]
 #[allow(deprecated)]
 mod tests {
+    use std::path::Path;
+
     use crate::{
         file::MimeImage,
         testkit::{open_sample, read_sample},
@@ -171,9 +169,41 @@ mod tests {
     #[test_case("exif.jpg", "+22.53113+114.02148/")]
     fn gps(path: &str, gps_str: &str) {
         let f = open_sample(path).unwrap();
-        let iter = parse_exif(f, None).unwrap().unwrap();
-        let gps_info = iter.parse_gps_info().unwrap().unwrap();
+        let iter = parse_exif(f, None)
+            .expect("should be Ok")
+            .expect("should not be None");
+        let gps_info = iter
+            .parse_gps_info()
+            .expect("should be parsed Ok")
+            .expect("should not be None");
+
+        // let gps_info = iter
+        //     .consume_parse_gps_info()
+        //     .expect("should be parsed Ok")
+        //     .expect("should not be None");
         assert_eq!(gps_info.format_iso6709(), gps_str);
+    }
+
+    #[cfg(feature = "async")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[test_case("exif.heic", "+43.29013+084.22713+1595.950CRSWGS_84/")]
+    #[test_case("exif.jpg", "+22.53113+114.02148/")]
+    async fn gps_async(path: &str, gps_str: &str) {
+        use tokio::fs::File;
+
+        let f = File::open(Path::new("testdata").join(path)).await.unwrap();
+        let iter = parse_exif_async(f, None)
+            .await
+            .expect("should be Ok")
+            .expect("should not be None");
+
+        let gps_str = gps_str.to_owned();
+        let _ = tokio::spawn(async move {
+            let exif: Exif = iter.into();
+            let gps_info = exif.get_gps_info().expect("ok").expect("some");
+            assert_eq!(gps_info.format_iso6709(), gps_str);
+        })
+        .await;
     }
 
     #[test_case(
@@ -202,11 +232,12 @@ mod tests {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 
         let buf = read_sample(path).unwrap();
-        let data = extract_exif_data(MimeImage::Jpeg, &buf, None)
+        let data = extract_exif_with_state(MimeImage::Jpeg, &buf, None)
             .unwrap()
             .unwrap();
 
-        let parser = ExifParser::new(data);
+        let subslice_range = buf.subslice_range(data).unwrap();
+        let parser = ExifParser::new((buf, subslice_range));
         let iter = parser.parse_iter(None).unwrap();
         let exif: Exif = iter.into();
 

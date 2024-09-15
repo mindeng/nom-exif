@@ -288,7 +288,7 @@ pub fn parse_mov_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(Strin
 }
 
 #[tracing::instrument(skip_all)]
-fn extract_moov_body<L: Load>(mut loader: L) -> Result<Input<'static>, crate::Error> {
+fn extract_moov_body<L: Load>(mut loader: L) -> Result<Input, crate::Error> {
     let moov_body_range = loader.load_and_parse(extract_moov_body_from_buf)?;
 
     tracing::debug!(?moov_body_range);

@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use nom::{
-    bytes::{complete, streaming},
+    bytes::streaming,
     combinator::{fail, map_res},
     error::context,
     number, AsChar, IResult, Needed,
@@ -294,7 +294,7 @@ impl<O, T: ParseBody<O>> ParseBox<O> for T {
             tracing::error!(?header.box_type, ?box_size, "Box is too big");
             return fail(remain);
         }
-        let (remain, data) = complete::take(box_size)(remain)?;
+        let (remain, data) = streaming::take(box_size)(remain)?;
         assert_eq!(input.len(), header.header_size + data.len() + remain.len());
 
         let (rem, bbox) = Self::parse_body(data, header)?;
