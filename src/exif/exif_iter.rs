@@ -34,13 +34,12 @@ use super::{parser::IFD_ENTRY_SIZE, tags::ExifTagCode, GPSInfo, TiffHeader};
 /// If you want to convert an `ExifIter` `into` an [`Exif`], you probably want
 /// to call `clone_and_rewind` and use the new cloned one. Since the iterator
 /// index may have been modified by `Iterator::next()` calls.
-#[derive(Default)]
 pub struct ExifIter {
     // Use Arc to make sure we won't clone the owned data.
     input: Arc<Input>,
     tiff_header: TiffHeader,
     tz: Option<String>,
-    ifd0: Option<ImageFileDirectoryIter>,
+    ifd0: ImageFileDirectoryIter,
 
     // Iterating status
     ifds: Vec<ImageFileDirectoryIter>,
@@ -51,8 +50,8 @@ impl Debug for ExifIter {
         f.debug_struct("ExifIter")
             .field("data len", &self.input.len())
             .field("tiff_header", &self.tiff_header)
-            .field("ifd0 original ", &self.ifd0)
-            .field("ifd0 iterating", &self.ifds.first())
+            .field("ifd0", &self.ifd0)
+            .field("state", &self.ifds.first().map(|x| (x.index, x.pos)))
             .field("ifds num", &self.ifds.len())
             .finish_non_exhaustive()
     }
@@ -84,12 +83,9 @@ impl ExifIter {
         input: impl Into<Input>,
         tiff_header: TiffHeader,
         tz: Option<String>,
-        ifd0: Option<ImageFileDirectoryIter>,
+        ifd0: ImageFileDirectoryIter,
     ) -> ExifIter {
-        let mut ifds = Vec::new();
-        if let Some(ref ifd0) = ifd0 {
-            ifds.push(ifd0.clone());
-        }
+        let ifds = vec![ifd0.clone()];
         ExifIter {
             input: Arc::new(input.into()),
             tiff_header,
@@ -104,12 +100,8 @@ impl ExifIter {
     /// Clone an `ExifIter` is very cheap, the underlying data is shared
     /// through Arc.
     pub fn clone_and_rewind(&self) -> Self {
-        let mut ifds = Vec::new();
-        let mut ifd0 = None;
-        if let Some(ref ifd) = self.ifd0 {
-            ifd0 = Some(ifd.clone_and_rewind());
-            ifds.push(ifd.clone_and_rewind());
-        }
+        let ifd0 = self.ifd0.clone_and_rewind();
+        let ifds = vec![ifd0.clone()];
         Self {
             input: self.input.clone(),
             tiff_header: self.tiff_header.clone(),
@@ -209,7 +201,7 @@ impl ExifIter {
             self.input.to_vec(),
             self.tiff_header.clone(),
             self.tz.clone(),
-            self.ifd0.as_ref().map(|x| x.clone_and_rewind()),
+            self.ifd0.clone_and_rewind(),
         )
     }
 }
@@ -383,9 +375,7 @@ impl Iterator for ExifIter {
                     ifds_depth = self.ifds.len(),
                     "ifd depth is too deep, just go back to ifd0"
                 );
-                if let Some(ref ifd0) = self.ifd0 {
-                    self.ifds.push(ifd0.clone_with_state());
-                }
+                self.ifds.push(self.ifd0.clone_with_state());
             }
 
             let mut ifd = self.ifds.pop()?;
@@ -504,7 +494,6 @@ impl ImageFileDirectoryIter {
         }
         // should use the complete header data to parse ifd entry num
         let (_, entry_num) = TiffHeader::parse_ifd_entry_num(&input[..], endian)?;
-        tracing::debug!(entry_num);
 
         Ok(Self {
             ifd_idx,
@@ -535,7 +524,11 @@ impl ImageFileDirectoryIter {
 
         let df: DataFormat = match data_format.try_into() {
             Ok(df) => df,
-            Err(e) => return Some((tag, IfdEntry::Err(e))),
+            Err(e) => {
+                let t: ExifTagCode = tag.into();
+                tracing::warn!(tag = ?t, ?e, "invalid entry data format");
+                return Some((tag, IfdEntry::Err(e)));
+            }
         };
         let (tag, res) = self.parse_entry(tag, df, components_num, entry_data, value_or_offset);
         Some((tag, res))
@@ -593,7 +586,11 @@ impl ImageFileDirectoryIter {
         };
         match EntryValue::parse(&entry, &self.tz) {
             Ok(v) => (tag, IfdEntry::Entry(v)),
-            Err(e) => (tag, IfdEntry::Err(e)),
+            Err(e) => {
+                let t: ExifTagCode = tag.into();
+                tracing::warn!(tag = ?t, ?e, "parse entry failed");
+                (tag, IfdEntry::Err(e))
+            }
         }
     }
 
@@ -645,19 +642,20 @@ impl ImageFileDirectoryIter {
                 .ok()?;
 
                 // find tz offset
-                return self.find_tz_offset_in_exif_subifd(offset as usize);
+                return self.find_tz_offset_in_exif_subifd(offset);
             }
         }
         None
     }
 
-    fn find_tz_offset_in_exif_subifd(&self, offset: usize) -> Option<String> {
+    fn find_tz_offset_in_exif_subifd(&self, offset: u32) -> Option<String> {
         let num_entries = self.entry_num;
-        let pos = offset + 2;
+        let pos = self.get_data_pos(offset + 2) as usize;
         for i in 0..num_entries {
             let pos = pos + i as usize * IFD_ENTRY_SIZE;
             let entry_data = self.input.slice_checked(pos..pos + IFD_ENTRY_SIZE)?;
             let (tag, res) = self.parse_tag_entry(entry_data)?;
+
             if TZ_OFFSET_TAGS.contains(&tag) {
                 return match res {
                     IfdEntry::IfdNew(_) => {
@@ -751,6 +749,7 @@ impl ImageFileDirectoryIter {
     fn clone_with_state(&self) -> ImageFileDirectoryIter {
         let mut it = self.clone();
         it.index = self.index;
+        it.pos = self.pos;
         it
     }
 }
@@ -1034,3 +1033,32 @@ impl<'a> IFDHeaderIter<'a> {
 //         nom::Err::Failure(_) => nom::Err::Failure("parse ifd failure".to_string()),
 //     }
 // }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::exif::extract_exif_with_mime;
+    use crate::file::MimeImage;
+    use crate::slice::SubsliceRange;
+    use crate::{exif::ExifParser, input::Input, testkit::read_sample};
+    use test_case::test_case;
+
+    #[test_case("exif.jpg", "+08:00", MimeImage::Jpeg)]
+    #[test_case("broken.jpg", "", MimeImage::Jpeg)]
+    #[test_case("exif.heic", "+08:00", MimeImage::Heic)]
+    #[test_case("tif.tif", "", MimeImage::Tiff)]
+    fn exif_iter_tz(path: &str, tz: &str, img_type: MimeImage) {
+        let buf = read_sample(path).unwrap();
+        let data = extract_exif_with_mime(img_type, &buf, None).unwrap();
+        let subslice_range = data.and_then(|x| buf.subslice_range(x)).unwrap();
+        let data: Input = (buf, subslice_range).into();
+        let parser = ExifParser::new(data);
+        let iter = parser.parse_iter(None).unwrap();
+        let expect = if tz.is_empty() {
+            None
+        } else {
+            Some(tz.to_string())
+        };
+        assert_eq!(iter.tz, expect);
+    }
+}

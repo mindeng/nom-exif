@@ -1,5 +1,6 @@
 use std::{
     cmp::{max, min},
+    fmt::Debug,
     io::{self},
     marker::PhantomData,
     ops::Range,
@@ -15,7 +16,7 @@ use tokio::{
 use crate::{
     buffer::Buffers,
     error::{ParsedError, ParsingError},
-    exif::{extract_exif_with_state, ExifParser},
+    exif::{extract_exif_with_mime, parse_exif_iter_async, ExifParser},
     file::Mime,
     input::Input,
     parser::{Buf, ParsingState, INIT_BUF_SIZE, MAX_GROW_SIZE, MIN_GROW_SIZE},
@@ -28,7 +29,6 @@ use crate::{
 // Should be enough for parsing header
 const HEADER_PARSE_BUF_SIZE: usize = 128;
 
-#[derive(Debug)]
 pub struct AsyncMediaSource<R, S = Seekable> {
     pub(crate) reader: R,
     pub(crate) buf: Vec<u8>,
@@ -193,31 +193,7 @@ impl<R: AsyncRead + Unpin + Send, S: AsyncSkip<R> + Send> AsyncParseOutput<R, S>
         parser: &mut AsyncMediaParser,
         ms: AsyncMediaSource<R, S>,
     ) -> crate::Result<Self> {
-        let mut reader = ms.reader;
-        let mime = ms.mime;
-        let out = parser
-            .load_and_parse::<R, S, _, Option<(Range<_>, Option<ParsingState>)>>(
-                &mut reader,
-                |buf, state| match mime {
-                    Mime::Image(img) => {
-                        let exif_data = extract_exif_with_state(img, buf, state.as_ref())?;
-                        Ok(exif_data
-                            .and_then(|x| buf.subslice_range(x))
-                            .map(|x| (x, state)))
-                    }
-                    Mime::Video(_) => Err("not an image".into()),
-                },
-            )
-            .await?;
-
-        if let Some((range, state)) = out {
-            let input: Input = (parser.share_buf(), range).into();
-            let parser = ExifParser::new(input);
-            let iter = parser.parse_iter(state)?;
-            Ok(iter)
-        } else {
-            Err("parse exif failed".into())
-        }
+        parse_exif_iter_async(parser, ms).await
     }
 }
 
@@ -243,11 +219,30 @@ impl<R: AsyncRead + Unpin + Send, S: AsyncSkip<R> + Send> AsyncParseOutput<R, S>
 }
 
 /// An async version of [`crate::MediaParser`]
-#[derive(Debug)]
 pub struct AsyncMediaParser {
     bb: Buffers,
     buf: Option<Vec<u8>>,
     position: usize,
+}
+
+impl Debug for AsyncMediaParser {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MediaParser")
+            .field("buffers", &self.bb)
+            .field("buf len", &self.buf.as_ref().map(|x| x.len()))
+            .field("position", &self.position)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<R, S: AsyncSkip<R>> Debug for AsyncMediaSource<R, S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MediaSource")
+            // .field("reader", &self.reader)
+            .field("mime", &self.mime)
+            .field("seekable", &S::debug())
+            .finish_non_exhaustive()
+    }
 }
 
 impl Default for AsyncMediaParser {
@@ -349,7 +344,7 @@ impl AsyncMediaParser {
         Ok(res)
     }
 
-    fn share_buf(&mut self) -> Arc<Vec<u8>> {
+    pub(crate) fn share_buf(&mut self) -> Arc<Vec<u8>> {
         self.bb.release_to_share(self.buf.take().unwrap())
     }
 

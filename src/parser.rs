@@ -1,5 +1,6 @@
 use std::{
     cmp::{max, min},
+    fmt::Debug,
     fs::File,
     io::{self, Read, Seek},
     marker::PhantomData,
@@ -39,12 +40,21 @@ use crate::{
 /// its own buffer management and the buffer can be shared between multiple
 /// parsing tasks, thus avoiding frequent memory allocations.
 
-#[derive(Debug)]
 pub struct MediaSource<R, S = Seekable> {
     pub(crate) reader: R,
     pub(crate) buf: Vec<u8>,
     pub(crate) mime: Mime,
     phantom: PhantomData<S>,
+}
+
+impl<R, S: Skip<R>> Debug for MediaSource<R, S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MediaSource")
+            // .field("reader", &self.reader)
+            .field("mime", &self.mime)
+            .field("seekable", &S::debug())
+            .finish_non_exhaustive()
+    }
 }
 
 // Should be enough for parsing header
@@ -111,7 +121,7 @@ impl MediaSource<TcpStream, Unseekable> {
 }
 
 // Keep align with 4K
-pub(crate) const INIT_BUF_SIZE: usize = 4096 - HEADER_PARSE_BUF_SIZE;
+pub(crate) const INIT_BUF_SIZE: usize = 4096;
 pub(crate) const MIN_GROW_SIZE: usize = 2 * 4096;
 // Max size of APP1 is 0xFFFF
 pub(crate) const MAX_GROW_SIZE: usize = 63 * 1024;
@@ -208,7 +218,7 @@ pub(crate) trait BufParser: Buf {
                     if n == 0 {
                         return Err(ParsedError::NoEnoughBytes);
                     }
-                    tracing::debug!(actual_read = n, "has been read");
+                    tracing::debug!(n, "actual read");
                 }
                 Err(ParsingError::Failed(s)) => return Err(ParsedError::Failed(s)),
             }
@@ -275,11 +285,20 @@ impl<R: Read, S: Skip<R>> ParseOutput<R, S> for TrackInfo {
 ///
 /// MediaParser manages an inner parse buffer that can be shared between
 /// multiple parsing tasks, thus avoiding frequent memory allocations.
-#[derive(Debug)]
 pub struct MediaParser {
     bb: Buffers,
     buf: Option<Vec<u8>>,
     position: usize,
+}
+
+impl Debug for MediaParser {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MediaParser")
+            .field("buffers", &self.bb)
+            .field("buf len", &self.buf.as_ref().map(|x| x.len()))
+            .field("position", &self.position)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Default for MediaParser {

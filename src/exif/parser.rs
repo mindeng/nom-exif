@@ -118,12 +118,11 @@ impl Inner {
             Err(e) => return Err(ParsingError::Failed(e.to_string())),
         };
 
-        tracing::debug!(?ifd0);
-
         let tz = ifd0.find_tz_offset();
-        tracing::debug!(?tz, "time zone offset");
         ifd0.tz = tz.clone();
-        let iter: ExifIter = ExifIter::new(self.input, header, tz, Some(ifd0));
+        let iter: ExifIter = ExifIter::new(self.input, header, tz, ifd0);
+
+        tracing::debug!(?iter, "new ExifIter");
 
         Ok(iter)
     }
@@ -309,8 +308,7 @@ impl TiffHeader {
         Ok((remain, header))
     }
 
-    #[tracing::instrument(skip_all)]
-    pub fn parse_ifd_entry_num<'a>(input: &'a [u8], endian: Endianness) -> IResult<&'a [u8], u16> {
+    pub fn parse_ifd_entry_num(input: &[u8], endian: Endianness) -> IResult<&[u8], u16> {
         let (remain, num) = nom::number::streaming::u16(endian)(input)?; // Safe-slice
         if num == 0 {
             return Ok((remain, 0));
@@ -320,8 +318,6 @@ impl TiffHeader {
         let size = (num as usize)
             .checked_mul(IFD_ENTRY_SIZE)
             .expect("should be fit");
-
-        tracing::debug!(ifd_entry_num = num, size);
 
         if size > remain.len() {
             return Err(nom::Err::Incomplete(Needed::new(size - remain.len())));

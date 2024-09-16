@@ -1,4 +1,7 @@
-use std::io::{self, BufRead, Read, Seek};
+use std::{
+    fmt::Debug,
+    io::{self, BufRead, Read, Seek},
+};
 
 #[cfg(feature = "async")]
 use tokio::io::{AsyncRead, AsyncSeek, AsyncSeekExt};
@@ -39,6 +42,8 @@ pub trait Skip<R> {
     /// Therefore, the caller can implement the skip function by himself,
     /// thereby reusing the caller's own buffer.
     fn skip_by_seek(reader: &mut R, skip: u64) -> io::Result<bool>;
+
+    fn debug() -> impl Debug;
 }
 
 #[cfg(feature = "async")]
@@ -52,6 +57,8 @@ pub trait AsyncSkip<R> {
         reader: &mut R,
         skip: u64,
     ) -> impl std::future::Future<Output = io::Result<bool>> + Send;
+
+    fn debug() -> impl Debug;
 }
 
 impl<R: Read> Skip<R> for Unseekable {
@@ -74,6 +81,10 @@ impl<R: Read> Skip<R> for Unseekable {
     fn skip_by_seek(_: &mut R, _: u64) -> io::Result<bool> {
         Ok(false)
     }
+
+    fn debug() -> impl Debug {
+        "unseekable"
+    }
 }
 
 impl<R: Seek> Skip<R> for Seekable {
@@ -88,6 +99,10 @@ impl<R: Seek> Skip<R> for Seekable {
         reader.seek_relative(skip.try_into().unwrap())?;
         Ok(true)
     }
+
+    fn debug() -> impl Debug {
+        "seekable"
+    }
 }
 
 #[cfg(feature = "async")]
@@ -95,6 +110,10 @@ impl<R: AsyncRead + Unpin + Send> AsyncSkip<R> for Unseekable {
     #[inline]
     async fn skip_by_seek(_: &mut R, _: u64) -> io::Result<bool> {
         Ok(false)
+    }
+
+    fn debug() -> impl Debug {
+        "async unseekable"
     }
 }
 
@@ -106,6 +125,10 @@ impl<R: AsyncSeek + Unpin + Send> AsyncSkip<R> for Seekable {
             Ok(_) => Ok(true),
             Err(e) => Err(e),
         }
+    }
+
+    fn debug() -> impl Debug {
+        "async seekable"
     }
 }
 
@@ -125,6 +148,10 @@ impl<R: BufRead> Skip<R> for SkipBufRead {
 
     fn skip_by_seek(_: &mut R, _: u64) -> io::Result<bool> {
         Ok(false)
+    }
+
+    fn debug() -> impl Debug {
+        "unseekable(BufRead)"
     }
 }
 

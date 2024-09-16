@@ -62,7 +62,7 @@ pub fn parse_exif<T: Read>(reader: T, _: Option<FileFormat>) -> crate::Result<Op
     Ok(Some(iter))
 }
 
-#[tracing::instrument(skip_all)]
+#[tracing::instrument]
 pub(crate) fn parse_exif_iter<R: Read, S: Skip<R>>(
     parser: &mut MediaParser,
     mut ms: MediaSource<R, S>,
@@ -71,8 +71,8 @@ pub(crate) fn parse_exif_iter<R: Read, S: Skip<R>>(
         ms.reader.by_ref(),
         |buf, state| match ms.mime {
             Mime::Image(img) => {
-                tracing::info!(buf_len = buf.len(), ?state, ?ms.mime, "extract exif...");
-                let exif_data = extract_exif_with_state(img, buf, state.as_ref())?;
+                tracing::debug!(parsing_buf_len = buf.len(), ?state);
+                let exif_data = extract_exif_with_mime(img, buf, state.as_ref())?;
                 Ok(exif_data
                     .and_then(|x| buf.subslice_range(x))
                     .map(|x| (x, state)))
@@ -92,12 +92,50 @@ pub(crate) fn parse_exif_iter<R: Read, S: Skip<R>>(
     }
 }
 
-pub(crate) fn extract_exif_with_state<'a>(
-    img: crate::file::MimeImage,
+#[cfg(feature = "async")]
+#[tracing::instrument]
+pub(crate) async fn parse_exif_iter_async<
+    R: AsyncRead + Unpin + Send,
+    S: crate::skip::AsyncSkip<R>,
+>(
+    parser: &mut crate::AsyncMediaParser,
+    mut ms: crate::AsyncMediaSource<R, S>,
+) -> Result<ExifIter, crate::Error> {
+    use crate::parser_async::AsyncBufParser;
+
+    let out = parser
+        .load_and_parse::<R, S, _, Option<(Range<_>, Option<ParsingState>)>>(
+            &mut ms.reader,
+            |buf, state| match ms.mime {
+                Mime::Image(img) => {
+                    tracing::debug!(parsing_buf_len = buf.len(), ?state);
+                    let exif_data = extract_exif_with_mime(img, buf, state.as_ref())?;
+                    Ok(exif_data
+                        .and_then(|x| buf.subslice_range(x))
+                        .map(|x| (x, state)))
+                }
+                Mime::Video(_) => Err("not an image".into()),
+            },
+        )
+        .await?;
+
+    if let Some((range, state)) = out {
+        tracing::debug!(?range);
+        let input: Input = Input::new(parser.share_buf(), range);
+        let parser = ExifParser::new(input);
+        let iter = parser.parse_iter(state)?;
+        Ok(iter)
+    } else {
+        Err("parse exif failed".into())
+    }
+}
+
+pub(crate) fn extract_exif_with_mime<'a>(
+    img_type: crate::file::MimeImage,
     buf: &'a [u8],
     state: Option<&ParsingState>,
 ) -> Result<Option<&'a [u8]>, ParsingError> {
-    let (_, exif_data) = match img {
+    let (_, exif_data) = match img_type {
         crate::file::MimeImage::Jpeg => jpeg::extract_exif_data(buf)?,
         crate::file::MimeImage::Heic | crate::file::MimeImage::Heif => {
             heif::extract_exif_data(buf)?
@@ -232,7 +270,7 @@ mod tests {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 
         let buf = read_sample(path).unwrap();
-        let data = extract_exif_with_state(MimeImage::Jpeg, &buf, None)
+        let data = extract_exif_with_mime(MimeImage::Jpeg, &buf, None)
             .unwrap()
             .unwrap();
 
