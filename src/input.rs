@@ -1,14 +1,24 @@
 use crate::slice::SubsliceRange as _;
 
 use std::borrow::Borrow;
+use std::fmt::Debug;
 use std::ops::Deref;
 use std::ops::Range;
 use std::sync::Arc;
 
-#[derive(Clone, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, PartialEq, Eq, Default)]
 pub(crate) struct Input {
     pub(crate) data: Arc<Vec<u8>>,
     pub(crate) range: Range<usize>,
+}
+
+impl Debug for Input {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PartialVec")
+            .field("data len", &self.data.len())
+            .field("range", &self.range)
+            .finish()
+    }
 }
 
 impl Input {

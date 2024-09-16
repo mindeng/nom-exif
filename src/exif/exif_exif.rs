@@ -1,132 +1,10 @@
-use std::fmt::Debug;
-
 use nom::{
-    branch::alt,
-    bytes::streaming::tag,
-    combinator::{map, verify},
-    number::{
-        streaming::{u16, u32},
-        Endianness,
-    },
-    sequence::tuple,
-    IResult, Needed,
+    branch::alt, bytes::complete::tag, combinator, number::Endianness, sequence, IResult, Needed,
 };
 
-use crate::{
-    error::{ParsedError, ParsingError},
-    exif::{ExifTag, GPSInfo},
-    input::{self, Input},
-    parser::ParsingState,
-    EntryValue,
-};
+use crate::{EntryValue, ExifIter, ExifTag, GPSInfo, ParsedExifEntry};
 
-use super::{
-    exif_iter::{ExifIter, ImageFileDirectoryIter, ParsedExifEntry},
-    ifd::ParsedImageFileDirectory,
-};
-
-pub(crate) struct ExifParser {
-    inner: Inner,
-}
-
-impl ExifParser {
-    /// Create a new ExifParser. `input` can be:
-    ///
-    /// - A `Vec<u8>`, which will be auto converted to an `Input<'static>`,
-    ///   therefore an `ExifParser<'static>` will be returned.
-    ///
-    /// - A `&'a [u8]`, which will be auto converted to an `Input<'a>`,
-    ///   therefore an `ExifParser<'a>` will be returned.
-    ///
-    pub fn new(input: impl Into<input::Input>) -> ExifParser {
-        Self {
-            inner: Inner::new(input),
-        }
-    }
-
-    /// Parses header from input data, and returns an [`ExifIter`].
-    ///
-    /// All entries are lazy-parsed. That is, only when you iterate over
-    /// [`ExifIter`] will the IFD entries be parsed one by one.
-    ///
-    /// The one exception is the time zone entries. The method will try to find
-    /// and parse the time zone data first, so we can correctly parse all time
-    /// information in subsequent iterates.
-    pub fn parse_iter(self, state: Option<ParsingState>) -> Result<ExifIter, ParsedError> {
-        let iter = self.inner.try_into_iter(state).map_err(|e| match e {
-            ParsingError::Need(_) => unreachable!(),
-            ParsingError::ClearAndSkip(_, _) => unreachable!(),
-            ParsingError::Failed(v) => ParsedError::Failed(v),
-        })?;
-        Ok(iter)
-    }
-}
-
-struct Inner {
-    input: Input,
-}
-
-impl Debug for Inner {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ExifParser::Inner")
-            .field("input len", &self.input.len())
-            .finish_non_exhaustive()
-    }
-}
-
-impl Inner {
-    fn new(input: impl Into<input::Input>) -> Inner {
-        Self {
-            input: input.into(),
-        }
-    }
-
-    #[tracing::instrument]
-    fn try_into_iter(self, state: Option<ParsingState>) -> Result<ExifIter, ParsingError> {
-        let (header, start) = match state {
-            // header has been parsed, and header has been skipped, input data
-            // is the IFD data
-            Some(ParsingState::TiffHeader(header)) => (header, 0),
-            None => {
-                // header has not been parsed, input data includes IFD header
-                let (_, header) = TiffHeader::parse(&self.input[..])?;
-                let start = header.ifd0_offset as usize;
-                if start > self.input.len() {
-                    return Err(ParsingError::ClearAndSkip(
-                        start,
-                        Some(ParsingState::TiffHeader(header)),
-                    ));
-                    // return Err(ParsingError::Need(start - data.len()));
-                }
-
-                (header, start)
-            }
-        };
-
-        tracing::debug!(?header, offset = start);
-
-        let data = &self.input[..];
-
-        let mut ifd0 = match ImageFileDirectoryIter::try_new(
-            0,
-            self.input.make_associated(&data[start..]),
-            header.ifd0_offset,
-            header.endian,
-            None,
-        ) {
-            Ok(ifd0) => ifd0,
-            Err(e) => return Err(ParsingError::Failed(e.to_string())),
-        };
-
-        let tz = ifd0.find_tz_offset();
-        ifd0.tz = tz.clone();
-        let iter: ExifIter = ExifIter::new(self.input, header, tz, ifd0);
-
-        tracing::debug!(?iter, "new ExifIter");
-
-        Ok(iter)
-    }
-}
+use super::ifd::ParsedImageFileDirectory;
 
 /// Represents a parsed Exif information, can be converted from an [`ExifIter`]
 /// like this: `let exif: Exif = iter.into()`.
@@ -296,9 +174,12 @@ pub(crate) const IFD_ENTRY_SIZE: usize = 12;
 
 impl TiffHeader {
     pub fn parse(input: &[u8]) -> IResult<&[u8], TiffHeader> {
+        use nom::number::streaming::{u16, u32};
         let (remain, endian) = TiffHeader::parse_endian(input)?;
-        let (_, (_, offset)) =
-            tuple((verify(u16(endian), |magic| *magic == 0x2a), u32(endian)))(remain)?;
+        let (_, (_, offset)) = sequence::tuple((
+            combinator::verify(u16(endian), |magic| *magic == 0x2a),
+            u32(endian),
+        ))(remain)?;
 
         let header = Self {
             endian,
@@ -338,7 +219,7 @@ impl TiffHeader {
     // }
 
     fn parse_endian(input: &[u8]) -> IResult<&[u8], Endianness> {
-        map(alt((tag("MM"), tag("II"))), |endian_marker| {
+        combinator::map(alt((tag("MM"), tag("II"))), |endian_marker| {
             if endian_marker == b"MM" {
                 Endianness::Big
             } else {
@@ -362,11 +243,14 @@ mod tests {
     use std::io::Read;
     use std::thread;
 
+    use crate::input::Input;
     use test_case::test_case;
 
+    use crate::exif::input_into_iter;
     use crate::jpeg::extract_exif_data;
     use crate::slice::SubsliceRange;
     use crate::testkit::{open_sample, read_sample};
+    use crate::ParsedExifEntry;
 
     use super::*;
 
@@ -394,8 +278,7 @@ mod tests {
             .and_then(|x| buf.subslice_range(x))
             .map(|x| Input::from_vec_range(buf, x))
             .unwrap();
-        let parser = ExifParser::new(data);
-        let iter = parser.parse_iter(None).unwrap();
+        let iter = input_into_iter(data, None).unwrap();
         let gps = iter.parse_gps_info().unwrap().unwrap();
         assert_eq!(gps.format_iso6709(), "+22.53113+114.02148/");
     }
@@ -408,8 +291,7 @@ mod tests {
             .and_then(|x| buf.subslice_range(x))
             .map(|x| Input::from_vec_range(buf, x))
             .unwrap();
-        let parser = ExifParser::new(data);
-        let iter = parser.parse_iter(None).unwrap();
+        let iter = input_into_iter(data, None).unwrap();
         let iter2 = iter.clone();
 
         let mut expect = String::new();

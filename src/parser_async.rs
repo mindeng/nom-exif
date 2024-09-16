@@ -3,7 +3,6 @@ use std::{
     fmt::Debug,
     io::{self},
     marker::PhantomData,
-    ops::Range,
     path::Path,
     sync::Arc,
 };
@@ -16,12 +15,10 @@ use tokio::{
 use crate::{
     buffer::Buffers,
     error::{ParsedError, ParsingError},
-    exif::{extract_exif_with_mime, parse_exif_iter_async, ExifParser},
+    exif::parse_exif_iter_async,
     file::Mime,
-    input::Input,
     parser::{Buf, ParsingState, INIT_BUF_SIZE, MAX_GROW_SIZE, MIN_GROW_SIZE},
     skip::AsyncSkip,
-    slice::SubsliceRange as _,
     video::parse_track_info,
     ExifIter, Seekable, TrackInfo, Unseekable,
 };

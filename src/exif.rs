@@ -1,4 +1,4 @@
-use crate::error::ParsingError;
+use crate::error::{ParsedError, ParsingError};
 use crate::file::Mime;
 use crate::parser::{BufParser, ParsingState};
 use crate::skip::Skip;
@@ -6,21 +6,22 @@ use crate::slice::SubsliceRange;
 use crate::{heif, jpeg, MediaParser, MediaSource, ZB};
 #[allow(deprecated)]
 use crate::{input::Input, FileFormat};
+pub use exif_exif::Exif;
+use exif_iter::ImageFileDirectoryIter;
 pub use exif_iter::{ExifIter, ParsedExifEntry};
 pub use gps::{GPSInfo, LatLng};
-pub use parser::Exif;
 pub use tags::ExifTag;
 
 use std::io::Read;
 use std::ops::Range;
 
 pub(crate) mod ifd;
+pub(crate) use exif_exif::{check_exif_header, TiffHeader};
 pub(crate) use exif_iter::IFDHeaderIter;
-pub(crate) use parser::{check_exif_header, ExifParser, TiffHeader};
 
+mod exif_exif;
 mod exif_iter;
 mod gps;
-mod parser;
 mod tags;
 
 /// *Deprecated*: Please use [`crate::MediaParser`] instead.
@@ -84,8 +85,7 @@ pub(crate) fn parse_exif_iter<R: Read, S: Skip<R>>(
     if let Some((range, state)) = out {
         tracing::debug!(?range);
         let input: Input = Input::new(parser.share_buf(), range);
-        let parser = ExifParser::new(input);
-        let iter = parser.parse_iter(state)?;
+        let iter = input_into_iter(input, state)?;
         Ok(iter)
     } else {
         Err("parse exif failed".into())
@@ -122,8 +122,7 @@ pub(crate) async fn parse_exif_iter_async<
     if let Some((range, state)) = out {
         tracing::debug!(?range);
         let input: Input = Input::new(parser.share_buf(), range);
-        let parser = ExifParser::new(input);
-        let iter = parser.parse_iter(state)?;
+        let iter = input_into_iter(input, state)?;
         Ok(iter)
     } else {
         Err("parse exif failed".into())
@@ -187,6 +186,72 @@ pub async fn parse_exif_async<T: AsyncRead + Unpin + Send>(
         .parse(AsyncMediaSource::unseekable(reader).await?)
         .await?;
     Ok(Some(exif))
+}
+
+/// Parses header from input data, and returns an [`ExifIter`].
+///
+/// All entries are lazy-parsed. That is, only when you iterate over
+/// [`ExifIter`] will the IFD entries be parsed one by one.
+///
+/// The one exception is the time zone entries. The method will try to find
+/// and parse the time zone data first, so we can correctly parse all time
+/// information in subsequent iterates.
+pub(crate) fn input_into_iter(
+    input: impl Into<Input>,
+    state: Option<ParsingState>,
+) -> Result<ExifIter, ParsedError> {
+    let iter = input_to_iter(input.into(), state).map_err(|e| match e {
+        ParsingError::Need(_) => unreachable!(),
+        ParsingError::ClearAndSkip(_, _) => unreachable!(),
+        ParsingError::Failed(v) => ParsedError::Failed(v),
+    })?;
+    Ok(iter)
+}
+
+#[tracing::instrument]
+fn input_to_iter(input: Input, state: Option<ParsingState>) -> Result<ExifIter, ParsingError> {
+    let (header, start) = match state {
+        // header has been parsed, and header has been skipped, input data
+        // is the IFD data
+        Some(ParsingState::TiffHeader(header)) => (header, 0),
+        None => {
+            // header has not been parsed, input data includes IFD header
+            let (_, header) = TiffHeader::parse(&input[..])?;
+            let start = header.ifd0_offset as usize;
+            if start > input.len() {
+                return Err(ParsingError::ClearAndSkip(
+                    start,
+                    Some(ParsingState::TiffHeader(header)),
+                ));
+                // return Err(ParsingError::Need(start - data.len()));
+            }
+
+            (header, start)
+        }
+    };
+
+    tracing::debug!(?header, offset = start);
+
+    let data = &input[..];
+
+    let mut ifd0 = match ImageFileDirectoryIter::try_new(
+        0,
+        input.make_associated(&data[start..]),
+        header.ifd0_offset,
+        header.endian,
+        None,
+    ) {
+        Ok(ifd0) => ifd0,
+        Err(e) => return Err(ParsingError::Failed(e.to_string())),
+    };
+
+    let tz = ifd0.find_tz_offset();
+    ifd0.tz = tz.clone();
+    let iter: ExifIter = ExifIter::new(input, header, tz, ifd0);
+
+    tracing::debug!(?iter, "new ExifIter");
+
+    Ok(iter)
 }
 
 #[cfg(test)]
@@ -275,8 +340,7 @@ mod tests {
             .unwrap();
 
         let subslice_range = buf.subslice_range(data).unwrap();
-        let parser = ExifParser::new((buf, subslice_range));
-        let iter = parser.parse_iter(None).unwrap();
+        let iter = input_into_iter((buf, subslice_range), None).unwrap();
         let exif: Exif = iter.into();
 
         let gps = exif.get_gps_info().unwrap().unwrap();

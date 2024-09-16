@@ -15,7 +15,7 @@ use crate::{
     EntryValue, ExifTag,
 };
 
-use super::{parser::IFD_ENTRY_SIZE, tags::ExifTagCode, GPSInfo, TiffHeader};
+use super::{exif_exif::IFD_ENTRY_SIZE, tags::ExifTagCode, GPSInfo, TiffHeader};
 
 /// An iterator version of [`Exif`](crate::Exif). Use [`ParsedExifEntry`] as
 /// iterator items.
@@ -1038,9 +1038,10 @@ impl<'a> IFDHeaderIter<'a> {
 mod tests {
 
     use crate::exif::extract_exif_with_mime;
+    use crate::exif::input_into_iter;
     use crate::file::MimeImage;
     use crate::slice::SubsliceRange;
-    use crate::{exif::ExifParser, input::Input, testkit::read_sample};
+    use crate::testkit::read_sample;
     use test_case::test_case;
 
     #[test_case("exif.jpg", "+08:00", MimeImage::Jpeg)]
@@ -1051,9 +1052,7 @@ mod tests {
         let buf = read_sample(path).unwrap();
         let data = extract_exif_with_mime(img_type, &buf, None).unwrap();
         let subslice_range = data.and_then(|x| buf.subslice_range(x)).unwrap();
-        let data: Input = (buf, subslice_range).into();
-        let parser = ExifParser::new(data);
-        let iter = parser.parse_iter(None).unwrap();
+        let iter = input_into_iter((buf, subslice_range), None).unwrap();
         let expect = if tz.is_empty() {
             None
         } else {
