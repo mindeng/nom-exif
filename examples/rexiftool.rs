@@ -70,7 +70,7 @@ fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
                         v,
                     )),
                     Err(e) => {
-                        tracing::error!(?e);
+                        tracing::warn!(?e);
                         None
                     }
                 }

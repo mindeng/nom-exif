@@ -122,7 +122,7 @@ impl MediaSource<TcpStream, Unseekable> {
 
 // Keep align with 4K
 pub(crate) const INIT_BUF_SIZE: usize = 4096;
-pub(crate) const MIN_GROW_SIZE: usize = 2 * 4096;
+pub(crate) const MIN_GROW_SIZE: usize = 4096;
 // Max size of APP1 is 0xFFFF
 pub(crate) const MAX_GROW_SIZE: usize = 63 * 1024;
 

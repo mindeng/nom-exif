@@ -4,7 +4,7 @@ use chrono::{
     offset::LocalResult, DateTime, FixedOffset, Local, NaiveDateTime, Offset, TimeZone as _, Utc,
 };
 
-use nom::number::Endianness;
+use nom::{multi::many_m_n, number::Endianness};
 #[cfg(feature = "json_dump")]
 use serde::{Deserialize, Serialize, Serializer};
 use thiserror::Error;
@@ -36,6 +36,9 @@ pub enum EntryValue {
 
     URationalArray(Vec<URational>),
     IRationalArray(Vec<IRational>),
+
+    U16Array(Vec<u16>),
+    U32Array(Vec<u32>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -169,18 +172,30 @@ impl EntryValue {
                 if components_num == 1 {
                     Ok(Self::U16(u16::try_from_bytes(data, endian)?))
                 } else {
-                    Err(Error::Unsupported(format!(
-                        "usigned short with {components_num} components"
-                    )))
+                    let (_, v) = many_m_n::<_, _, nom::error::Error<_>, _>(
+                        components_num as usize,
+                        components_num as usize,
+                        nom::number::complete::u16(endian),
+                    )(data)
+                    .map_err(|e| {
+                        ParseEntryError::InvalidData(format!("parse U16Array error: {e:?}"))
+                    })?;
+                    Ok(Self::U16Array(v))
                 }
             }
             DataFormat::U32 => {
                 if components_num == 1 {
                     Ok(Self::U32(u32::try_from_bytes(data, endian)?))
                 } else {
-                    Err(Error::Unsupported(format!(
-                        "usigned long with {components_num} components"
-                    )))
+                    let (_, v) = many_m_n::<_, _, nom::error::Error<_>, _>(
+                        components_num as usize,
+                        components_num as usize,
+                        nom::number::complete::u32(endian),
+                    )(data)
+                    .map_err(|e| {
+                        ParseEntryError::InvalidData(format!("parse U32Array error: {e:?}"))
+                    })?;
+                    Ok(Self::U32Array(v))
                 }
             }
             DataFormat::URational => {
@@ -410,12 +425,12 @@ impl Serialize for EntryValue {
 impl Display for EntryValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            EntryValue::Text(v) => f.write_str(v),
+            EntryValue::Text(v) => v.fmt(f),
             EntryValue::URational(v) => {
-                write!(f, "{}/{} ({:.04})", v.0, v.1, v.0 as f64 / v.1 as f64)
+                format!("{}/{} ({:.04})", v.0, v.1, v.0 as f64 / v.1 as f64).fmt(f)
             }
             EntryValue::IRational(v) => {
-                write!(f, "{}/{} ({:.04})", v.0, v.1, v.0 as f64 / v.1 as f64)
+                format!("{}/{} ({:.04})", v.0, v.1, v.0 as f64 / v.1 as f64).fmt(f)
             }
             EntryValue::U32(v) => Display::fmt(&v, f),
             EntryValue::U16(v) => Display::fmt(&v, f),
@@ -445,16 +460,34 @@ impl Display for EntryValue {
                     })
                     .collect::<Vec<String>>()
                     .join(", ");
-                write!(f, "Undefined[{}]", s)
+                format!("Undefined[{}]", s).fmt(f)
             }
             EntryValue::URationalArray(v) => {
-                write!(f, "URationalArray[{}]", rationals_to_string::<u32>(v))
+                format!("URationalArray[{}]", rationals_to_string::<u32>(v)).fmt(f)
             }
             EntryValue::IRationalArray(v) => {
-                write!(f, "IRationalArray[{}]", rationals_to_string::<i32>(v))
+                format!("IRationalArray[{}]", rationals_to_string::<i32>(v)).fmt(f)
             }
+            EntryValue::U32Array(v) => array_to_string("U32Array", v, f),
+            EntryValue::U16Array(v) => array_to_string("U16Array", v, f),
         }
     }
+}
+
+fn array_to_string<T: Display>(
+    name: &str,
+    v: &[T],
+    f: &mut std::fmt::Formatter,
+) -> Result<(), std::fmt::Error> {
+    format!(
+        "{}[{}]",
+        name,
+        v.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<String>>()
+            .join(", ")
+    )
+    .fmt(f)
 }
 
 fn rationals_to_string<T>(rationals: &[Rational<T>]) -> String
