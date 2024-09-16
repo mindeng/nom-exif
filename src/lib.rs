@@ -234,13 +234,13 @@ mod error;
 mod exif;
 mod file;
 mod heif;
-mod input;
 mod jpeg;
 mod loader;
 mod mov;
 mod parser;
 #[cfg(feature = "async")]
 mod parser_async;
+mod partial_vec;
 mod skip;
 mod slice;
 mod values;

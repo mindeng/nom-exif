@@ -9,7 +9,7 @@ use thiserror::Error;
 
 use crate::{
     error::ParsingError,
-    input::{AssociatedInput, Input},
+    partial_vec::{AssociatedInput, PartialVec},
     slice::SliceChecked,
     values::{DataFormat, EntryData, IRational, ParseEntryError, URational},
     EntryValue, ExifTag,
@@ -36,7 +36,7 @@ use super::{exif_exif::IFD_ENTRY_SIZE, tags::ExifTagCode, GPSInfo, TiffHeader};
 /// index may have been modified by `Iterator::next()` calls.
 pub struct ExifIter {
     // Use Arc to make sure we won't clone the owned data.
-    input: Arc<Input>,
+    input: Arc<PartialVec>,
     tiff_header: TiffHeader,
     tz: Option<String>,
     ifd0: ImageFileDirectoryIter,
@@ -80,7 +80,7 @@ impl Clone for ExifIter {
 
 impl ExifIter {
     pub(crate) fn new(
-        input: impl Into<Input>,
+        input: impl Into<PartialVec>,
         tiff_header: TiffHeader,
         tz: Option<String>,
         ifd0: ImageFileDirectoryIter,
@@ -147,7 +147,7 @@ impl ExifIter {
 
         let mut gps_subifd = match ImageFileDirectoryIter::try_new(
             gps.ifd,
-            iter.input.make_associated(&iter.input[offset as usize..]),
+            iter.input.partial(&iter.input[offset as usize..]),
             offset,
             iter.tiff_header.endian,
             iter.tz.clone(),
@@ -185,7 +185,7 @@ impl ExifIter {
         let iter = self;
         let mut gps_subifd = match ImageFileDirectoryIter::try_new(
             gps.ifd,
-            iter.input.make_associated(&iter.input[offset as usize..]),
+            iter.input.partial(&iter.input[offset as usize..]),
             offset,
             iter.tiff_header.endian,
             iter.tz.clone(),
@@ -601,7 +601,7 @@ impl ImageFileDirectoryIter {
         if pos < self.input.len() {
             match ImageFileDirectoryIter::try_new(
                 ifd_idx,
-                self.input.make_associated(&self.input[pos..]),
+                self.input.partial(&self.input[pos..]),
                 value_or_offset,
                 self.endian,
                 self.tz.clone(),
@@ -820,13 +820,13 @@ impl Iterator for ImageFileDirectoryIter {
 
     #[tracing::instrument(skip(self))]
     fn next(&mut self) -> Option<Self::Item> {
-        tracing::debug!(
-            ifd = self.ifd_idx,
-            index = self.index,
-            entry_num = self.entry_num,
-            pos = format!("{:08x}", self.pos),
-            "next IFD entry"
-        );
+        // tracing::debug!(
+        //     ifd = self.ifd_idx,
+        //     index = self.index,
+        //     entry_num = self.entry_num,
+        //     pos = format!("{:08x}", self.pos),
+        //     "next IFD entry"
+        // );
         if self.input.len() < self.pos + IFD_ENTRY_SIZE {
             return None;
         }

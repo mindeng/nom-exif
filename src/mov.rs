@@ -13,8 +13,8 @@ use crate::{
         find_box, parse_video_tkhd_in_moov, travel_header, IlstBox, KeysBox, MvhdBox, ParseBox,
     },
     error::ParsingError,
-    input::Input,
     loader::{BufLoader, Load},
+    partial_vec::PartialVec,
     skip::Seekable,
     video::TrackInfoTag,
     EntryValue, FileFormat,
@@ -288,11 +288,14 @@ pub fn parse_mov_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(Strin
 }
 
 #[tracing::instrument(skip_all)]
-fn extract_moov_body<L: Load>(mut loader: L) -> Result<Input, crate::Error> {
+fn extract_moov_body<L: Load>(mut loader: L) -> Result<PartialVec, crate::Error> {
     let moov_body_range = loader.load_and_parse(extract_moov_body_from_buf)?;
 
     tracing::debug!(?moov_body_range);
-    Ok(Input::from_vec_range(loader.into_vec(), moov_body_range))
+    Ok(PartialVec::from_vec_range(
+        loader.into_vec(),
+        moov_body_range,
+    ))
 }
 
 /// Parse the byte data of an ISOBMFF file and return the potential body data of

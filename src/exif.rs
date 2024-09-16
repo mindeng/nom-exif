@@ -5,7 +5,7 @@ use crate::skip::Skip;
 use crate::slice::SubsliceRange;
 use crate::{heif, jpeg, MediaParser, MediaSource, ZB};
 #[allow(deprecated)]
-use crate::{input::Input, FileFormat};
+use crate::{partial_vec::PartialVec, FileFormat};
 pub use exif_exif::Exif;
 use exif_iter::ImageFileDirectoryIter;
 pub use exif_iter::{ExifIter, ParsedExifEntry};
@@ -85,7 +85,7 @@ pub(crate) fn parse_exif_iter<R: Read, S: Skip<R>>(
 
     if let Some((range, state)) = out {
         tracing::debug!(?range);
-        let input: Input = Input::new(parser.share_buf(), range);
+        let input: PartialVec = PartialVec::new(parser.share_buf(), range);
         let iter = input_into_iter(input, state)?;
         Ok(iter)
     } else {
@@ -122,7 +122,7 @@ pub(crate) async fn parse_exif_iter_async<
 
     if let Some((range, state)) = out {
         tracing::debug!(?range);
-        let input: Input = Input::new(parser.share_buf(), range);
+        let input: PartialVec = PartialVec::new(parser.share_buf(), range);
         let iter = input_into_iter(input, state)?;
         Ok(iter)
     } else {
@@ -199,7 +199,7 @@ pub async fn parse_exif_async<T: AsyncRead + Unpin + Send>(
 /// information in subsequent iterates.
 #[tracing::instrument]
 pub(crate) fn input_into_iter(
-    input: impl Into<Input> + Debug,
+    input: impl Into<PartialVec> + Debug,
     state: Option<ParsingState>,
 ) -> Result<ExifIter, ParsedError> {
     let iter = input_to_iter(input.into(), state).map_err(|e| match e {
@@ -219,7 +219,7 @@ pub(crate) fn input_into_iter(
 }
 
 #[tracing::instrument]
-fn input_to_iter(input: Input, state: Option<ParsingState>) -> Result<ExifIter, ParsingError> {
+fn input_to_iter(input: PartialVec, state: Option<ParsingState>) -> Result<ExifIter, ParsingError> {
     let (header, start) = match state {
         // header has been parsed, and header has been skipped, input data
         // is the IFD data
@@ -246,7 +246,7 @@ fn input_to_iter(input: Input, state: Option<ParsingState>) -> Result<ExifIter, 
 
     let mut ifd0 = match ImageFileDirectoryIter::try_new(
         0,
-        input.make_associated(&data[start..]),
+        input.partial(&data[start..]),
         header.ifd0_offset,
         header.endian,
         None,

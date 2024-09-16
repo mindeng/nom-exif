@@ -243,7 +243,7 @@ mod tests {
     use std::io::Read;
     use std::thread;
 
-    use crate::input::Input;
+    use crate::partial_vec::PartialVec;
     use test_case::test_case;
 
     use crate::exif::input_into_iter;
@@ -276,7 +276,7 @@ mod tests {
         let (_, data) = extract_exif_data(&buf).unwrap();
         let data = data
             .and_then(|x| buf.subslice_range(x))
-            .map(|x| Input::from_vec_range(buf, x))
+            .map(|x| PartialVec::from_vec_range(buf, x))
             .unwrap();
         let iter = input_into_iter(data, None).unwrap();
         let gps = iter.parse_gps_info().unwrap().unwrap();
@@ -289,7 +289,7 @@ mod tests {
         let (_, data) = extract_exif_data(&buf).unwrap();
         let data = data
             .and_then(|x| buf.subslice_range(x))
-            .map(|x| Input::from_vec_range(buf, x))
+            .map(|x| PartialVec::from_vec_range(buf, x))
             .unwrap();
         let iter = input_into_iter(data, None).unwrap();
         let iter2 = iter.clone();
