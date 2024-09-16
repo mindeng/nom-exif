@@ -39,10 +39,10 @@ pub struct ExifIter {
     input: Arc<PartialVec>,
     tiff_header: TiffHeader,
     tz: Option<String>,
-    ifd0: ImageFileDirectoryIter,
+    ifd0: IfdIter,
 
     // Iterating status
-    ifds: Vec<ImageFileDirectoryIter>,
+    ifds: Vec<IfdIter>,
 }
 
 impl Debug for ExifIter {
@@ -83,7 +83,7 @@ impl ExifIter {
         input: impl Into<PartialVec>,
         tiff_header: TiffHeader,
         tz: Option<String>,
-        ifd0: ImageFileDirectoryIter,
+        ifd0: IfdIter,
     ) -> ExifIter {
         let ifds = vec![ifd0.clone()];
         ExifIter {
@@ -145,52 +145,14 @@ impl ExifIter {
             Err(e) => return Err(e.clone().into()),
         };
 
-        let mut gps_subifd = match ImageFileDirectoryIter::try_new(
+        let mut gps_subifd = match IfdIter::try_new(
             gps.ifd,
             iter.input.partial(&iter.input[offset as usize..]),
             offset,
             iter.tiff_header.endian,
             iter.tz.clone(),
         ) {
-            Ok(ifd0) => ifd0,
-            Err(e) => return Err(e),
-        };
-        Ok(gps_subifd.parse_gps_info())
-    }
-
-    #[tracing::instrument(skip_all)]
-    pub fn consume_parse_gps_info(mut self) -> crate::Result<Option<GPSInfo>> {
-        let Some(gps) = self.find(|x| {
-            tracing::info!(?x, "find");
-            x.tag.tag().is_some_and(|t| t == ExifTag::GPSInfo)
-        }) else {
-            tracing::warn!(ifd0 = ?self.ifds.first(), "GPSInfo not found");
-            return Ok(None);
-        };
-
-        let offset = match gps.get_result() {
-            Ok(v) => {
-                if let Some(offset) = v.as_u32() {
-                    offset
-                } else {
-                    return Err(EntryError(ParseEntryError::InvalidData(
-                        "invalid gps offset".into(),
-                    ))
-                    .into());
-                }
-            }
-            Err(e) => return Err(e.clone().into()),
-        };
-
-        let iter = self;
-        let mut gps_subifd = match ImageFileDirectoryIter::try_new(
-            gps.ifd,
-            iter.input.partial(&iter.input[offset as usize..]),
-            offset,
-            iter.tiff_header.endian,
-            iter.tz.clone(),
-        ) {
-            Ok(ifd0) => ifd0,
+            Ok(ifd0) => ifd0.tag_code(ExifTag::GPSInfo.code()),
             Err(e) => return Err(e),
         };
         Ok(gps_subifd.parse_gps_info())
@@ -366,6 +328,7 @@ impl Iterator for ExifIter {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             if self.ifds.is_empty() {
+                tracing::debug!(?self, "all IFDs has been parsed");
                 return None;
             }
 
@@ -379,6 +342,7 @@ impl Iterator for ExifIter {
             }
 
             let mut ifd = self.ifds.pop()?;
+            let cur_ifd_idx = ifd.ifd_idx;
             match ifd.next() {
                 Some((tag_code, entry)) => {
                     // tracing::debug!(ifd = ifd.ifd_idx, ?tag_code, ?entry, "next tag entry");
@@ -388,40 +352,39 @@ impl Iterator for ExifIter {
                             let is_subifd = if new_ifd.ifd_idx == ifd.ifd_idx {
                                 // Push the current ifd before enter sub-ifd.
                                 self.ifds.push(ifd);
+                                tracing::debug!(?tag_code, ?new_ifd, "got new SUB-IFD");
                                 true
                             } else {
                                 // Otherwise this is a next ifd. It means that the
                                 // current ifd has been parsed, so we don't need to
                                 // push it.
+                                tracing::debug!("IFD{} parsing completed", cur_ifd_idx);
+                                tracing::debug!(?new_ifd, "got new IFD");
                                 false
                             };
 
                             let (ifd_idx, offset) = (new_ifd.ifd_idx, new_ifd.offset);
-                            tracing::debug!(
-                                ifd = new_ifd.ifd_idx,
-                                offset = format!("0x{:08x}", new_ifd.offset),
-                                entry_num = new_ifd.entry_num,
-                                "new ifd"
-                            );
                             self.ifds.push(new_ifd);
 
                             if is_subifd {
                                 // Return sub-ifd as an entry
                                 return Some(ParsedExifEntry::make_ok(
                                     ifd_idx,
-                                    tag_code,
+                                    tag_code.unwrap(),
                                     EntryValue::U32(offset),
                                 ));
                             }
                         }
                         IfdEntry::Entry(v) => {
-                            let res = Some(ParsedExifEntry::make_ok(ifd.ifd_idx, tag_code, v));
+                            let res =
+                                Some(ParsedExifEntry::make_ok(ifd.ifd_idx, tag_code.unwrap(), v));
                             self.ifds.push(ifd);
                             return res;
                         }
                         IfdEntry::Err(e) => {
                             tracing::warn!(?tag_code, ?e, "parse ifd entry error");
-                            let res = Some(ParsedExifEntry::make_err(ifd.ifd_idx, tag_code, e));
+                            let res =
+                                Some(ParsedExifEntry::make_err(ifd.ifd_idx, tag_code.unwrap(), e));
                             self.ifds.push(ifd);
                             return res;
                         }
@@ -434,8 +397,9 @@ impl Iterator for ExifIter {
 }
 
 #[derive(Clone)]
-pub(crate) struct ImageFileDirectoryIter {
+pub(crate) struct IfdIter {
     ifd_idx: usize,
+    tag_code: Option<ExifTagCode>,
 
     // starts from "ifd/sub-ifd entries" (two bytes of ifd/sub-ifd entry num)
     input: AssociatedInput,
@@ -452,10 +416,11 @@ pub(crate) struct ImageFileDirectoryIter {
     pos: usize,
 }
 
-impl Debug for ImageFileDirectoryIter {
+impl Debug for IfdIter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ImageFileDirectoryIter")
+        f.debug_struct("IfdIter")
             .field("ifd_idx", &self.ifd_idx)
+            .field("tag", &self.tag_code)
             .field("data len", &self.input.len())
             .field("offset", &self.offset)
             .field("tz", &self.tz)
@@ -463,11 +428,11 @@ impl Debug for ImageFileDirectoryIter {
             .field("entry_num", &self.entry_num)
             .field("index", &self.index)
             .field("pos", &self.pos)
-            .finish_non_exhaustive()
+            .finish()
     }
 }
 
-impl ImageFileDirectoryIter {
+impl IfdIter {
     pub fn rewind(&mut self) {
         self.index = 0;
         // Skip the first two bytes, which is the entry num
@@ -478,6 +443,22 @@ impl ImageFileDirectoryIter {
         let mut it = self.clone();
         it.rewind();
         it
+    }
+
+    pub fn tag_code_maybe(mut self, code: Option<u16>) -> Self {
+        self.tag_code = code.map(|x| x.into());
+        self
+    }
+
+    pub fn tag_code(mut self, code: u16) -> Self {
+        self.tag_code = Some(code.into());
+        self
+    }
+
+    #[allow(unused)]
+    pub fn tag(mut self, tag: ExifTagCode) -> Self {
+        self.tag_code = Some(tag);
+        self
     }
 
     #[tracing::instrument(skip(input))]
@@ -498,6 +479,7 @@ impl ImageFileDirectoryIter {
 
         Ok(Self {
             ifd_idx,
+            tag_code: None,
             input,
             offset,
             entry_num,
@@ -573,8 +555,8 @@ impl ImageFileDirectoryIter {
         };
 
         if SUBIFD_TAGS.contains(&tag) {
-            if let Some(value) = self.new_ifd_iter(self.ifd_idx, value_or_offset, tag) {
-                return value;
+            if let Some(value) = self.new_ifd_iter(self.ifd_idx, value_or_offset, Some(tag)) {
+                return (tag, value);
             }
         }
 
@@ -595,18 +577,18 @@ impl ImageFileDirectoryIter {
         &self,
         ifd_idx: usize,
         value_or_offset: u32,
-        tag: u16,
-    ) -> Option<(u16, IfdEntry)> {
+        tag: Option<u16>,
+    ) -> Option<IfdEntry> {
         let pos = self.get_data_pos(value_or_offset) as usize;
         if pos < self.input.len() {
-            match ImageFileDirectoryIter::try_new(
+            match IfdIter::try_new(
                 ifd_idx,
                 self.input.partial(&self.input[pos..]),
                 value_or_offset,
                 self.endian,
                 self.tz.clone(),
             ) {
-                Ok(iter) => return Some((tag, IfdEntry::IfdNew(iter))),
+                Ok(iter) => return Some(IfdEntry::IfdNew(iter.tag_code_maybe(tag))),
                 Err(e) => {
                     tracing::debug!(?tag, ?e, "parse sub ifd error");
                 }
@@ -678,7 +660,7 @@ impl ImageFileDirectoryIter {
         let mut gps = GPSInfo::default();
         let mut has_data = false;
         for (tag, entry) in self {
-            let Some(tag) = tag.tag() else {
+            let Some(tag) = tag.and_then(|x| x.tag()) else {
                 continue;
             };
             has_data = true;
@@ -743,7 +725,7 @@ impl ImageFileDirectoryIter {
         }
     }
 
-    fn clone_with_state(&self) -> ImageFileDirectoryIter {
+    fn clone_with_state(&self) -> IfdIter {
         let mut it = self.clone();
         it.index = self.index;
         it.pos = self.pos;
@@ -753,7 +735,7 @@ impl ImageFileDirectoryIter {
 
 #[derive(Debug)]
 pub(crate) enum IfdEntry {
-    IfdNew(ImageFileDirectoryIter), // ifd index
+    IfdNew(IfdIter), // ifd index
     Entry(EntryValue),
     Err(ParseEntryError),
 }
@@ -815,8 +797,8 @@ const TZ_OFFSET_TAGS: &[u16] = &[
     ExifTag::OffsetTime.code(),
 ];
 
-impl Iterator for ImageFileDirectoryIter {
-    type Item = (ExifTagCode, IfdEntry);
+impl Iterator for IfdIter {
+    type Item = (Option<ExifTagCode>, IfdEntry);
 
     #[tracing::instrument(skip(self))]
     fn next(&mut self) -> Option<Self::Item> {
@@ -836,7 +818,12 @@ impl Iterator for ImageFileDirectoryIter {
             return None;
         }
         if self.index == self.entry_num {
-            tracing::debug!(index = self.index, pos = self.pos, "next IFD");
+            tracing::debug!(
+                self.ifd_idx,
+                self.index,
+                pos = self.pos,
+                "try to get next ifd"
+            );
             self.index += 1;
             // next IFD
             let (_, offset) =
@@ -844,12 +831,13 @@ impl Iterator for ImageFileDirectoryIter {
 
             if offset == 0 {
                 // IFD parsing completed
+                tracing::debug!(?self, "IFD parsing completed");
                 return None;
             }
 
             return self
-                .new_ifd_iter(self.ifd_idx + 1, offset, 0xffff_u16)
-                .map(|x| (x.0.into(), x.1));
+                .new_ifd_iter(self.ifd_idx + 1, offset, None)
+                .map(|x| (None, x));
         }
 
         let entry_data = self
@@ -860,7 +848,7 @@ impl Iterator for ImageFileDirectoryIter {
 
         let (tag, res) = self.parse_tag_entry(entry_data)?;
 
-        Some((tag.into(), res)) // Safe-slice
+        Some((Some(tag.into()), res)) // Safe-slice
     }
 }
 

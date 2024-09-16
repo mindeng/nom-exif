@@ -7,7 +7,7 @@ use crate::{heif, jpeg, MediaParser, MediaSource, ZB};
 #[allow(deprecated)]
 use crate::{partial_vec::PartialVec, FileFormat};
 pub use exif_exif::Exif;
-use exif_iter::ImageFileDirectoryIter;
+use exif_iter::IfdIter;
 pub use exif_iter::{ExifIter, ParsedExifEntry};
 pub use gps::{GPSInfo, LatLng};
 pub use tags::ExifTag;
@@ -244,7 +244,7 @@ fn input_to_iter(input: PartialVec, state: Option<ParsingState>) -> Result<ExifI
 
     let data = &input[..];
 
-    let mut ifd0 = match ImageFileDirectoryIter::try_new(
+    let mut ifd0 = match IfdIter::try_new(
         0,
         input.partial(&data[start..]),
         header.ifd0_offset,
@@ -259,7 +259,7 @@ fn input_to_iter(input: PartialVec, state: Option<ParsingState>) -> Result<ExifI
     ifd0.tz = tz.clone();
     let iter: ExifIter = ExifIter::new(input, header, tz, ifd0);
 
-    tracing::debug!(?iter, "new ExifIter");
+    tracing::debug!(?iter, "got IFD0");
 
     Ok(iter)
 }

@@ -50,11 +50,8 @@ impl From<u16> for ExifTagCode {
 impl Debug for ExifTagCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ExifTagCode::Tag(v) => f.debug_struct("ExifTagCode").field("tag", &v).finish(),
-            ExifTagCode::Code(v) => f
-                .debug_struct("ExifTagCode")
-                .field("code", &format!("Unrecognized(0x{v:04x})"))
-                .finish(),
+            ExifTagCode::Tag(v) => Debug::fmt(v, f),
+            ExifTagCode::Code(v) => Debug::fmt(&format!("Unrecognized(0x{v:04x})"), f),
         }
     }
 }
