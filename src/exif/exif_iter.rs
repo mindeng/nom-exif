@@ -381,7 +381,7 @@ impl Iterator for ExifIter {
             let mut ifd = self.ifds.pop()?;
             match ifd.next() {
                 Some((tag_code, entry)) => {
-                    tracing::debug!(ifd = ifd.ifd_idx, ?tag_code, ?entry, "next tag entry");
+                    // tracing::debug!(ifd = ifd.ifd_idx, ?tag_code, ?entry, "next tag entry");
 
                     match entry {
                         IfdEntry::IfdNew(new_ifd) => {
@@ -420,6 +420,7 @@ impl Iterator for ExifIter {
                             return res;
                         }
                         IfdEntry::Err(e) => {
+                            tracing::warn!(?tag_code, ?e, "parse ifd entry error");
                             let res = Some(ParsedExifEntry::make_err(ifd.ifd_idx, tag_code, e));
                             self.ifds.push(ifd);
                             return res;
@@ -586,11 +587,7 @@ impl ImageFileDirectoryIter {
         };
         match EntryValue::parse(&entry, &self.tz) {
             Ok(v) => (tag, IfdEntry::Entry(v)),
-            Err(e) => {
-                let t: ExifTagCode = tag.into();
-                tracing::warn!(tag = ?t, ?e, "parse entry failed");
-                (tag, IfdEntry::Err(e))
-            }
+            Err(e) => (tag, IfdEntry::Err(e)),
         }
     }
 
@@ -659,13 +656,13 @@ impl ImageFileDirectoryIter {
             if TZ_OFFSET_TAGS.contains(&tag) {
                 return match res {
                     IfdEntry::IfdNew(_) => {
-                        tracing::error!("shouldn't be here");
+                        tracing::warn!("got ifd when parsing tz offset");
                         continue;
                     }
                     IfdEntry::Entry(v) => match v {
                         EntryValue::Text(v) => return Some(v),
                         _ => {
-                            tracing::error!("shouldn't be here");
+                            tracing::warn!("tz offset is not a text");
                             continue;
                         }
                     },
@@ -900,7 +897,10 @@ impl<'a> IFDHeaderIter<'a> {
     }
 
     #[tracing::instrument(skip_all)]
-    fn parse_tag_entry(&'a self, entry_data: &'a [u8]) -> IResult<&'a [u8], Option<EntryInfo<'a>>> {
+    fn parse_tag_entry_header(
+        &'a self,
+        entry_data: &'a [u8],
+    ) -> IResult<&'a [u8], Option<EntryInfo<'a>>> {
         let endian = self.endian;
         let (remain, (tag, data_format, components_num, value_or_offset)) = tuple((
             streaming::u16::<_, nom::error::Error<_>>(endian),
@@ -970,11 +970,11 @@ impl<'a> IFDHeaderIter<'a> {
         value_or_offset.saturating_sub(self.offset)
     }
 
-    fn parse_ifd_entry(&self, pos: u32) -> IResult<&[u8], Option<IFDHeaderIter<'a>>> {
+    fn parse_ifd_entry_header(&self, pos: u32) -> IResult<&[u8], Option<IFDHeaderIter<'a>>> {
         let (_, entry_data) =
             nom::bytes::streaming::take(IFD_ENTRY_SIZE)(&self.ifd_data[pos as usize..])?;
 
-        let (remain, entry) = self.parse_tag_entry(entry_data)?;
+        let (remain, entry) = self.parse_tag_entry_header(entry_data)?;
 
         if let Some(entry) = entry {
             // if !cb(&entry) {
@@ -994,7 +994,7 @@ impl<'a> IFDHeaderIter<'a> {
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn parse_ifd(&mut self, depth: usize) -> Result<(), ParsingError> {
+    pub fn parse_ifd_header(&mut self, depth: usize) -> Result<(), ParsingError> {
         if depth > 1 {
             let msg = "depth shouldn't be greater than 1";
             tracing::error!(msg);
@@ -1009,7 +1009,7 @@ impl<'a> IFDHeaderIter<'a> {
 
         // parse entries
         for _ in 0..entry_num {
-            let (_, sub_ifd) = self.parse_ifd_entry(pos as u32)?;
+            let (_, sub_ifd) = self.parse_ifd_entry_header(pos as u32)?;
             pos += IFD_ENTRY_SIZE;
 
             if let Some(ifd) = sub_ifd {
@@ -1018,7 +1018,7 @@ impl<'a> IFDHeaderIter<'a> {
         }
 
         for mut ifd in sub_ifds {
-            ifd.parse_ifd(depth + 1)?;
+            ifd.parse_ifd_header(depth + 1)?;
         }
 
         // ignore ifd1

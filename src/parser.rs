@@ -376,7 +376,6 @@ impl MediaParser {
         &mut self,
         mut ms: MediaSource<R, S>,
     ) -> crate::Result<O> {
-        assert!(self.buf.is_none());
         self.acquire_buf();
 
         self.buf_mut().append(&mut ms.buf);
@@ -411,24 +410,11 @@ impl MediaParser {
         self.bb.release_to_share(buf)
     }
 
-    fn acquire_buf(&mut self) -> &mut Vec<u8> {
+    fn acquire_buf(&mut self) {
+        assert!(self.buf.is_none());
         self.buf = Some(self.bb.acquire());
-        self.buf.as_mut().unwrap()
     }
 }
-
-// impl<L: Load> MediaFile<L> {
-//     fn from_loader(loader: L) -> Self {
-//         Self { loader }
-//     }
-// }
-
-// impl<L: Load> From<File> for MediaFile<L> {
-//     fn from(file: File) -> Self {
-//         let loader = BufLoader::<SkipSeek, _>::new(file);
-//         Self { loader }
-//     }
-// }
 
 #[cfg(test)]
 mod tests {

@@ -12,6 +12,7 @@ pub use exif_iter::{ExifIter, ParsedExifEntry};
 pub use gps::{GPSInfo, LatLng};
 pub use tags::ExifTag;
 
+use std::fmt::Debug;
 use std::io::Read;
 use std::ops::Range;
 
@@ -158,7 +159,7 @@ pub(crate) fn extract_exif_with_mime<'a>(
             // full fill TIFF data
             let mut iter =
                 IFDHeaderIter::new(&buf[data_start..], header.ifd0_offset, header.endian);
-            iter.parse_ifd(0)?;
+            iter.parse_ifd_header(0)?;
 
             (ZB, Some(buf))
         }
@@ -196,13 +197,22 @@ pub async fn parse_exif_async<T: AsyncRead + Unpin + Send>(
 /// The one exception is the time zone entries. The method will try to find
 /// and parse the time zone data first, so we can correctly parse all time
 /// information in subsequent iterates.
+#[tracing::instrument]
 pub(crate) fn input_into_iter(
-    input: impl Into<Input>,
+    input: impl Into<Input> + Debug,
     state: Option<ParsingState>,
 ) -> Result<ExifIter, ParsedError> {
     let iter = input_to_iter(input.into(), state).map_err(|e| match e {
-        ParsingError::Need(_) => unreachable!(),
-        ParsingError::ClearAndSkip(_, _) => unreachable!(),
+        ParsingError::Need(_) => {
+            debug_assert!(false, "input_into_iter got: {e:?}");
+            tracing::error!(?e, "input_into_iter error");
+            ParsedError::NoEnoughBytes
+        }
+        ParsingError::ClearAndSkip(_, _) => {
+            debug_assert!(false, "input_into_iter got: {e:?}");
+            tracing::error!(?e, "input_into_iter error");
+            ParsedError::Failed("recv ClearAndSkip".into())
+        }
         ParsingError::Failed(v) => ParsedError::Failed(v),
     })?;
     Ok(iter)
