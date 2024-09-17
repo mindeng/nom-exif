@@ -1,7 +1,8 @@
 use std::{
     error::Error,
-    fs::File,
+    fs::{self, File},
     io::{self},
+    path::Path,
     process::ExitCode,
 };
 
@@ -54,9 +55,58 @@ fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
         return Err(msg.into());
     }
 
-    let ms = MediaSource::file_path(&cli.file)?;
     let mut parser = MediaParser::new();
 
+    let path = Path::new(&cli.file);
+    if path.is_file() {
+        parse_file(&mut parser, path, cli.json)?;
+    } else if path.is_dir() {
+        parse_dir(path, parser, cli)?;
+    }
+
+    Ok(())
+}
+
+fn parse_dir(path: &Path, mut parser: MediaParser, cli: &Cli) -> Result<(), Box<dyn Error>> {
+    let mut first = true;
+    for entry in fs::read_dir(path)? {
+        if first {
+            first = false;
+        } else {
+            println!();
+        }
+        match entry {
+            Ok(entry) => {
+                let Ok(ft) = entry.file_type() else {
+                    continue;
+                };
+                if !ft.is_file() {
+                    continue;
+                }
+                println!("File: {:?}", entry.path().as_os_str());
+                println!("------------------------------------------------");
+                match parse_file(&mut parser, entry.path(), cli.json) {
+                    Ok(_) => (),
+                    Err(e) => {
+                        eprintln!("Error: {e}");
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("Read dir entry failed: {e}");
+                continue;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn parse_file<P: AsRef<Path>>(
+    parser: &mut MediaParser,
+    path: P,
+    json: bool,
+) -> Result<(), Box<dyn Error>> {
+    let ms = MediaSource::file_path(path)?;
     let values = if ms.has_exif() {
         let iter: ExifIter = parser.parse(ms)?;
         iter.into_iter()
@@ -82,8 +132,7 @@ fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
             .map(|x| (x.0.to_string(), x.1))
             .collect::<Vec<_>>()
     };
-
-    if cli.json {
+    if json {
         #[cfg(feature = "json_dump")]
         use std::collections::HashMap;
 
@@ -101,8 +150,7 @@ fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
         values.iter().for_each(|x| {
             println!("{:<32}=> {}", x.0, x.1);
         });
-    }
-
+    };
     Ok(())
 }
 

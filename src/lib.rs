@@ -20,8 +20,8 @@
 //!
 //!     Compared with the way the user judges the file name and then decides
 //!     which parsing function to call (such as `parse_jpg`, `parse_mp4`,
-//!     etc.), this method is simpler, more reliable, and more versatile (can
-//!     be applied to non-file scenarios, such as `TcpStream`).
+//!     etc.), this work flow is simpler, more reliable, and more versatile
+//!     (can be applied to non-file scenarios, such as `TcpStream`).
 //!     
 //!     The usage is demonstrated in the following examples.
 //!     `examples/rexiftool` is also a good example.
