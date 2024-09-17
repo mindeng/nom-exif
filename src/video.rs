@@ -17,6 +17,7 @@ use crate::{
 /// Different variants of `TrackInfoTag` may have different value types, please
 /// refer to the documentation of each variant.
 #[derive(Debug, Clone, PartialEq, Eq, Copy, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
 pub enum TrackInfoTag {
     /// [`EntryValue::Text`]
     Make,
@@ -43,6 +44,36 @@ pub enum TrackInfoTag {
     /// parsed [`GPSInfo`] which provides more detailed GPS info, please use
     /// [`TrackInfo::get_gps_info`].
     GpsIso6709,
+}
+
+/// Represents parsed track info.
+#[derive(Debug, Clone, Default)]
+pub struct TrackInfo {
+    entries: BTreeMap<TrackInfoTag, EntryValue>,
+    gps_info: Option<GPSInfo>,
+}
+
+impl TrackInfo {
+    /// Get value for `tag`. Different variants of `TrackInfoTag` may have
+    /// different value types, please refer to [`TrackInfoTag`].
+    pub fn get(&self, tag: TrackInfoTag) -> Option<&EntryValue> {
+        self.entries.get(&tag)
+    }
+
+    /// Get parsed `GPSInfo`.
+    pub fn get_gps_info(&self) -> Option<&GPSInfo> {
+        self.gps_info.as_ref()
+    }
+
+    /// Get an iterator for `(&TrackInfoTag, &EntryValue)`. The parsed
+    /// `GPSInfo` is not included.
+    pub fn iter(&self) -> impl Iterator<Item = (&TrackInfoTag, &EntryValue)> {
+        self.entries.iter()
+    }
+
+    pub(crate) fn put(&mut self, tag: TrackInfoTag, value: EntryValue) {
+        self.entries.insert(tag, value);
+    }
 }
 
 /// Parse video/audio info from `reader`. The file format will be detected
@@ -132,35 +163,6 @@ pub(crate) fn parse_track_info(
     }
 
     Ok(info)
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct TrackInfo {
-    entries: BTreeMap<TrackInfoTag, EntryValue>,
-    gps_info: Option<GPSInfo>,
-}
-
-impl TrackInfo {
-    /// Get value for `tag`. Different variants of `TrackInfoTag` may have
-    /// different value types, please refer to [`TrackInfoTag`].
-    pub fn get(&self, tag: TrackInfoTag) -> Option<&EntryValue> {
-        self.entries.get(&tag)
-    }
-
-    /// Get parsed `GPSInfo`.
-    pub fn get_gps_info(&self) -> Option<&GPSInfo> {
-        self.gps_info.as_ref()
-    }
-
-    /// Get an iterator for `(&TrackInfoTag, &EntryValue)`. The parsed
-    /// `GPSInfo` is not included.
-    pub fn iter(&self) -> impl Iterator<Item = (&TrackInfoTag, &EntryValue)> {
-        self.entries.iter()
-    }
-
-    pub(crate) fn put(&mut self, tag: TrackInfoTag, value: EntryValue) {
-        self.entries.insert(tag, value);
-    }
 }
 
 impl IntoIterator for TrackInfo {

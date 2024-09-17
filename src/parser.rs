@@ -132,6 +132,7 @@ pub(crate) trait Buf {
     fn clear(&mut self);
 
     fn set_position(&mut self, pos: usize);
+    #[allow(unused)]
     fn position(&self) -> usize;
 }
 

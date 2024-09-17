@@ -236,8 +236,6 @@ pub async fn parse_exif_async<T: AsyncRead + Unpin + Send>(
 #[cfg(test)]
 #[allow(deprecated)]
 mod tests {
-    use std::path::Path;
-
     use crate::{
         file::MimeImage,
         testkit::{open_sample, read_sample},
@@ -271,6 +269,7 @@ mod tests {
     #[test_case("exif.heic", "+43.29013+084.22713+1595.950CRSWGS_84/")]
     #[test_case("exif.jpg", "+22.53113+114.02148/")]
     async fn gps_async(path: &str, gps_str: &str) {
+        use std::path::Path;
         use tokio::fs::File;
 
         let f = File::open(Path::new("testdata").join(path)).await.unwrap();

@@ -215,13 +215,14 @@ pub use video::{TrackInfo, TrackInfoTag};
 #[cfg(feature = "async")]
 pub use parser_async::{AsyncMediaParser, AsyncMediaSource};
 
+pub use exif::{Exif, ExifIter, ExifTag, GPSInfo, LatLng, ParsedExifEntry};
+pub use values::{EntryValue, URational};
+
 #[allow(deprecated)]
 pub use exif::parse_exif;
 #[cfg(feature = "async")]
 #[allow(deprecated)]
 pub use exif::parse_exif_async;
-pub use exif::{Exif, ExifIter, ExifTag, GPSInfo, LatLng, ParsedExifEntry};
-pub use values::EntryValue;
 
 #[allow(deprecated)]
 pub use heif::parse_heif_exif;

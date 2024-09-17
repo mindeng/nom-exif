@@ -74,6 +74,7 @@ impl Display for ExifTagCode {
 #[allow(unused)]
 #[cfg_attr(feature = "json_dump", derive(Serialize, Deserialize))]
 #[derive(Debug, Eq, PartialEq, Hash, Clone, Copy)]
+#[non_exhaustive]
 pub enum ExifTag {
     Make = 0x0000_010f,
     Model = 0x0000_0110,
