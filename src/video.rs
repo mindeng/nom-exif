@@ -19,30 +19,31 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq, Copy, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
 pub enum TrackInfoTag {
-    /// [`EntryValue::Text`]
+    /// Its value is an `EntryValue::Text`.
     Make,
 
-    /// [`EntryValue::Text`]
+    /// Its value is an `EntryValue::Text`.
     Model,
 
-    /// [`EntryValue::Text`]
+    /// Its value is an `EntryValue::Text`.
     Software,
 
-    /// [`EntryValue::Time`]
+    /// Its value is an [`EntryValue::Time`].
     CreateDate,
 
-    /// Duration in millisecond, it's an [`EntryValue::U64`]
+    /// Duration in millisecond, its value is an `EntryValue::U64`.
     DurationMs,
 
-    /// [`EntryValue::U32`]
+    /// Its value is an `EntryValue::U32`.
     ImageWidth,
 
-    /// [`EntryValue::U32`]
+    /// Its value is an `EntryValue::U32`.
     ImageHeight,
 
-    /// [`EntryValue::Text`], Location presented in ISO6709. If you need a
-    /// parsed [`GPSInfo`] which provides more detailed GPS info, please use
-    /// [`TrackInfo::get_gps_info`].
+    /// Its value is an `EntryValue::Text`, location presented in ISO6709.
+    ///
+    /// If you need a parsed [`GPSInfo`] which provides more detailed GPS info,
+    /// please use [`TrackInfo::get_gps_info`].
     GpsIso6709,
 }
 
