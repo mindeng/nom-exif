@@ -18,12 +18,13 @@ use std::ops::Range;
 
 pub(crate) mod ifd;
 pub(crate) use exif_exif::{check_exif_header, TiffHeader};
-pub(crate) use exif_iter::IFDHeaderIter;
+pub(crate) use travel::IfdHeaderTravel;
 
 mod exif_exif;
 mod exif_iter;
 mod gps;
 mod tags;
+mod travel;
 
 /// *Deprecated*: Please use [`crate::MediaParser`] instead.
 ///
@@ -159,8 +160,8 @@ pub(crate) fn extract_exif_with_mime(
 
             // full fill TIFF data
             let mut iter =
-                IFDHeaderIter::new(&buf[data_start..], header.ifd0_offset, header.endian);
-            iter.parse_ifd_header(0)
+                IfdHeaderTravel::new(&buf[data_start..], header.ifd0_offset, header.endian);
+            iter.travel_ifd(0)
                 .map_err(|e| ParsingErrorState::new(e, state.clone()))?;
 
             (Some(buf), state)

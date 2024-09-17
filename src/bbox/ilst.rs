@@ -99,7 +99,7 @@ fn parse_value(type_code: u32, data: &[u8]) -> crate::Result<EntryValue> {
             8 => be_i64(data)?.1.into(),
             data_len => {
                 let data_type = "BE Signed Integer";
-                tracing::error!(data_type, data_len, "Invalid ilst item data.");
+                tracing::warn!(data_type, data_len, "Invalid ilst item data.");
                 let msg = format!(
                     "Invalid ilst item data; \
                     data type is {data_type} while data len is : {data_len}",
@@ -115,7 +115,7 @@ fn parse_value(type_code: u32, data: &[u8]) -> crate::Result<EntryValue> {
             8 => be_u64(data)?.1.into(),
             data_len => {
                 let data_type = "BE Unsigned Integer";
-                tracing::error!(data_type, data_len, "Invalid ilst item data.");
+                tracing::warn!(data_type, data_len, "Invalid ilst item data.");
                 let msg = format!(
                     "Invalid ilst item data; \
                     data type is {data_type} while data len is : {data_len}",
@@ -127,7 +127,7 @@ fn parse_value(type_code: u32, data: &[u8]) -> crate::Result<EntryValue> {
         24 => be_f64(data)?.1.into(),
         data_type => {
             let msg = "Unsupported ilst item data type";
-            tracing::error!(data_type, "{}.", msg);
+            tracing::warn!(data_type, "{}.", msg);
             return Err(format!("{}: {data_type}", msg).into());
         }
     };
