@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 
 use nom::{
     bytes::streaming,
@@ -34,7 +34,7 @@ impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::UnsupportedConstructionMethod(x) => {
-                format!("unsupported construction method ({x})").fmt(f)
+                Debug::fmt(&format!("unsupported construction method ({x})"), f)
             }
         }
     }
@@ -134,19 +134,28 @@ impl FullBoxHeader {
 }
 
 /// Representing a generic ISO base media file format box.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct BoxHolder<'a> {
     pub header: BoxHeader,
     // Including header
     pub data: &'a [u8],
 }
 
+impl Debug for BoxHolder<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BoxHolder")
+            .field("header", &self.header)
+            .field("data len", &self.data.len())
+            .finish()
+    }
+}
+
 impl<'a> BoxHolder<'a> {
     #[tracing::instrument(skip_all)]
     pub fn parse(input: &'a [u8]) -> IResult<&'a [u8], BoxHolder<'a>> {
         let (_, header) = BoxHeader::parse(input)?;
+        tracing::debug!(box_type = header.box_type, ?header, "Got");
         let (remain, data) = streaming::take(header.box_size)(input)?;
-        tracing::debug!(?header.box_type, data_len = ?data.len(), "Got");
 
         Ok((remain, BoxHolder { header, data }))
     }

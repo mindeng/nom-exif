@@ -15,8 +15,8 @@ use super::{parse_cstr, ParseBody, ParseBox};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IinfBox {
-    header: FullBoxHeader,
-    entries: HashMap<String, InfeBox>,
+    pub(crate) header: FullBoxHeader,
+    pub(crate) entries: HashMap<String, InfeBox>,
 }
 
 impl ParseBody<IinfBox> for IinfBox {
@@ -80,7 +80,7 @@ impl ParseBody<InfeBox> for InfeBox {
             }),
         )(remain)?;
 
-        tracing::debug!(?header.box_type, ?item_type, ?version, "Got");
+        // tracing::debug!(?header.box_type, ?item_type, ?version, "Got");
 
         let (remain, item_name) = parse_cstr(remain).map_err(|e| {
             if e.is_incomplete() {

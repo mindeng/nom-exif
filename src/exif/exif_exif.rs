@@ -234,9 +234,18 @@ pub(crate) fn check_exif_header(data: &[u8]) -> bool {
     use nom::bytes::complete;
     assert!(data.len() >= 6);
 
-    const EXIF_IDENT: &str = "Exif\0\0";
     complete::tag::<_, _, nom::error::Error<_>>(EXIF_IDENT)(data).is_ok()
 }
+
+pub(crate) fn check_exif_header2(i: &[u8]) -> IResult<&[u8], ()> {
+    let (remain, _) = nom::sequence::tuple((
+        nom::number::complete::be_u32,
+        nom::bytes::complete::tag(EXIF_IDENT),
+    ))(i)?;
+    Ok((remain, ()))
+}
+
+pub(crate) const EXIF_IDENT: &str = "Exif\0\0";
 
 #[cfg(test)]
 mod tests {

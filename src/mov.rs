@@ -336,7 +336,7 @@ pub(crate) fn extract_moov_body_from_buf(input: &[u8]) -> Result<Range<usize>, P
     .map_err(|e| convert_error(e, "search atom moov failed"))?;
 
     if to_skip > 0 {
-        return Err(ParsingError::ClearAndSkip(to_skip + input.len(), None));
+        return Err(ParsingError::ClearAndSkip(to_skip + input.len()));
     }
 
     let (_, body) = streaming::take(header.body_size())(remain)

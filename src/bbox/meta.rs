@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Debug, ops::Range};
 
 use nom::{combinator::fail, multi::many0, IResult, Needed};
 
@@ -7,12 +7,25 @@ use crate::bbox::FullBoxHeader;
 use super::{iinf::IinfBox, iloc::IlocBox, BoxHolder, ParseBody, ParseBox};
 
 /// Representing the `meta` box in a HEIF/HEIC file.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct MetaBox {
     header: FullBoxHeader,
     iinf: Option<IinfBox>,
     iloc: Option<IlocBox>,
     // idat: Option<IdatBox<'a>>,
+}
+
+impl Debug for MetaBox {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MetaBox")
+            .field("header", &self.header)
+            .field(
+                "iinf entries num",
+                &self.iinf.as_ref().map(|x| x.entries.len()),
+            )
+            .field("iloc items num", &self.iloc.as_ref().map(|x| x.items.len()))
+            .finish()
+    }
 }
 
 impl ParseBody<MetaBox> for MetaBox {
@@ -95,6 +108,33 @@ impl MetaBox {
                 }
             })
             .unwrap_or(Ok((input, None)))
+    }
+
+    #[tracing::instrument(skip_all)]
+    pub fn exif_data_offset(&self) -> Option<Range<usize>> {
+        self.iinf
+            .as_ref()
+            .and_then(|iinf| iinf.get_infe("Exif"))
+            .and_then(|exif_infe| {
+                self.iloc
+                    .as_ref()
+                    .and_then(|iloc| iloc.item_offset_len(exif_infe.id))
+            })
+            .and_then(|(construction_method, offset, length)| {
+                let start = offset as usize;
+                let end = (offset + length) as usize;
+                if construction_method == 0 {
+                    // file offset
+                    Some(start..end)
+                } else if construction_method == 1 {
+                    // idat offset
+                    tracing::debug!("idat offset construction method is not supported yet");
+                    None
+                } else {
+                    tracing::debug!("item offset construction method is not supported yet");
+                    None
+                }
+            })
     }
 }
 

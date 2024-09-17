@@ -43,18 +43,48 @@ pub fn parse_heif_exif<R: Read + Seek>(reader: R) -> crate::Result<Option<Exif>>
 }
 
 /// Extract Exif TIFF data from the bytes of a HEIF/HEIC file.
+#[allow(unused)]
+#[tracing::instrument(skip_all)]
 pub(crate) fn extract_exif_data(input: &[u8]) -> IResult<&[u8], Option<&[u8]>> {
+    let (remain, meta) = parse_meta_box(input)?;
+
+    if let Some(meta) = meta {
+        extract_exif_with_meta(input, &meta)
+    } else {
+        Ok((remain, None))
+    }
+}
+
+pub(crate) fn parse_meta_box(input: &[u8]) -> IResult<&[u8], Option<MetaBox>> {
     let remain = input;
     let (remain, bbox) = BoxHolder::parse(remain)?;
     if bbox.box_type() != "ftyp" {
         return fail(input);
     }
 
-    let (_, Some(bbox)) = find_box(remain, "meta")? else {
+    let (remain, Some(bbox)) = find_box(remain, "meta")? else {
+        tracing::debug!(?bbox, "meta box not found");
         return Ok((remain, None));
     };
+    tracing::debug!(
+        ?bbox,
+        pos = input.len() - remain.len() - bbox.header.box_size as usize,
+        "Got meta box"
+    );
     let (_, bbox) = MetaBox::parse_box(bbox.data)?;
+    tracing::debug!(?bbox, "meta box parsed");
+    Ok((remain, Some(bbox)))
+}
+
+pub(crate) fn extract_exif_with_meta<'a>(
+    input: &'a [u8],
+    bbox: &MetaBox,
+) -> IResult<&'a [u8], Option<&'a [u8]>> {
     let (out_remain, data) = bbox.exif_data(input)?;
+    tracing::debug!(
+        data_len = data.as_ref().map(|x| x.len()),
+        "exif data extracted"
+    );
 
     if let Some(data) = data {
         let (remain, _) = be_u32(data)?;

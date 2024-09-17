@@ -42,6 +42,21 @@ pub(crate) enum Mime {
     Video(MimeVideo),
 }
 
+impl Mime {
+    pub fn unwrap_image(self) -> MimeImage {
+        match self {
+            Mime::Image(val) => val,
+            Mime::Video(_) => panic!("called `Mime::unwrap_image()` on an `Mime::Video`"),
+        }
+    }
+    pub fn unwrap_video(self) -> MimeVideo {
+        match self {
+            Mime::Image(_) => panic!("called `Mime::unwrap_video()` on an `Mime::Image`"),
+            Mime::Video(val) => val,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub(crate) enum MimeImage {
     Jpeg,

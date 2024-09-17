@@ -3,8 +3,8 @@ use std::{
     fmt::Debug,
     io::{self},
     marker::PhantomData,
+    ops::Range,
     path::Path,
-    sync::Arc,
 };
 
 use tokio::{
@@ -14,10 +14,11 @@ use tokio::{
 
 use crate::{
     buffer::Buffers,
-    error::{ParsedError, ParsingError},
+    error::{ParsedError, ParsingError, ParsingErrorState},
     exif::parse_exif_iter_async,
     file::Mime,
-    parser::{Buf, ParsingState, INIT_BUF_SIZE, MAX_GROW_SIZE, MIN_GROW_SIZE},
+    parser::{Buf, ParsingState, ShareBuf, INIT_BUF_SIZE, MAX_GROW_SIZE, MIN_GROW_SIZE},
+    partial_vec::PartialVec,
     skip::AsyncSkip,
     video::parse_track_info,
     ExifIter, Seekable, TrackInfo, Unseekable,
@@ -87,7 +88,7 @@ impl AsyncMediaSource<File, Seekable> {
     }
 }
 
-pub(crate) trait AsyncBufParser: Buf {
+pub(crate) trait AsyncBufParser: Buf + Debug {
     async fn fill_buf<R: AsyncRead + Unpin>(
         &mut self,
         reader: &mut R,
@@ -100,7 +101,7 @@ pub(crate) trait AsyncBufParser: Buf {
         parse: P,
     ) -> Result<O, ParsedError>
     where
-        P: Fn(&[u8], Option<ParsingState>) -> Result<O, ParsingError>,
+        P: Fn(&[u8], Option<ParsingState>) -> Result<O, ParsingErrorState>,
     {
         self.load_and_parse_with_offset::<R, S, _, _>(
             reader,
@@ -118,7 +119,7 @@ pub(crate) trait AsyncBufParser: Buf {
         offset: usize,
     ) -> Result<O, ParsedError>
     where
-        P: Fn(&[u8], usize, Option<ParsingState>) -> Result<O, ParsingError>,
+        P: Fn(&[u8], usize, Option<ParsingState>) -> Result<O, ParsingErrorState>,
     {
         if offset >= self.buffer().len() {
             self.fill_buf(reader, MIN_GROW_SIZE).await?;
@@ -126,55 +127,75 @@ pub(crate) trait AsyncBufParser: Buf {
 
         let mut parsing_state: Option<ParsingState> = None;
         loop {
-            match parse(self.buffer(), offset, parsing_state.take()) {
+            let res = parse(self.buffer(), offset, parsing_state.take());
+            match res {
                 Ok(o) => return Ok(o),
-                Err(ParsingError::ClearAndSkip(n, skip_state)) => {
-                    tracing::debug!(n, ?skip_state, "ClearAndSkip");
-                    if n <= self.buffer().len() {
-                        tracing::debug!(n, "set_position");
-                        self.set_position(n);
-                    } else {
-                        let skip_n = n - self.buffer().len();
-                        tracing::debug!(skip_n, "clear and skip bytes");
-                        self.clear();
+                Err(es) => {
+                    tracing::debug!(?es);
+                    parsing_state = es.state;
 
-                        let done = S::skip_by_seek(reader, skip_n.try_into().unwrap()).await?;
-                        if !done {
-                            tracing::debug!(skip_n, "skip within our buffer");
-                            let mut skipped = 0;
-                            while skipped < skip_n {
-                                let n = self.fill_buf(reader, skip_n - skipped).await?;
-                                skipped += n;
-                                if skipped <= skip_n {
-                                    self.clear();
-                                } else {
-                                    let remain = skipped - skip_n;
-                                    self.set_position(self.buffer().len() - remain);
-                                    break;
-                                }
+                    match es.err {
+                        ParsingError::ClearAndSkip(n) => {
+                            self.clear_and_skip::<R, S>(reader, n).await?;
+                        }
+                        ParsingError::Need(i) => {
+                            tracing::debug!(need = i, "need more bytes");
+                            let to_read = max(i, MIN_GROW_SIZE);
+                            let to_read = min(to_read, MAX_GROW_SIZE);
+
+                            let n = self.fill_buf(reader, to_read).await?;
+                            if n == 0 {
+                                return Err(ParsedError::NoEnoughBytes);
                             }
+                            tracing::debug!(actual_read = n, "has been read");
                         }
-
-                        if self.buffer().is_empty() {
-                            self.fill_buf(reader, MIN_GROW_SIZE).await?;
-                        }
+                        ParsingError::Failed(s) => return Err(ParsedError::Failed(s)),
                     }
-                    parsing_state = skip_state;
                 }
-                Err(ParsingError::Need(i)) => {
-                    tracing::debug!(need = i, "need more bytes");
-                    let to_read = max(i, MIN_GROW_SIZE);
-                    let to_read = min(to_read, MAX_GROW_SIZE);
-
-                    let n = self.fill_buf(reader, to_read).await?;
-                    if n == 0 {
-                        return Err(ParsedError::NoEnoughBytes);
-                    }
-                    tracing::debug!(actual_read = n, "has been read");
-                }
-                Err(ParsingError::Failed(s)) => return Err(ParsedError::Failed(s)),
             }
         }
+    }
+
+    #[tracing::instrument(skip(reader))]
+    async fn clear_and_skip<R: AsyncRead + Unpin, S: AsyncSkip<R>>(
+        &mut self,
+        reader: &mut R,
+        n: usize,
+    ) -> Result<(), ParsedError> {
+        tracing::debug!("ClearAndSkip");
+        if n <= self.buffer().len() {
+            tracing::debug!(n, "skip by set_position");
+            self.set_position(n);
+            return Ok(());
+        }
+
+        let skip_n = n - self.buffer().len();
+        tracing::debug!(skip_n, "clear and skip bytes");
+        self.clear();
+
+        let done = S::skip_by_seek(reader, skip_n.try_into().unwrap()).await?;
+        if !done {
+            tracing::debug!(skip_n, "skip by using our buffer");
+            let mut skipped = 0;
+            while skipped < skip_n {
+                let n = self.fill_buf(reader, skip_n - skipped).await?;
+                skipped += n;
+                if skipped <= skip_n {
+                    self.clear();
+                } else {
+                    let remain = skipped - skip_n;
+                    self.set_position(self.buffer().len() - remain);
+                    break;
+                }
+            }
+        } else {
+            tracing::debug!(skip_n, "skip with seek");
+        }
+
+        if self.buffer().is_empty() {
+            self.fill_buf(reader, MIN_GROW_SIZE).await?;
+        }
+        Ok(())
     }
 }
 
@@ -188,9 +209,12 @@ pub trait AsyncParseOutput<R, S>: Sized {
 impl<R: AsyncRead + Unpin + Send, S: AsyncSkip<R> + Send> AsyncParseOutput<R, S> for ExifIter {
     async fn parse(
         parser: &mut AsyncMediaParser,
-        ms: AsyncMediaSource<R, S>,
+        mut ms: AsyncMediaSource<R, S>,
     ) -> crate::Result<Self> {
-        parse_exif_iter_async(parser, ms).await
+        if !ms.has_exif() {
+            return Err(crate::Error::ParseFailed("no Exif data here".into()));
+        }
+        parse_exif_iter_async::<R, S>(parser, ms.mime.unwrap_image(), &mut ms.reader).await
     }
 }
 
@@ -205,7 +229,7 @@ impl<R: AsyncRead + Unpin + Send, S: AsyncSkip<R> + Send> AsyncParseOutput<R, S>
             Mime::Video(v) => {
                 parser
                     .load_and_parse::<R, S, _, _>(&mut ms.reader, |data, _| {
-                        parse_track_info(data, v)
+                        parse_track_info(data, v).map_err(|e| ParsingErrorState::new(e, None))
                     })
                     .await?
             }
@@ -249,6 +273,16 @@ impl Default for AsyncMediaParser {
             buf: None,
             position: 0,
         }
+    }
+}
+
+impl ShareBuf for AsyncMediaParser {
+    fn share_buf(&mut self, mut range: Range<usize>) -> PartialVec {
+        let buf = self.buf.take().unwrap();
+        let vec = self.bb.release_to_share(buf);
+        range.start += self.position;
+        range.end += self.position;
+        PartialVec::new(vec, range)
     }
 }
 
@@ -326,23 +360,37 @@ impl AsyncMediaParser {
         &mut self,
         mut ms: AsyncMediaSource<R, S>,
     ) -> crate::Result<O> {
+        self.reset();
         self.acquire_buf();
 
         self.buf_mut().append(&mut ms.buf);
+        let res = self.do_parse(ms).await;
+
+        self.reset();
+        res
+    }
+
+    async fn do_parse<R: AsyncRead + Unpin, S, O: AsyncParseOutput<R, S>>(
+        &mut self,
+        mut ms: AsyncMediaSource<R, S>,
+    ) -> Result<O, crate::Error> {
         self.fill_buf(&mut ms.reader, INIT_BUF_SIZE).await?;
-
         let res = O::parse(self, ms).await?;
+        Ok(res)
+    }
 
+    fn reset(&mut self) {
         // Ensure buf has been released
         if let Some(buf) = self.buf.take() {
             self.bb.release(buf);
         }
 
-        Ok(res)
+        // Reset position
+        self.set_position(0);
     }
 
-    pub(crate) fn share_buf(&mut self) -> Arc<Vec<u8>> {
-        self.bb.release_to_share(self.buf.take().unwrap())
+    fn buf(&self) -> &Vec<u8> {
+        self.buf.as_ref().unwrap()
     }
 
     fn acquire_buf(&mut self) {
@@ -352,10 +400,6 @@ impl AsyncMediaParser {
 
     fn buf_mut(&mut self) -> &mut Vec<u8> {
         self.buf.as_mut().unwrap()
-    }
-
-    fn buf(&self) -> &Vec<u8> {
-        self.buf.as_ref().unwrap()
     }
 }
 

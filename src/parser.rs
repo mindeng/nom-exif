@@ -1,19 +1,20 @@
 use std::{
     cmp::{max, min},
-    fmt::Debug,
+    fmt::{Debug, Display},
     fs::File,
     io::{self, Read, Seek},
     marker::PhantomData,
     net::TcpStream,
+    ops::Range,
     path::Path,
-    sync::Arc,
 };
 
 use crate::{
     buffer::Buffers,
-    error::{ParsedError, ParsingError},
+    error::{ParsedError, ParsingError, ParsingErrorState},
     exif::{parse_exif_iter, TiffHeader},
     file::Mime,
+    partial_vec::PartialVec,
     skip::Skip,
     video::parse_track_info,
     ExifIter, Seekable, TrackInfo, Unseekable,
@@ -137,9 +138,19 @@ pub(crate) trait Buf {
 #[derive(Debug, Clone)]
 pub(crate) enum ParsingState {
     TiffHeader(TiffHeader),
+    HeifExifSize(usize),
 }
 
-pub(crate) trait BufParser: Buf {
+impl Display for ParsingState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ParsingState::TiffHeader(h) => Display::fmt(&format!("ParsingState: {h:?})"), f),
+            ParsingState::HeifExifSize(n) => Display::fmt(&format!("ParsingState: {n}"), f),
+        }
+    }
+}
+
+pub(crate) trait BufParser: Buf + Debug {
     fn fill_buf<R: Read>(&mut self, reader: &mut R, size: usize) -> io::Result<usize>;
     fn load_and_parse<R: Read, S: Skip<R>, P, O>(
         &mut self,
@@ -147,7 +158,7 @@ pub(crate) trait BufParser: Buf {
         mut parse: P,
     ) -> Result<O, ParsedError>
     where
-        P: FnMut(&[u8], Option<ParsingState>) -> Result<O, ParsingError>,
+        P: FnMut(&[u8], Option<ParsingState>) -> Result<O, ParsingErrorState>,
     {
         self.load_and_parse_with_offset::<R, S, _, _>(
             reader,
@@ -164,7 +175,7 @@ pub(crate) trait BufParser: Buf {
         offset: usize,
     ) -> Result<O, ParsedError>
     where
-        P: FnMut(&[u8], usize, Option<ParsingState>) -> Result<O, ParsingError>,
+        P: FnMut(&[u8], usize, Option<ParsingState>) -> Result<O, ParsingErrorState>,
     {
         if offset >= self.buffer().len() {
             self.fill_buf(reader, MIN_GROW_SIZE)?;
@@ -172,57 +183,75 @@ pub(crate) trait BufParser: Buf {
 
         let mut parsing_state: Option<ParsingState> = None;
         loop {
-            match parse(self.buffer(), offset, parsing_state.take()) {
+            let res = parse(self.buffer(), offset, parsing_state.take());
+            match res {
                 Ok(o) => return Ok(o),
-                Err(ParsingError::ClearAndSkip(n, skip_state)) => {
-                    tracing::debug!(n, ?skip_state, "ClearAndSkip");
-                    if n <= self.buffer().len() {
-                        tracing::debug!(n, "set_position");
-                        self.set_position(n);
-                    } else {
-                        let skip_n = n - self.buffer().len();
-                        tracing::debug!(skip_n, "clear and skip bytes");
-                        self.clear();
+                Err(es) => {
+                    tracing::debug!(?es);
+                    parsing_state = es.state;
 
-                        let done = S::skip_by_seek(reader, skip_n.try_into().unwrap())?;
-                        if !done {
-                            tracing::debug!(skip_n, "skip within our buffer");
-                            let mut skipped = 0;
-                            while skipped < skip_n {
-                                let n = self.fill_buf(reader, skip_n - skipped)?;
-                                skipped += n;
-                                if skipped <= skip_n {
-                                    self.clear();
-                                } else {
-                                    let remain = skipped - skip_n;
-                                    self.set_position(self.buffer().len() - remain);
-                                    break;
-                                }
+                    match es.err {
+                        ParsingError::ClearAndSkip(n) => {
+                            self.clear_and_skip::<R, S>(reader, n)?;
+                        }
+                        ParsingError::Need(i) => {
+                            tracing::debug!(need = i, "need more bytes");
+                            let to_read = max(i, MIN_GROW_SIZE);
+                            let to_read = min(to_read, MAX_GROW_SIZE);
+
+                            let n = self.fill_buf(reader, to_read)?;
+                            if n == 0 {
+                                return Err(ParsedError::NoEnoughBytes);
                             }
-                        } else {
-                            tracing::debug!(skip_n, "skip with seek");
+                            tracing::debug!(n, "actual read");
                         }
-
-                        if self.buffer().is_empty() {
-                            self.fill_buf(reader, MIN_GROW_SIZE)?;
-                        }
+                        ParsingError::Failed(s) => return Err(ParsedError::Failed(s)),
                     }
-                    parsing_state = skip_state;
                 }
-                Err(ParsingError::Need(i)) => {
-                    tracing::debug!(need = i, "need more bytes");
-                    let to_read = max(i, MIN_GROW_SIZE);
-                    let to_read = min(to_read, MAX_GROW_SIZE);
-
-                    let n = self.fill_buf(reader, to_read)?;
-                    if n == 0 {
-                        return Err(ParsedError::NoEnoughBytes);
-                    }
-                    tracing::debug!(n, "actual read");
-                }
-                Err(ParsingError::Failed(s)) => return Err(ParsedError::Failed(s)),
             }
         }
+    }
+
+    #[tracing::instrument(skip(reader))]
+    fn clear_and_skip<R: Read, S: Skip<R>>(
+        &mut self,
+        reader: &mut R,
+        n: usize,
+    ) -> Result<(), ParsedError> {
+        tracing::debug!("ClearAndSkip");
+        if n <= self.buffer().len() {
+            tracing::debug!(n, "skip by set_position");
+            self.set_position(n);
+            return Ok(());
+        }
+
+        let skip_n = n - self.buffer().len();
+        tracing::debug!(skip_n, "clear and skip bytes");
+        self.clear();
+
+        let done = S::skip_by_seek(reader, skip_n.try_into().unwrap())?;
+        if !done {
+            tracing::debug!(skip_n, "skip by using our buffer");
+            let mut skipped = 0;
+            while skipped < skip_n {
+                let n = self.fill_buf(reader, skip_n - skipped)?;
+                skipped += n;
+                if skipped <= skip_n {
+                    self.clear();
+                } else {
+                    let remain = skipped - skip_n;
+                    self.set_position(self.buffer().len() - remain);
+                    break;
+                }
+            }
+        } else {
+            tracing::debug!(skip_n, "skip with seek");
+        }
+
+        if self.buffer().is_empty() {
+            self.fill_buf(reader, MIN_GROW_SIZE)?;
+        }
+        Ok(())
     }
 }
 
@@ -241,7 +270,7 @@ impl BufParser for MediaParser {
 
 impl Buf for MediaParser {
     fn buffer(&self) -> &[u8] {
-        &self.buf()[self.position()..]
+        &self.buf()[self.position..]
     }
 
     fn clear(&mut self) {
@@ -262,21 +291,23 @@ pub trait ParseOutput<R, S>: Sized {
 }
 
 impl<R: Read, S: Skip<R>> ParseOutput<R, S> for ExifIter {
-    fn parse(parser: &mut MediaParser, ms: MediaSource<R, S>) -> crate::Result<Self> {
-        parse_exif_iter(parser, ms)
+    fn parse(parser: &mut MediaParser, mut ms: MediaSource<R, S>) -> crate::Result<Self> {
+        if !ms.has_exif() {
+            return Err(crate::Error::ParseFailed("no Exif data here".into()));
+        }
+        parse_exif_iter::<R, S>(parser, ms.mime.unwrap_image(), &mut ms.reader)
     }
 }
 
 impl<R: Read, S: Skip<R>> ParseOutput<R, S> for TrackInfo {
     fn parse(parser: &mut MediaParser, mut ms: MediaSource<R, S>) -> crate::Result<Self> {
-        let out = match ms.mime {
-            Mime::Image(_) => return Err("not a track".into()),
-            Mime::Video(v) => parser
-                .load_and_parse::<R, S, _, _>(ms.reader.by_ref(), |data, _| {
-                    parse_track_info(data, v)
-                })?,
-        };
-
+        if !ms.has_track() {
+            return Err(crate::Error::ParseFailed("no track info here".into()));
+        }
+        let out = parser.load_and_parse::<R, S, _, _>(ms.reader.by_ref(), |data, _| {
+            parse_track_info(data, ms.mime.unwrap_video())
+                .map_err(|e| ParsingErrorState::new(e, None))
+        })?;
         Ok(out)
     }
 }
@@ -311,6 +342,20 @@ impl Default for MediaParser {
     }
 }
 
+pub(crate) trait ShareBuf {
+    fn share_buf(&mut self, range: Range<usize>) -> PartialVec;
+}
+
+impl ShareBuf for MediaParser {
+    fn share_buf(&mut self, mut range: Range<usize>) -> PartialVec {
+        let buf = self.buf.take().unwrap();
+        let vec = self.bb.release_to_share(buf);
+        range.start += self.position;
+        range.end += self.position;
+        PartialVec::new(vec, range)
+    }
+}
+
 impl MediaParser {
     pub fn new() -> Self {
         Self::default()
@@ -339,7 +384,7 @@ impl MediaParser {
     /// assert_eq!(entry.get_value().unwrap().as_str().unwrap(), "Apple");
     ///
     /// // Convert `ExifIter` into an `Exif`. Clone it before converting, so that
-    /// // we can sure the iterator state has been reset.
+    /// // we can start the iteration from the beginning.
     /// let exif: Exif = iter.clone().into();
     /// assert_eq!(exif.get(ExifTag::Make).unwrap().as_str().unwrap(), "Apple");
     ///
@@ -376,19 +421,33 @@ impl MediaParser {
         &mut self,
         mut ms: MediaSource<R, S>,
     ) -> crate::Result<O> {
+        self.reset();
         self.acquire_buf();
 
         self.buf_mut().append(&mut ms.buf);
-        self.fill_buf(ms.reader.by_ref(), INIT_BUF_SIZE)?;
+        let res = self.do_parse(ms);
 
+        self.reset();
+        res
+    }
+
+    fn do_parse<R: Read, S, O: ParseOutput<R, S>>(
+        &mut self,
+        mut ms: MediaSource<R, S>,
+    ) -> Result<O, crate::Error> {
+        self.fill_buf(&mut ms.reader, INIT_BUF_SIZE)?;
         let res = ParseOutput::parse(self, ms)?;
+        Ok(res)
+    }
 
+    fn reset(&mut self) {
         // Ensure buf has been released
         if let Some(buf) = self.buf.take() {
             self.bb.release(buf);
         }
 
-        Ok(res)
+        // Reset position
+        self.set_position(0);
     }
 
     pub(crate) fn buf(&self) -> &Vec<u8> {
@@ -403,11 +462,6 @@ impl MediaParser {
             Some(b) => b,
             None => panic!("no buf here"),
         }
-    }
-
-    pub fn share_buf(&mut self) -> Arc<Vec<u8>> {
-        let buf = self.buf.take().unwrap();
-        self.bb.release_to_share(buf)
     }
 
     fn acquire_buf(&mut self) {

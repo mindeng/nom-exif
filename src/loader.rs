@@ -52,7 +52,7 @@ pub(crate) trait Load: BufLoad {
         loop {
             match parse(self.buf(), at) {
                 Ok(o) => return Ok(o),
-                Err(ParsingError::ClearAndSkip(n, _)) => {
+                Err(ParsingError::ClearAndSkip(n)) => {
                     tracing::debug!(n, "clear and skip bytes");
                     self.skip(n - self.buf().len())?;
                     self.clear();

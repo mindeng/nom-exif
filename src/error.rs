@@ -1,5 +1,5 @@
 use std::{
-    fmt::Debug,
+    fmt::{Debug, Display},
     io::{self},
     string::FromUtf8Error,
 };
@@ -69,15 +69,43 @@ pub(crate) enum ParsedError {
 /// same error type to notify the caller that we require more bytes to continue
 /// parsing.
 #[derive(Debug, Error)]
-pub enum ParsingError {
+pub(crate) enum ParsingError {
     #[error("need more bytes: {0}")]
     Need(usize),
 
-    #[error("clear and skip bytes: {0:?}, state: {1:?}")]
-    ClearAndSkip(usize, Option<ParsingState>),
+    #[error("clear and skip bytes: {0:?}")]
+    ClearAndSkip(usize),
 
     #[error("{0}")]
     Failed(String),
+}
+
+#[derive(Debug, Error)]
+pub(crate) struct ParsingErrorState {
+    pub err: ParsingError,
+    pub state: Option<ParsingState>,
+}
+
+impl ParsingErrorState {
+    pub fn new(err: ParsingError, state: Option<ParsingState>) -> Self {
+        Self { err, state }
+    }
+}
+
+impl Display for ParsingErrorState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(
+            &format!(
+                "ParsingError(err: {}, state: {})",
+                self.err,
+                self.state
+                    .as_ref()
+                    .map(|x| x.to_string())
+                    .unwrap_or("None".to_string())
+            ),
+            f,
+        )
+    }
 }
 
 impl From<&str> for ParsingError {
@@ -160,5 +188,35 @@ impl From<nom::Err<nom::error::Error<&[u8]>>> for ParsingError {
                 ParsingError::Failed(e.code.description().to_string())
             }
         }
+    }
+}
+
+// impl From<nom::Err<nom::error::Error<&[u8]>>> for ParsingErrorState {
+//     fn from(e: nom::Err<nom::error::Error<&[u8]>>) -> Self {
+//         match e {
+//             nom::Err::Incomplete(needed) => match needed {
+//                 nom::Needed::Unknown => ParsingErrorState::new(ParsingError::Need(1), None),
+//                 nom::Needed::Size(n) => ParsingErrorState::new(ParsingError::Need(n.get()), None),
+//             },
+//             nom::Err::Failure(e) | nom::Err::Error(e) => {
+//                 ParsingErrorState::new(ParsingError::Failed(e.code.description().to_string()), None)
+//             }
+//         }
+//     }
+// }
+
+pub(crate) fn nom_error_to_parsing_error_with_state(
+    e: nom::Err<nom::error::Error<&[u8]>>,
+    state: Option<ParsingState>,
+) -> ParsingErrorState {
+    match e {
+        nom::Err::Incomplete(needed) => match needed {
+            nom::Needed::Unknown => ParsingErrorState::new(ParsingError::Need(1), state),
+            nom::Needed::Size(n) => ParsingErrorState::new(ParsingError::Need(n.get()), state),
+        },
+        nom::Err::Failure(e) | nom::Err::Error(e) => ParsingErrorState::new(
+            ParsingError::Failed(e.code.description().to_string()),
+            state,
+        ),
     }
 }

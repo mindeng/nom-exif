@@ -225,8 +225,6 @@ pub use file::FileFormat;
 #[allow(deprecated)]
 pub use mov::{parse_metadata, parse_mov_metadata};
 
-pub(crate) const ZB: &[u8] = &[];
-
 mod bbox;
 mod buffer;
 mod ebml;

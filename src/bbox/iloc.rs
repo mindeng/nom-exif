@@ -19,7 +19,7 @@ pub struct IlocBox {
     length_size: u8,      // 4 bits
     base_offset_size: u8, // 4 bits
     index_size: u8,       // 4 bits, version 1/2, reserved in version 0
-    items: HashMap<u32, ItemLocation>,
+    pub(crate) items: HashMap<u32, ItemLocation>,
 }
 
 const MAX_ILOC_EXTENTS_PER_ITEM: u16 = 32;

@@ -1,11 +1,14 @@
-use crate::error::{ParsedError, ParsingError};
-use crate::file::Mime;
-use crate::parser::{BufParser, ParsingState};
+use crate::error::{
+    nom_error_to_parsing_error_with_state, ParsedError, ParsingError, ParsingErrorState,
+};
+use crate::file::MimeImage;
+use crate::parser::{BufParser, ParsingState, ShareBuf};
 use crate::skip::Skip;
 use crate::slice::SubsliceRange;
-use crate::{heif, jpeg, MediaParser, MediaSource, ZB};
+use crate::{heif, jpeg, MediaParser, MediaSource};
 #[allow(deprecated)]
 use crate::{partial_vec::PartialVec, FileFormat};
+use exif_exif::check_exif_header2;
 pub use exif_exif::Exif;
 use exif_iter::IfdIter;
 pub use exif_iter::{ExifIter, ParsedExifEntry};
@@ -64,107 +67,150 @@ pub fn parse_exif<T: Read>(reader: T, _: Option<FileFormat>) -> crate::Result<Op
     Ok(Some(iter))
 }
 
-#[tracing::instrument]
+#[tracing::instrument(skip(reader))]
 pub(crate) fn parse_exif_iter<R: Read, S: Skip<R>>(
     parser: &mut MediaParser,
-    mut ms: MediaSource<R, S>,
+    mime_img: MimeImage,
+    reader: &mut R,
 ) -> Result<ExifIter, crate::Error> {
-    let out = parser.load_and_parse::<R, S, _, Option<(Range<_>, Option<ParsingState>)>>(
-        ms.reader.by_ref(),
-        |buf, state| match ms.mime {
-            Mime::Image(img) => {
-                tracing::debug!(parsing_buf_len = buf.len(), ?state);
-                let exif_data = extract_exif_with_mime(img, buf, state.as_ref())?;
-                Ok(exif_data
-                    .and_then(|x| buf.subslice_range(x))
-                    .map(|x| (x, state)))
-            }
-            Mime::Video(_) => Err("not an image".into()),
-        },
-    )?;
+    let out = parser.load_and_parse::<R, S, _, _>(reader, |buf, state| {
+        extract_exif_range(mime_img, buf, state)
+    })?;
 
-    if let Some((range, state)) = out {
-        tracing::debug!(?range);
-        let input: PartialVec = PartialVec::new(parser.share_buf(), range);
-        let iter = input_into_iter(input, state)?;
+    range_to_iter(parser, out)
+}
+
+type ExifRangeResult = Result<Option<(Range<usize>, Option<TiffHeader>)>, ParsingErrorState>;
+
+fn extract_exif_range(img: MimeImage, buf: &[u8], state: Option<ParsingState>) -> ExifRangeResult {
+    let (exif_data, state) = extract_exif_with_mime(img, buf, state)?;
+    let header = state.and_then(|x| match x {
+        ParsingState::TiffHeader(h) => Some(h),
+        ParsingState::HeifExifSize(_) => None,
+    });
+    Ok(exif_data
+        .and_then(|x| buf.subslice_range(x))
+        .map(|x| (x, header)))
+}
+
+fn range_to_iter(
+    parser: &mut impl ShareBuf,
+    out: Option<(Range<usize>, Option<TiffHeader>)>,
+) -> Result<ExifIter, crate::Error> {
+    if let Some((range, header)) = out {
+        tracing::debug!(?range, ?header, "Got Exif data");
+        let input: PartialVec = parser.share_buf(range);
+        let iter = input_into_iter(input, header)?;
+
         Ok(iter)
     } else {
-        Err("parse exif failed".into())
+        tracing::debug!("Exif not found");
+        Err("Exif not found".into())
     }
 }
 
 #[cfg(feature = "async")]
-#[tracing::instrument]
+#[tracing::instrument(skip(reader))]
 pub(crate) async fn parse_exif_iter_async<
     R: AsyncRead + Unpin + Send,
     S: crate::skip::AsyncSkip<R>,
 >(
     parser: &mut crate::AsyncMediaParser,
-    mut ms: crate::AsyncMediaSource<R, S>,
+    mime_img: MimeImage,
+    reader: &mut R,
 ) -> Result<ExifIter, crate::Error> {
     use crate::parser_async::AsyncBufParser;
 
     let out = parser
-        .load_and_parse::<R, S, _, Option<(Range<_>, Option<ParsingState>)>>(
-            &mut ms.reader,
-            |buf, state| match ms.mime {
-                Mime::Image(img) => {
-                    tracing::debug!(parsing_buf_len = buf.len(), ?state);
-                    let exif_data = extract_exif_with_mime(img, buf, state.as_ref())?;
-                    Ok(exif_data
-                        .and_then(|x| buf.subslice_range(x))
-                        .map(|x| (x, state)))
-                }
-                Mime::Video(_) => Err("not an image".into()),
-            },
-        )
+        .load_and_parse::<R, S, _, _>(reader, |buf, state| {
+            extract_exif_range(mime_img, buf, state)
+        })
         .await?;
 
-    if let Some((range, state)) = out {
-        tracing::debug!(?range);
-        let input: PartialVec = PartialVec::new(parser.share_buf(), range);
-        let iter = input_into_iter(input, state)?;
-        Ok(iter)
-    } else {
-        Err("parse exif failed".into())
-    }
+    range_to_iter(parser, out)
 }
 
-pub(crate) fn extract_exif_with_mime<'a>(
+pub(crate) fn extract_exif_with_mime(
     img_type: crate::file::MimeImage,
-    buf: &'a [u8],
-    state: Option<&ParsingState>,
-) -> Result<Option<&'a [u8]>, ParsingError> {
-    let (_, exif_data) = match img_type {
-        crate::file::MimeImage::Jpeg => jpeg::extract_exif_data(buf)?,
+    buf: &[u8],
+    state: Option<ParsingState>,
+) -> Result<(Option<&[u8]>, Option<ParsingState>), ParsingErrorState> {
+    let (exif_data, state) = match img_type {
+        crate::file::MimeImage::Jpeg => jpeg::extract_exif_data(buf)
+            .map(|res| (res.1, state.clone()))
+            .map_err(|e| nom_error_to_parsing_error_with_state(e, state))?,
         crate::file::MimeImage::Heic | crate::file::MimeImage::Heif => {
-            heif::extract_exif_data(buf)?
+            heif_extract_exif(state, buf)?
         }
         crate::file::MimeImage::Tiff => {
-            let (header, data_start) = match state.as_ref() {
-                Some(ParsingState::TiffHeader(h)) => (h.to_owned(), 0),
+            let (header, data_start) = match state {
+                Some(ParsingState::TiffHeader(ref h)) => (h.to_owned(), 0),
                 None => {
-                    let (_, header) = TiffHeader::parse(buf)?;
+                    let (_, header) = TiffHeader::parse(buf)
+                        .map_err(|e| nom_error_to_parsing_error_with_state(e, None))?;
                     if header.ifd0_offset as usize > buf.len() {
-                        return Err(ParsingError::ClearAndSkip(
-                            header.ifd0_offset as usize,
-                            Some(ParsingState::TiffHeader(header)),
-                        ));
+                        let clear_and_skip =
+                            ParsingError::ClearAndSkip(header.ifd0_offset as usize);
+                        let state = Some(ParsingState::TiffHeader(header));
+                        return Err(ParsingErrorState::new(clear_and_skip, state));
                     }
                     let start = header.ifd0_offset as usize;
                     (header, start)
                 }
+                _ => unreachable!(),
             };
 
             // full fill TIFF data
             let mut iter =
                 IFDHeaderIter::new(&buf[data_start..], header.ifd0_offset, header.endian);
-            iter.parse_ifd_header(0)?;
+            iter.parse_ifd_header(0)
+                .map_err(|e| ParsingErrorState::new(e, state.clone()))?;
 
-            (ZB, Some(buf))
+            (Some(buf), state)
         }
     };
-    Ok(exif_data)
+    Ok((exif_data, state))
+}
+
+fn heif_extract_exif(
+    state: Option<ParsingState>,
+    buf: &[u8],
+) -> Result<(Option<&[u8]>, Option<ParsingState>), ParsingErrorState> {
+    let (data, state) = match state {
+        Some(ParsingState::HeifExifSize(size)) => {
+            let (_, data) = nom::bytes::streaming::take(size)(buf)
+                .map_err(|e| nom_error_to_parsing_error_with_state(e, state.clone()))?;
+            (Some(data), state)
+        }
+        None => {
+            let (_, meta) = heif::parse_meta_box(buf)
+                .map_err(|e| nom_error_to_parsing_error_with_state(e, state))?;
+
+            if let Some(meta) = meta {
+                if let Some(range) = meta.exif_data_offset() {
+                    if range.end > buf.len() {
+                        let state = ParsingState::HeifExifSize(range.len());
+                        let clear_and_skip = ParsingError::ClearAndSkip(range.start);
+                        return Err(ParsingErrorState::new(clear_and_skip, Some(state)));
+                    } else {
+                        (Some(&buf[range]), None)
+                    }
+                } else {
+                    return Err(ParsingErrorState::new(
+                        ParsingError::Failed("no exif offset in meta box".into()),
+                        None,
+                    ));
+                }
+            } else {
+                (None, None)
+            }
+        }
+        _ => unreachable!(),
+    };
+
+    let data = data.and_then(|x| check_exif_header2(x).map(|x| x.0).ok());
+
+    Ok((data, state))
 }
 
 #[cfg(feature = "async")]
@@ -200,15 +246,15 @@ pub async fn parse_exif_async<T: AsyncRead + Unpin + Send>(
 #[tracing::instrument]
 pub(crate) fn input_into_iter(
     input: impl Into<PartialVec> + Debug,
-    state: Option<ParsingState>,
+    header: Option<TiffHeader>,
 ) -> Result<ExifIter, ParsedError> {
-    let iter = input_to_iter(input.into(), state).map_err(|e| match e {
+    let iter = input_to_iter(input.into(), header).map_err(|e| match e {
         ParsingError::Need(_) => {
             debug_assert!(false, "input_into_iter got: {e:?}");
             tracing::error!(?e, "input_into_iter error");
             ParsedError::NoEnoughBytes
         }
-        ParsingError::ClearAndSkip(_, _) => {
+        ParsingError::ClearAndSkip(_) => {
             debug_assert!(false, "input_into_iter got: {e:?}");
             tracing::error!(?e, "input_into_iter error");
             ParsedError::Failed("recv ClearAndSkip".into())
@@ -219,20 +265,18 @@ pub(crate) fn input_into_iter(
 }
 
 #[tracing::instrument]
-fn input_to_iter(input: PartialVec, state: Option<ParsingState>) -> Result<ExifIter, ParsingError> {
+fn input_to_iter(input: PartialVec, state: Option<TiffHeader>) -> Result<ExifIter, ParsingError> {
     let (header, start) = match state {
         // header has been parsed, and header has been skipped, input data
         // is the IFD data
-        Some(ParsingState::TiffHeader(header)) => (header, 0),
-        None => {
+        Some(header) => (header, 0),
+        _ => {
             // header has not been parsed, input data includes IFD header
             let (_, header) = TiffHeader::parse(&input[..])?;
+            tracing::error!("yyy");
             let start = header.ifd0_offset as usize;
             if start > input.len() {
-                return Err(ParsingError::ClearAndSkip(
-                    start,
-                    Some(ParsingState::TiffHeader(header)),
-                ));
+                return Err(ParsingError::ClearAndSkip(start));
                 // return Err(ParsingError::Need(start - data.len()));
             }
 
@@ -345,9 +389,8 @@ mod tests {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 
         let buf = read_sample(path).unwrap();
-        let data = extract_exif_with_mime(MimeImage::Jpeg, &buf, None)
-            .unwrap()
-            .unwrap();
+        let (data, _) = extract_exif_with_mime(MimeImage::Jpeg, &buf, None).unwrap();
+        let data = data.unwrap();
 
         let subslice_range = buf.subslice_range(data).unwrap();
         let iter = input_into_iter((buf, subslice_range), None).unwrap();
