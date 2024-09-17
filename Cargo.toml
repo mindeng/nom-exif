@@ -1,9 +1,9 @@
 [package]
 name = "nom-exif"
-version = "1.5.2"
+version = "2.0.0"
 edition = "2021"
 license-file = "LICENSE"
-description = "Exif/metadata parsing library written in pure Rust, both JPEG/HEIF/HEIC images and MOV/MP4 videos are supported."
+description = "Exif/metadata parsing library written in pure Rust, both image (jpeg/heif/heic/jpg/tiff etc.) and video/audio (mov/mp4/3gp/webm/mkv/mka, etc.) files are supported."
 homepage = "https://github.com/mindeng/nom-exif"
 repository = "https://github.com/mindeng/nom-exif"
 exclude = [
@@ -24,7 +24,7 @@ bytes = "1.7.1"
 iso6709parse = "0.1.0"
 
 [features]
-# default = ["async", "json_dump"]
+default = ["async", "json_dump"]
 async = ["tokio"]
 json_dump = ["serde"]
 
