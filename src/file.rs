@@ -242,7 +242,7 @@ fn parse_bmff_mime(input: &[u8]) -> crate::Result<Mime> {
         return Ok(Mime::Video(MimeVideo::Mp4));
     }
 
-    tracing::error!(
+    tracing::warn!(
         marjor_brand = major_brand.iter().map(|b| *b as char).collect::<String>(),
         "unknown major brand",
     );
@@ -305,59 +305,7 @@ fn check_bmff(input: &[u8]) -> crate::Result<FileFormat> {
         return Ok(FileFormat::MP4);
     }
 
-    tracing::error!(
-        marjor_brand = major_brand.iter().map(|b| *b as char).collect::<String>(),
-        "unknown major brand",
-    );
-
-    if travel_header(input, |header, _| header.box_type != "mdat").is_ok() {
-        // find mdat box, assume it's a mp4 file
-        return Ok(FileFormat::MP4);
-    }
-
-    Err(crate::Error::UnrecognizedFileFormat)
-}
-
-#[allow(deprecated)]
-#[tracing::instrument(skip_all)]
-fn check_qt_mp4(input: &[u8]) -> crate::Result<FileFormat> {
-    let (ftyp, Some(major_brand)) = get_ftyp_and_major_brand(input)? else {
-        if travel_header(input, |header, _| header.box_type != "mdat").is_ok() {
-            // ftyp is None, mdat box is found, assume it's a MOV file extracted from HEIC
-            return Ok(FileFormat::QuickTime);
-        }
-
-        return Err(crate::Error::UnrecognizedFileFormat);
-    };
-
-    // Check if it is a QuickTime file
-    if QT_BRAND_NAMES.iter().any(|v| v.as_bytes() == major_brand) {
-        return Ok(FileFormat::QuickTime);
-    }
-
-    // Check if it is a MP4 file
-    if MP4_BRAND_NAMES.iter().any(|v| v.as_bytes() == major_brand) {
-        return Ok(FileFormat::MP4);
-    }
-
-    // Check compatible brands
-    let compatible_brands = get_compatible_brands(ftyp.body_data())?;
-
-    if QT_BRAND_NAMES
-        .iter()
-        .any(|v| compatible_brands.iter().any(|x| v.as_bytes() == *x))
-    {
-        return Ok(FileFormat::QuickTime);
-    }
-
-    if MP4_BRAND_NAMES
-        .iter()
-        .any(|v| compatible_brands.iter().any(|x| v.as_bytes() == *x))
-    {
-        return Ok(FileFormat::MP4);
-    }
-
-    tracing::error!(
+    tracing::warn!(
         marjor_brand = major_brand.iter().map(|b| *b as char).collect::<String>(),
         "unknown major brand",
     );

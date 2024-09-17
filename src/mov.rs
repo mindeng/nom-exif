@@ -233,7 +233,7 @@ fn parse_mp4_gps(moov_body: &[u8]) -> Option<String> {
     };
     if let Some(bbox) = bbox {
         if bbox.body_data().len() <= 4 {
-            tracing::error!("moov/udta/©xyz body is too small");
+            tracing::warn!("moov/udta/©xyz body is too small");
         } else {
             let location = bbox.body_data()[4..] // Safe-slice
                 .iter()

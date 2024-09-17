@@ -1,6 +1,4 @@
-use crate::error::{
-    nom_error_to_parsing_error_with_state, ParsedError, ParsingError, ParsingErrorState,
-};
+use crate::error::{nom_error_to_parsing_error_with_state, ParsingError, ParsingErrorState};
 use crate::file::MimeImage;
 use crate::parser::{BufParser, ParsingState, ShareBuf};
 use crate::skip::Skip;
@@ -10,12 +8,11 @@ use crate::{heif, jpeg, MediaParser, MediaSource};
 use crate::{partial_vec::PartialVec, FileFormat};
 use exif_exif::check_exif_header2;
 pub use exif_exif::Exif;
-use exif_iter::IfdIter;
+use exif_iter::input_into_iter;
 pub use exif_iter::{ExifIter, ParsedExifEntry};
 pub use gps::{GPSInfo, LatLng};
 pub use tags::ExifTag;
 
-use std::fmt::Debug;
 use std::io::Read;
 use std::ops::Range;
 
@@ -233,79 +230,6 @@ pub async fn parse_exif_async<T: AsyncRead + Unpin + Send>(
         .parse(AsyncMediaSource::unseekable(reader).await?)
         .await?;
     Ok(Some(exif))
-}
-
-/// Parses header from input data, and returns an [`ExifIter`].
-///
-/// All entries are lazy-parsed. That is, only when you iterate over
-/// [`ExifIter`] will the IFD entries be parsed one by one.
-///
-/// The one exception is the time zone entries. The method will try to find
-/// and parse the time zone data first, so we can correctly parse all time
-/// information in subsequent iterates.
-#[tracing::instrument]
-pub(crate) fn input_into_iter(
-    input: impl Into<PartialVec> + Debug,
-    header: Option<TiffHeader>,
-) -> Result<ExifIter, ParsedError> {
-    let iter = input_to_iter(input.into(), header).map_err(|e| match e {
-        ParsingError::Need(_) => {
-            debug_assert!(false, "input_into_iter got: {e:?}");
-            tracing::error!(?e, "input_into_iter error");
-            ParsedError::NoEnoughBytes
-        }
-        ParsingError::ClearAndSkip(_) => {
-            debug_assert!(false, "input_into_iter got: {e:?}");
-            tracing::error!(?e, "input_into_iter error");
-            ParsedError::Failed("recv ClearAndSkip".into())
-        }
-        ParsingError::Failed(v) => ParsedError::Failed(v),
-    })?;
-    Ok(iter)
-}
-
-#[tracing::instrument]
-fn input_to_iter(input: PartialVec, state: Option<TiffHeader>) -> Result<ExifIter, ParsingError> {
-    let (header, start) = match state {
-        // header has been parsed, and header has been skipped, input data
-        // is the IFD data
-        Some(header) => (header, 0),
-        _ => {
-            // header has not been parsed, input data includes IFD header
-            let (_, header) = TiffHeader::parse(&input[..])?;
-            tracing::error!("yyy");
-            let start = header.ifd0_offset as usize;
-            if start > input.len() {
-                return Err(ParsingError::ClearAndSkip(start));
-                // return Err(ParsingError::Need(start - data.len()));
-            }
-
-            (header, start)
-        }
-    };
-
-    tracing::debug!(?header, offset = start);
-
-    let data = &input[..];
-
-    let mut ifd0 = match IfdIter::try_new(
-        0,
-        input.partial(&data[start..]),
-        header.ifd0_offset,
-        header.endian,
-        None,
-    ) {
-        Ok(ifd0) => ifd0,
-        Err(e) => return Err(ParsingError::Failed(e.to_string())),
-    };
-
-    let tz = ifd0.find_tz_offset();
-    ifd0.tz = tz.clone();
-    let iter: ExifIter = ExifIter::new(input, header, tz, ifd0);
-
-    tracing::debug!(?iter, "got IFD0");
-
-    Ok(iter)
 }
 
 #[cfg(test)]

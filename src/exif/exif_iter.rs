@@ -17,6 +17,57 @@ use crate::{
 
 use super::{exif_exif::IFD_ENTRY_SIZE, tags::ExifTagCode, GPSInfo, TiffHeader};
 
+/// Parses header from input data, and returns an [`ExifIter`].
+///
+/// All entries are lazy-parsed. That is, only when you iterate over
+/// [`ExifIter`] will the IFD entries be parsed one by one.
+///
+/// The one exception is the time zone entries. The method will try to find
+/// and parse the time zone data first, so we can correctly parse all time
+/// information in subsequent iterates.
+#[tracing::instrument]
+pub(crate) fn input_into_iter(
+    input: impl Into<PartialVec> + Debug,
+    state: Option<TiffHeader>,
+) -> crate::Result<ExifIter> {
+    let input = input.into();
+    let (header, start) = match state {
+        // header has been parsed, and header has been skipped, input data
+        // is the IFD data
+        Some(header) => (header, 0),
+        _ => {
+            // header has not been parsed, input data includes IFD header
+            let (_, header) = TiffHeader::parse(&input[..])?;
+            let start = header.ifd0_offset as usize;
+            if start > input.len() {
+                return Err(crate::Error::ParseFailed("no enough bytes".into()));
+            }
+
+            (header, start)
+        }
+    };
+
+    tracing::debug!(?header, offset = start);
+
+    let data = &input[..];
+
+    let mut ifd0 = IfdIter::try_new(
+        0,
+        input.partial(&data[start..]),
+        header.ifd0_offset,
+        header.endian,
+        None,
+    )?;
+
+    let tz = ifd0.find_tz_offset();
+    ifd0.tz = tz.clone();
+    let iter: ExifIter = ExifIter::new(input, header, tz, ifd0);
+
+    tracing::debug!(?iter, "got IFD0");
+
+    Ok(iter)
+}
+
 /// An iterator version of [`Exif`](crate::Exif). Use [`ParsedExifEntry`] as
 /// iterator items.
 ///
