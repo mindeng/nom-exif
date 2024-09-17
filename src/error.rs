@@ -15,7 +15,8 @@ pub enum Error {
     #[error("io error: {0}")]
     IOError(std::io::Error),
 
-    #[error("unrecognized file format, please give feedback to the author on github")]
+    /// If you encounter this error, please consider filing a bug on github
+    #[error("unrecognized file format")]
     UnrecognizedFileFormat,
 }
 

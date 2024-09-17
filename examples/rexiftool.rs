@@ -59,7 +59,7 @@ fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
 
     let path = Path::new(&cli.file);
     if path.is_file() {
-        parse_file(&mut parser, path, cli.json)?;
+        let _ = parse_file(&mut parser, path, cli.json);
     } else if path.is_dir() {
         parse_dir(path, parser, cli)?;
     }
@@ -85,12 +85,7 @@ fn parse_dir(path: &Path, mut parser: MediaParser, cli: &Cli) -> Result<(), Box<
                 }
                 println!("File: {:?}", entry.path().as_os_str());
                 println!("------------------------------------------------");
-                match parse_file(&mut parser, entry.path(), cli.json) {
-                    Ok(_) => (),
-                    Err(e) => {
-                        eprintln!("Error: {e}");
-                    }
-                }
+                let _ = parse_file(&mut parser, entry.path(), cli.json);
             }
             Err(e) => {
                 eprintln!("Read dir entry failed: {e}");
@@ -105,10 +100,10 @@ fn parse_file<P: AsRef<Path>>(
     parser: &mut MediaParser,
     path: P,
     json: bool,
-) -> Result<(), Box<dyn Error>> {
-    let ms = MediaSource::file_path(path)?;
+) -> Result<(), nom_exif::Error> {
+    let ms = MediaSource::file_path(path).inspect_err(handle_parsing_error)?;
     let values = if ms.has_exif() {
-        let iter: ExifIter = parser.parse(ms)?;
+        let iter: ExifIter = parser.parse(ms).inspect_err(handle_parsing_error)?;
         iter.into_iter()
             .filter_map(|mut x| {
                 let res = x.take_result();
@@ -137,21 +132,34 @@ fn parse_file<P: AsRef<Path>>(
         use std::collections::HashMap;
 
         #[cfg(feature = "json_dump")]
-        println!(
-            "{}",
-            serde_json::to_string_pretty(
-                &values
-                    .into_iter()
-                    .map(|x| (x.0.to_string(), x.1))
-                    .collect::<HashMap<_, _>>()
-            )?
-        );
+        match serde_json::to_string_pretty(
+            &values
+                .into_iter()
+                .map(|x| (x.0.to_string(), x.1))
+                .collect::<HashMap<_, _>>(),
+        ) {
+            Ok(s) => {
+                println!("{}", s);
+            }
+            Err(e) => eprintln!("Error: {e}"),
+        }
     } else {
         values.iter().for_each(|x| {
             println!("{:<32}=> {}", x.0, x.1);
         });
     };
     Ok(())
+}
+
+fn handle_parsing_error(e: &nom_exif::Error) {
+    match e {
+        nom_exif::Error::UnrecognizedFileFormat => {
+            eprintln!("Unrecognized file format, consider filing a bug @ https://github.com/mindeng/nom-exif.");
+        }
+        nom_exif::Error::ParseFailed(_) | nom_exif::Error::IOError(_) => {
+            eprintln!("Error: {e}");
+        }
+    }
 }
 
 fn init_tracing() -> io::Result<()> {

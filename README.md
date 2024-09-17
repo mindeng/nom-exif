@@ -268,7 +268,7 @@ GpsIso6709                      => +22.5797+113.9380+028.396/
 
 File: "testdata/compatible-brands-fail.heic"
 ------------------------------------------------
-Error: unrecognized file format, please give feedback to the author on github
+Unrecognized file format, consider filing a bug @ https://github.com/mindeng/nom-exif.
 
 File: "testdata/webm_480.webm"
 ------------------------------------------------
