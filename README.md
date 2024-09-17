@@ -1,5 +1,10 @@
 # Nom-Exif
 
+[![crates.io](https://img.shields.io/crates/v/nom-exif.svg)](https://crates.io/crates/nom-exif)
+[![Documentation](https://docs.rs/nom-exif/badge.svg)](https://docs.rs/nom-exif)
+[![LICENSE](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/mindeng/nom-exif/actions/workflows/rust.yml/badge.svg)](https://github.com/mindeng/nom-exif/actions)
+
 `nom-exif` is an Exif/metadata parsing library written in pure Rust with
 [nom](https://github.com/rust-bakery/nom).
 
