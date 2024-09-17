@@ -6,7 +6,7 @@ use crate::{EntryValue, ExifIter, ExifTag, GPSInfo, ParsedExifEntry};
 
 use super::ifd::ParsedImageFileDirectory;
 
-/// Represents a parsed Exif information, can be converted from an [`ExifIter`]
+/// Represents parsed Exif information, can be converted from an [`ExifIter`]
 /// like this: `let exif: Exif = iter.into()`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Exif {

@@ -239,7 +239,53 @@ impl<R: AsyncRead + Unpin + Send, S: AsyncSkip<R> + Send> AsyncParseOutput<R, S>
     }
 }
 
-/// An async version of [`crate::MediaParser`]
+/// An async version of `MediaParser`. See [`crate::MediaParser`] for more
+/// information.
+///
+/// ## Example
+///
+/// ```rust
+/// use nom_exif::*;
+/// use tokio::task::spawn_blocking;
+/// use tokio::fs::File;
+/// use chrono::DateTime;
+///
+/// #[cfg(feature = "async")]
+/// #[tokio::main]
+/// async fn main() -> Result<()> {
+///     let mut parser = AsyncMediaParser::new();
+///
+///     // ------------------- Parse Exif Info
+///     let ms = AsyncMediaSource::file_path("./testdata/exif.heic").await.unwrap();
+///     assert!(ms.has_exif());
+///     let mut iter: ExifIter = parser.parse(ms).await.unwrap();
+///
+///     let entry = iter.next().unwrap();
+///     assert_eq!(entry.tag().unwrap(), ExifTag::Make);
+///     assert_eq!(entry.get_value().unwrap().as_str().unwrap(), "Apple");
+///
+///     // Convert `ExifIter` into an `Exif`. Clone it before converting, so that
+///     // we can sure the iterator state has been reset.
+///     let exif: Exif = iter.clone().into();
+///     assert_eq!(exif.get(ExifTag::Make).unwrap().as_str().unwrap(), "Apple");
+///
+///     // ------------------- Parse Track Info
+///     let ms = AsyncMediaSource::file_path("./testdata/meta.mov").await.unwrap();
+///     assert!(ms.has_track());
+///     let info: TrackInfo = parser.parse(ms).await.unwrap();
+///
+///     assert_eq!(info.get(TrackInfoTag::Make), Some(&"Apple".into()));
+///     assert_eq!(info.get(TrackInfoTag::Model), Some(&"iPhone X".into()));
+///     assert_eq!(info.get(TrackInfoTag::GpsIso6709), Some(&"+27.1281+100.2508+000.000/".into()));
+///     assert_eq!(info.get_gps_info().unwrap().latitude_ref, 'N');
+///     assert_eq!(
+///         info.get_gps_info().unwrap().latitude,
+///         [(27, 1), (7, 1), (68, 100)].into(),
+///     );
+///
+///     Ok(())
+/// }
+/// ```
 pub struct AsyncMediaParser {
     bb: Buffers,
     buf: Option<Vec<u8>>,
@@ -291,71 +337,25 @@ impl AsyncMediaParser {
         Self::default()
     }
 
-    /// `AsyncMediaParser` comes with its own buffer management, so that
-    /// buffers can be reused during multiple parsing processes to avoid
-    /// frequent memory allocations. Therefore, try to reuse a
-    /// `AsyncMediaParser` instead of creating a new one every time you need
-    /// it.
-    ///
-    /// ## Example
-    ///
-    /// ```rust
-    /// use nom_exif::*;
-    /// use tokio::task::spawn_blocking;
-    /// use tokio::fs::File;
-    /// use chrono::DateTime;
-    ///
-    /// #[cfg(feature = "async")]
-    /// #[tokio::main]
-    /// async fn main() -> Result<()> {
-    ///     let mut parser = AsyncMediaParser::new();
-    ///
-    ///     // ------------------- Parse Exif Info
-    ///     let ms = AsyncMediaSource::file_path("./testdata/exif.heic").await.unwrap();
-    ///     assert!(ms.has_exif());
-    ///     let mut iter: ExifIter = parser.parse(ms).await.unwrap();
-    ///
-    ///     let entry = iter.next().unwrap();
-    ///     assert_eq!(entry.tag().unwrap(), ExifTag::Make);
-    ///     assert_eq!(entry.get_value().unwrap().as_str().unwrap(), "Apple");
-    ///
-    ///     // Convert `ExifIter` into an `Exif`. Clone it before converting, so that
-    ///     // we can sure the iterator state has been reset.
-    ///     let exif: Exif = iter.clone().into();
-    ///     assert_eq!(exif.get(ExifTag::Make).unwrap().as_str().unwrap(), "Apple");
-    ///
-    ///     // ------------------- Parse Track Info
-    ///     let ms = AsyncMediaSource::file_path("./testdata/meta.mov").await.unwrap();
-    ///     assert!(ms.has_track());
-    ///     let info: TrackInfo = parser.parse(ms).await.unwrap();
-    ///
-    ///     assert_eq!(info.get(TrackInfoTag::Make), Some(&"Apple".into()));
-    ///     assert_eq!(info.get(TrackInfoTag::Model), Some(&"iPhone X".into()));
-    ///     assert_eq!(info.get(TrackInfoTag::GpsIso6709), Some(&"+27.1281+100.2508+000.000/".into()));
-    ///     assert_eq!(info.get_gps_info().unwrap().latitude_ref, 'N');
-    ///     assert_eq!(
-    ///         info.get_gps_info().unwrap().latitude,
-    ///         [(27, 1), (7, 1), (68, 100)].into(),
-    ///     );
-    ///
-    ///     Ok(())
-    /// }
-    /// ```
+    /// `MediaParser`/`AsyncMediaParser` comes with its own buffer management,
+    /// so that buffers can be reused during multiple parsing processes to
+    /// avoid frequent memory allocations. Therefore, try to reuse a
+    /// `MediaParser` instead of creating a new one every time you need it.
     ///     
     /// **Note**:
     ///
-    /// - For [`ExifIter`] as parse output, the result must be dropped before
-    ///   the next call of `parse()`, or there will be compiling errors.
-    ///   
-    ///   Since the inner data of `ExifIter` is borrowed from `MediaParser`,
-    ///   and the next call of `parse()` will clear the data previously parsed.
+    /// - For [`ExifIter`] as parse output, Please avoid holding the `ExifIter`
+    ///   object all the time and drop it immediately after use. Otherwise, the
+    ///   parsing buffer referenced by the `ExifIter` object will not be reused
+    ///   by [`MediaParser`], resulting in repeated memory allocation in the
+    ///   subsequent parsing process.
     ///
-    ///   If you want to save the Exif info for later use, then you should
-    ///   convert the `ExifIter` into an [`Exif`], e.g.: `let exif: Exif =
-    ///   iter.into()`.
+    ///   If you really need to retain some data, please take out the required
+    ///   Entry values ​​and save them, or convert the `ExifIter` into an
+    ///   [`crate::Exif`] object to retain all Entry values.
     ///
-    /// - For [`TrackInfo`] as parse output, don't worry about this, because
-    ///   `TrackInfo` is an owned value type.
+    /// - For [`TrackInfo`] as parse output, you don't need to worry about
+    ///   this, because `TrackInfo` dosn't reference the parsing buffer.
     pub async fn parse<R: AsyncRead + Unpin, S, O: AsyncParseOutput<R, S>>(
         &mut self,
         mut ms: AsyncMediaSource<R, S>,

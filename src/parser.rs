@@ -38,7 +38,7 @@ use crate::{
 /// when the parser needs to skip a large number of bytes.
 ///
 /// Passing in a `BufRead` should be avoided because [`MediaParser`] comes with
-/// its own buffer management and the buffer can be shared between multiple
+/// its own buffer management and the buffers can be shared between multiple
 /// parsing tasks, thus avoiding frequent memory allocations.
 
 pub struct MediaSource<R, S = Seekable> {
@@ -312,10 +312,56 @@ impl<R: Read, S: Skip<R>> ParseOutput<R, S> for TrackInfo {
     }
 }
 
-/// A `MediaParser` can parse video/audio info from a [`MediaSource`].
+/// A `MediaParser`/`AsyncMediaParser` can parse media info from a
+/// [`MediaSource`].
 ///
-/// MediaParser manages an inner parse buffer that can be shared between
-/// multiple parsing tasks, thus avoiding frequent memory allocations.
+/// `MediaParser`/`AsyncMediaParser` manages inner parse buffers that can be
+/// shared between multiple parsing tasks, thus avoiding frequent memory
+/// allocations.
+///
+/// Therefore:
+///
+/// - Try to reuse a `MediaParser`/`AsyncMediaParser` instead of creating a new
+///   one every time you need it.
+///   
+/// - `MediaSource` should be created directly from `Read`, not from `BufRead`.
+///
+/// ## Example
+///
+/// ```rust
+/// use nom_exif::*;
+/// use chrono::DateTime;
+///
+/// let mut parser = MediaParser::new();
+///
+/// // ------------------- Parse Exif Info
+/// let ms = MediaSource::file_path("./testdata/exif.heic").unwrap();
+/// assert!(ms.has_exif());
+/// let mut iter: ExifIter = parser.parse(ms).unwrap();
+///
+/// let entry = iter.next().unwrap();
+/// assert_eq!(entry.tag().unwrap(), ExifTag::Make);
+/// assert_eq!(entry.get_value().unwrap().as_str().unwrap(), "Apple");
+///
+/// // Convert `ExifIter` into an `Exif`. Clone it before converting, so that
+/// // we can start the iteration from the beginning.
+/// let exif: Exif = iter.clone().into();
+/// assert_eq!(exif.get(ExifTag::Make).unwrap().as_str().unwrap(), "Apple");
+///
+/// // ------------------- Parse Track Info
+/// let ms = MediaSource::file_path("./testdata/meta.mov").unwrap();
+/// assert!(ms.has_track());
+/// let info: TrackInfo = parser.parse(ms).unwrap();
+///
+/// assert_eq!(info.get(TrackInfoTag::Make), Some(&"Apple".into()));
+/// assert_eq!(info.get(TrackInfoTag::Model), Some(&"iPhone X".into()));
+/// assert_eq!(info.get(TrackInfoTag::GpsIso6709), Some(&"+27.1281+100.2508+000.000/".into()));
+/// assert_eq!(info.get_gps_info().unwrap().latitude_ref, 'N');
+/// assert_eq!(
+///     info.get_gps_info().unwrap().latitude,
+///     [(27, 1), (7, 1), (68, 100)].into(),
+/// );
+/// ```
 pub struct MediaParser {
     bb: Buffers,
     buf: Option<Vec<u8>>,
@@ -361,62 +407,25 @@ impl MediaParser {
         Self::default()
     }
 
-    /// `MediaParser` comes with its own buffer management, so that buffers can
-    /// be reused during multiple parsing processes to avoid frequent memory
-    /// allocations. Therefore, try to reuse a `MediaParser` instead of
-    /// creating a new one every time you need it.
-    ///
-    /// ## Example
-    ///
-    /// ```rust
-    /// use nom_exif::*;
-    /// use chrono::DateTime;
-    ///
-    /// let mut parser = MediaParser::new();
-    ///
-    /// // ------------------- Parse Exif Info
-    /// let ms = MediaSource::file_path("./testdata/exif.heic").unwrap();
-    /// assert!(ms.has_exif());
-    /// let mut iter: ExifIter = parser.parse(ms).unwrap();
-    ///
-    /// let entry = iter.next().unwrap();
-    /// assert_eq!(entry.tag().unwrap(), ExifTag::Make);
-    /// assert_eq!(entry.get_value().unwrap().as_str().unwrap(), "Apple");
-    ///
-    /// // Convert `ExifIter` into an `Exif`. Clone it before converting, so that
-    /// // we can start the iteration from the beginning.
-    /// let exif: Exif = iter.clone().into();
-    /// assert_eq!(exif.get(ExifTag::Make).unwrap().as_str().unwrap(), "Apple");
-    ///
-    /// // ------------------- Parse Track Info
-    /// let ms = MediaSource::file_path("./testdata/meta.mov").unwrap();
-    /// assert!(ms.has_track());
-    /// let info: TrackInfo = parser.parse(ms).unwrap();
-    ///
-    /// assert_eq!(info.get(TrackInfoTag::Make), Some(&"Apple".into()));
-    /// assert_eq!(info.get(TrackInfoTag::Model), Some(&"iPhone X".into()));
-    /// assert_eq!(info.get(TrackInfoTag::GpsIso6709), Some(&"+27.1281+100.2508+000.000/".into()));
-    /// assert_eq!(info.get_gps_info().unwrap().latitude_ref, 'N');
-    /// assert_eq!(
-    ///     info.get_gps_info().unwrap().latitude,
-    ///     [(27, 1), (7, 1), (68, 100)].into(),
-    /// );
-    /// ```
+    /// `MediaParser`/`AsyncMediaParser` comes with its own buffer management,
+    /// so that buffers can be reused during multiple parsing processes to
+    /// avoid frequent memory allocations. Therefore, try to reuse a
+    /// `MediaParser` instead of creating a new one every time you need it.
     ///     
     /// **Note**:
     ///
-    /// - For [`ExifIter`] as parse output, the result must be dropped before
-    ///   the next call of `parse()`, or there will be compiling errors.
-    ///   
-    ///   Since the inner data of `ExifIter` is borrowed from `MediaParser`,
-    ///   and the next call of `parse()` will clear the data previously parsed.
+    /// - For [`ExifIter`] as parse output, Please avoid holding the `ExifIter`
+    ///   object all the time and drop it immediately after use. Otherwise, the
+    ///   parsing buffer referenced by the `ExifIter` object will not be reused
+    ///   by [`MediaParser`], resulting in repeated memory allocation in the
+    ///   subsequent parsing process.
     ///
-    ///   If you want to save the Exif info for later use, then you should
-    ///   convert the `ExifIter` into an [`Exif`], e.g.: `let exif: Exif =
-    ///   iter.into()`.
+    ///   If you really need to retain some data, please take out the required
+    ///   Entry values ​​and save them, or convert the `ExifIter` into an
+    ///   [`crate::Exif`] object to retain all Entry values.
     ///
-    /// - For [`TrackInfo`] as parse output, don't worry about this, because
-    ///   `TrackInfo` is an owned value type.
+    /// - For [`TrackInfo`] as parse output, you don't need to worry about
+    ///   this, because `TrackInfo` dosn't reference the parsing buffer.
     pub fn parse<R: Read, S, O: ParseOutput<R, S>>(
         &mut self,
         mut ms: MediaSource<R, S>,

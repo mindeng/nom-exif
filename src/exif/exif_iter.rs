@@ -70,19 +70,14 @@ pub(crate) fn input_into_iter(
 /// iterator items.
 ///
 /// Clone an `ExifIter` is very cheap, the underlying data is shared
-/// through Arc.
+/// through `Arc`.
 ///
-/// ⚠️ Currently `ExifIter::clone()` will reset the new cloned iterator's index.
-/// Please try to avoid calling this method, because the current behavior of
-/// this method is not very intuitive. If you wish to clone the iterator and
-/// reset the iteration state, use [`ExifIter::clone_and_rewind`] explicitly.
-///
-/// For the sake of compatibility, the current behavior of this method is
-/// temporarily retained, and may be modified in subsequent versions.
+/// The new cloned `ExifIter`'s iteration index will be reset to the first one.
 ///
 /// If you want to convert an `ExifIter` `into` an [`Exif`], you probably want
-/// to call `clone_and_rewind` and use the new cloned one. Since the iterator
-/// index may have been modified by `Iterator::next()` calls.
+/// to clone the `ExifIter` and use the new cloned one to do the converting.
+/// Since the original's iteration index may have been modified by
+/// `Iterator::next()` calls.
 pub struct ExifIter {
     // Use Arc to make sure we won't clone the owned data.
     input: Arc<PartialVec>,
@@ -107,21 +102,6 @@ impl Debug for ExifIter {
 }
 
 impl Clone for ExifIter {
-    /// ⚠️ Try to avoid calling this method. The semantics of this method are
-    /// not clear at present. If you wish to clone the iterator and reset the
-    /// iteration state, use [`ExifIter::clone_and_rewind`] explicitly.
-    ///
-    /// For the sake of compatibility, the current behavior of this method is
-    /// temporarily retained, and may be modified in subsequent versions.
-    ///
-    /// Clone an `ExifIter` is very cheap, the underlying data is shared
-    /// through Arc.
-    ///
-    /// If you want to convert an `ExifIter` `into` an [`Exif`], you'd better
-    /// clone the `ExifIter` before converting. Since the iterator index may
-    /// have been modified by `Iterator::next()` calls.
-    ///
-    /// `clone()` will reset the cloned iterator index to be the first one.
     fn clone(&self) -> Self {
         self.clone_and_rewind()
     }
