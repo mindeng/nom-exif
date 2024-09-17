@@ -202,13 +202,6 @@
 //!     Ok(())
 //! }
 //! ```
-//!
-//! ## Video
-//!
-//! Please refer to: [`MediaParser`] / [`AsyncMediaParser`].
-//!
-//! For more usage details, please refer to the [API
-//! documentation](https://docs.rs/nom-exif/latest/nom_exif/).
 
 pub use parser::{MediaParser, MediaSource};
 pub use video::{TrackInfo, TrackInfoTag};

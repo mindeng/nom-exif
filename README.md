@@ -210,10 +210,6 @@ fn main() -> Result<()> {
 }
 ```
 
-## Video
-
-Please refer to: [`MediaParser`] / [`AsyncMediaParser`].
-
 For more usage details, please refer to the [API
 documentation](https://docs.rs/nom-exif/latest/nom_exif/).
 
