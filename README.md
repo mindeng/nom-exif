@@ -1,32 +1,35 @@
 # Nom-Exif
 
-nom-exif is an Exif/metadata parsing library written in pure Rust with
-[nom](https://github.com/rust-bakery/nom). Both images
-(jpeg/heif/heic/jpg/tiff etc.) and videos/audios
-(mov/mp4/3gp/webm/mkv/mka, etc.) are supported.
+`nom-exif` is an Exif/metadata parsing library written in pure Rust with
+[nom](https://github.com/rust-bakery/nom).
 
-Supporting both *sync* and *async* interfaces. The interface design is
-simple and easy to use.
+Both image (jpeg/heif/heic/jpg/tiff etc.) and video/audio
+(mov/mp4/3gp/webm/mkv/mka, etc.) files are supported.
+
+In addition to the high performance brought by Rust and nom, the library is
+also specifically designed and optimized for *batch file processing*
+scenarios. At the same time, the API design should be as simple and easy to
+use as possible.
 
 ## Key Features
 
 - Ergonomic Design
 
-  - Media type auto-detecting: No need to check the file extensions!
-    `nom-exif` can automatically detect supported file formats and parse
-    them correctly.
+  - *Unified* multimedia file processing process.
 
-    To achieve this goal, the API has been carefully designed so that
-    various types of multimedia files can be easily processed using the
-    same set of processes.
+    No need to check the file extensions! `nom-exif` can automatically
+    detect supported file formats and parse them correctly.
+
+    The API has been carefully designed so that various types of multimedia
+    files can be easily processed using the same processing process.
 
     Compared with the way the user judges the file name and then decides
     which parsing function to call (such as `parse_jpg`, `parse_mp4`,
-    etc.), this method is simpler, more reliable, and more versatile (can
-    be applied to non-file scenarios, such as `TcpStream`).
+    etc.), this work flow is simpler, more reliable, and more versatile
+    (can be applied to non-file scenarios, such as `TcpStream`).
     
     The usage is demonstrated in the following examples.
-    `examples/rexiftool` is also a good example.
+    [examples/rexiftool] is also a good example.
 
   - Two style APIs for Exif: *iterator* style ([`ExifIter`]) and *get*
     style ([`Exif`]). The former is parse-on-demand, and therefore, more
@@ -40,13 +43,17 @@ simple and easy to use.
     
   - Minimize I/O operations: When metadata is stored at the end/middle of a
     large file (such as a QuickTime file does), `Seek` rather than `Read`
-    to quickly locate the location of the metadata (if only the reader
-    support `Seek`, see [`parse_track_info`](crate::parse_track_info) for
-    more information).
+    to quickly locate the location of the metadata (if the reader supports
+    `Seek`).
     
   - Pay as you go: When working with [`ExifIter`], all entries are
     lazy-parsed. That is, only when you iterate over [`ExifIter`] will the
     IFD entries be parsed one by one.
+
+  - Share I/O and parsing buffer between multiple parse calls: This can
+    improve performance and avoid the overhead and memory fragmentation
+    caused by frequent memory allocation. This feature is very useful when
+    you need to perform batch parsing.
     
 - Robustness and stability: Through long-term [Fuzz
   testing](https://github.com/rust-fuzz/afl.rs), and tons of crash issues
@@ -66,91 +73,144 @@ simple and easy to use.
   - ISO base media file format (ISOBMFF): *.mp4, *.mov, *.3gp, etc.
   - Matroska based file format: *.webm, *.mkv, *.mka, etc.
 
-## Media type auto-detecting
+## Unified multimedia file processing process
+
+By using `MediaSource` + `MediaParser`, we can easily unify the parsing
+process of multiple different types of multimedia files.
 
 ```rust
 use nom_exif::*;
 
 fn main() -> Result<()> {
     let mut parser = MediaParser::new();
-    
-    // The file can be an image, a video, or an audio.
-    let ms = MediaSource::file_path("./testdata/exif.heic")?;
-    if ms.has_exif() {
-        // Parse the file as an Exif-compatible file
-        let mut iter: ExifIter = parser.parse(ms)?;
-        let exif: Exif = iter.into();
-        assert_eq!(exif.get(ExifTag::Make).unwrap().as_str().unwrap(), "Apple");
-    } else if ms.has_track() {
-        // Parse the file as a track
-    }
 
-    let ms = MediaSource::file_path("./testdata/meta.mov")?;
-    if ms.has_track() {
-        // Parse the file as a track
-        let info: TrackInfo = parser.parse(ms)?;
-        assert_eq!(info.get(TrackInfoTag::Make), Some(&"Apple".into()));
-        assert_eq!(info.get(TrackInfoTag::Model), Some(&"iPhone X".into()));
-        assert_eq!(info.get(TrackInfoTag::GpsIso6709), Some(&"+27.1281+100.2508+000.000/".into()));
-        assert_eq!(info.get_gps_info().unwrap().latitude_ref, 'N');
-        assert_eq!(
-            info.get_gps_info().unwrap().latitude,
-            [(27, 1), (7, 1), (68, 100)].into(),
-        );
-    }
+    let files = [
+        "./testdata/exif.heic",
+        "./testdata/exif.jpg",
+        "./testdata/tif.tif",
+        "./testdata/meta.mov",
+        "./testdata/meta.mp4",
+        "./testdata/webm_480.webm",
+        "./testdata/mkv_640x360.mkv",
+        "./testdata/mka.mka",
+        "./testdata/3gp_640x360.3gp"
+    ];
 
-    Ok(())
-}
-```
+    for f in files {
+        let ms = MediaSource::file_path("./testdata/exif.heic")?;
 
-## Sync API Usage
-
-```rust
-use nom_exif::*;
-
-fn main() -> Result<()> {
-    let mut parser = MediaParser::new();
-    let ms = MediaSource::file_path("./testdata/exif.heic")?;
-    let mut iter: ExifIter = parser.parse(ms)?;
-
-    // Use `next()` API
-    let entry = iter.next().unwrap();
-    assert_eq!(entry.ifd_index(), 0);
-    assert_eq!(entry.tag().unwrap(), ExifTag::Make);
-    assert_eq!(entry.tag_code(), 0x010f);
-    assert_eq!(entry.get_value().unwrap().as_str().unwrap(), "Apple");
-
-    // You can also iterate it in a `for` loop. Clone it first so we won't
-    // consume the original one.
-    for entry in iter.clone_and_rewind() {
-        if entry.tag().unwrap() == ExifTag::Make {
-            assert_eq!(entry.get_result().unwrap().as_str().unwrap(), "Apple");
-            break;
+        if ms.has_exif() {
+            // Parse the file as an Exif-compatible file
+            let mut iter: ExifIter = parser.parse(ms)?;
+            // ...
+        } else if ms.has_track() {
+            // Parse the file as a track
+            let info: TrackInfo = parser.parse(ms)?;
+            // ...
         }
     }
 
-    // filter, map & collect
-    let tags = [ExifTag::Make, ExifTag::Model];
-    let res: Vec<String> = iter
-        .clone()
-        .filter(|e| e.tag().is_some_and(|t| tags.contains(&t)))
-        .filter(|e| e.has_value())
-        .map(|e| format!("{} => {}", e.tag().unwrap(), e.get_value().unwrap()))
-        .collect();
-    assert_eq!(
-        res.join(", "),
-        "Make => Apple, Model => iPhone 12 Pro"
-    );
+    Ok(())
+}
+```
+
+## `MediaSource` + `MediaParser`, `AsyncMediaSource` + `AsyncMediaParser`
+
+- `MediaSource` is an abstraction of multimedia data sources, which can be
+  created from any object that implements the `Read` trait, and can be
+  parsed by `MediaParser`.
+
+  See [`MediaSource`] & [`MediaParser`] for more information.
+
+- Likewise, `AsyncMediaParser` is an abstraction for asynchronous
+  multimedia data sources, which can be created from any object that
+  implements the `AsyncRead` trait, and can be parsed by
+  `AsyncMediaParser`.
+
+  See [`AsyncMediaSource`] & [`AsyncMediaParser`] for more information.
+
+```rust
+use nom_exif::*;
+
+fn main() -> Result<()> {
+    let mut parser = MediaParser::new();
     
-    // An `ExifIter` can be easily converted to an `Exif`
+    let ms = MediaSource::file_path("./testdata/exif.heic")?;
+    assert!(ms.has_exif());
+    
+    let mut iter: ExifIter = parser.parse(ms)?;
     let exif: Exif = iter.into();
+    assert_eq!(exif.get(ExifTag::Make).unwrap().as_str().unwrap(), "Apple");
+
+    let ms = MediaSource::file_path("./testdata/meta.mov")?;
+    assert!(ms.has_track());
+    
+    let info: TrackInfo = parser.parse(ms)?;
+    assert_eq!(info.get(TrackInfoTag::Make), Some(&"Apple".into()));
+    assert_eq!(info.get(TrackInfoTag::Model), Some(&"iPhone X".into()));
+    assert_eq!(info.get(TrackInfoTag::GpsIso6709), Some(&"+27.1281+100.2508+000.000/".into()));
+    assert_eq!(info.get_gps_info().unwrap().latitude_ref, 'N');
     assert_eq!(
-        exif.get(ExifTag::Model).unwrap().as_str().unwrap(),
-        "iPhone 12 Pro"
+        info.get_gps_info().unwrap().latitude,
+        [(27, 1), (7, 1), (68, 100)].into(),
+    );
+
+    // `MediaSource` can also be created from a `TcpStream`:
+    // let ms = MediaSource::tcp_stream(stream)?;
+
+    // Or from any `Read + Seek`:
+    // let ms = MediaSource::seekable(stream)?;
+    
+    // From any `Read`:
+    // let ms = MediaSource::unseekable(stream)?;
+    
+    Ok(())
+}
+```
+
+## Async API Usage
+
+Enable `async` feature flag for nom-exif in your `Cargo.toml`:
+
+```toml
+[dependencies]
+nom-exif = { version = "1", features = ["async"] }
+```
+
+For detailed usage, please refer to: [`AsyncMediaParser::parse`].
+
+## GPS Info
+
+`ExifIter` provides a convenience method for parsing gps information.
+(`Exif` also provides a `get_gps_info` mthod).
+    
+```rust
+use nom_exif::*;
+
+fn main() -> Result<()> {
+    let mut parser = MediaParser::new();
+    
+    let ms = MediaSource::file_path("./testdata/exif.heic")?;
+    let iter: ExifIter = parser.parse(ms)?;
+
+    let gps_info = iter.parse_gps_info()?.unwrap();
+    assert_eq!(gps_info.format_iso6709(), "+43.29013+084.22713+1595.950CRSWGS_84/");
+    assert_eq!(gps_info.latitude_ref, 'N');
+    assert_eq!(gps_info.longitude_ref, 'E');
+    assert_eq!(
+        gps_info.latitude,
+        [(43, 1), (17, 1), (2446, 100)].into(),
     );
     Ok(())
 }
 ```
+
+## Video
+
+Please refer to: [`MediaParser`] / [`AsyncMediaParser`].
+
+For more usage details, please refer to the [API
+documentation](https://docs.rs/nom-exif/latest/nom_exif/).
 
 ## CLI Tool `rexiftool`
 
@@ -159,31 +219,105 @@ fn main() -> Result<()> {
 `cargo run --example rexiftool testdata/meta.mov`:
 
 ``` text
-com.apple.quicktime.make                => Apple
-com.apple.quicktime.model               => iPhone X
-com.apple.quicktime.software            => 12.1.2
-com.apple.quicktime.location.ISO6709    => +27.1281+100.2508+000.000/
-com.apple.quicktime.creationdate        => 2019-02-12T15:27:12+08:00
-duration                                => 500
-width                                   => 720
-height                                  => 1280
+Make                            => Apple
+Model                           => iPhone X
+Software                        => 12.1.2
+CreateDate                      => 2024-02-02T08:09:57+00:00
+Duration                        => 500
+ImageWidth                      => 720
+ImageHeight                     => 1280
+GpsIso6709                      => +27.1281+100.2508+000.000/
 ```
 
 ### Json dump
 
-`cargo run --features json_dump --example rexiftool -- -j testdata/meta.mov`:
+`cargo run --example rexiftool testdata/meta.mov -j`:
 
 ``` text
 {
-  "height": "1280",
-  "duration": "500",
-  "width": "720",
-  "com.apple.quicktime.creationdate": "2019-02-12T15:27:12+08:00",
-  "com.apple.quicktime.make": "Apple",
-  "com.apple.quicktime.model": "iPhone X",
-  "com.apple.quicktime.software": "12.1.2",
-  "com.apple.quicktime.location.ISO6709": "+27.1281+100.2508+000.000/"
+  "ImageWidth": "720",
+  "Software": "12.1.2",
+  "ImageHeight": "1280",
+  "Make": "Apple",
+  "GpsIso6709": "+27.1281+100.2508+000.000/",
+  "CreateDate": "2024-02-02T08:09:57+00:00",
+  "Model": "iPhone X",
+  "Duration": "500"
 }
+```
+
+### Process directory
+
+`rexiftool` also supports batch parsing of all files in a folder
+(non-recursive).
+
+`cargo run --example rexiftool testdata/`:
+
+```text
+File: "testdata/embedded-in-heic.mov"
+------------------------------------------------
+Make                            => Apple
+Model                           => iPhone 15 Pro
+Software                        => 17.1
+CreateDate                      => 2023-11-02T12:01:02+00:00
+Duration                        => 2795
+ImageWidth                      => 1920
+ImageHeight                     => 1440
+GpsIso6709                      => +22.5797+113.9380+028.396/
+
+File: "testdata/compatible-brands-fail.heic"
+------------------------------------------------
+Error: unrecognized file format, please give feedback to the author on github
+
+File: "testdata/webm_480.webm"
+------------------------------------------------
+CreateDate                      => 2009-09-09T09:09:09+00:00
+Duration                        => 30543
+ImageWidth                      => 480
+ImageHeight                     => 270
+
+File: "testdata/mka.mka"
+------------------------------------------------
+Duration                        => 3422
+ImageWidth                      => 0
+ImageHeight                     => 0
+
+File: "testdata/exif-one-entry.heic"
+------------------------------------------------
+Orientation                     => 1
+
+File: "testdata/no-exif.jpg"
+------------------------------------------------
+Error: parse failed: Exif not found
+
+File: "testdata/exif.jpg"
+------------------------------------------------
+ImageWidth                      => 3072
+Model                           => vivo X90 Pro+
+ImageHeight                     => 4096
+ModifyDate                      => 2023-07-09T20:36:33+08:00
+YCbCrPositioning                => 1
+ExifOffset                      => 201
+MakerNote                       => Undefined[0x30]
+RecommendedExposureIndex        => 454
+SensitivityType                 => 2
+ISOSpeedRatings                 => 454
+ExposureProgram                 => 2
+FNumber                         => 175/100 (1.7500)
+ExposureTime                    => 9997/1000000 (0.0100)
+SensingMethod                   => 2
+SubSecTimeDigitized             => 616
+OffsetTimeOriginal              => +08:00
+SubSecTimeOriginal              => 616
+OffsetTime                      => +08:00
+SubSecTime                      => 616
+FocalLength                     => 8670/1000 (8.6700)
+Flash                           => 16
+LightSource                     => 21
+MeteringMode                    => 1
+SceneCaptureType                => 0
+UserComment                     => filter: 0; fileterIntensity: 0.0; filterMask: 0; algolist: 0;
+...
 ```
 
 ## Changelog

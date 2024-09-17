@@ -184,11 +184,12 @@
 //!     
 //! ```rust
 //! use nom_exif::*;
-//! use std::fs::File;
 //!
 //! fn main() -> Result<()> {
-//!     let f = File::open("./testdata/exif.heic")?;
-//!     let iter = parse_exif(f, None)?.unwrap();
+//!     let mut parser = MediaParser::new();
+//!     
+//!     let ms = MediaSource::file_path("./testdata/exif.heic")?;
+//!     let iter: ExifIter = parser.parse(ms)?;
 //!
 //!     let gps_info = iter.parse_gps_info()?.unwrap();
 //!     assert_eq!(gps_info.format_iso6709(), "+43.29013+084.22713+1595.950CRSWGS_84/");
@@ -204,7 +205,7 @@
 //!
 //! ## Video
 //!
-//! Please refer to: [`parse_track_info`](crate::parse_track_info).
+//! Please refer to: [`MediaParser`] / [`AsyncMediaParser`].
 //!
 //! For more usage details, please refer to the [API
 //! documentation](https://docs.rs/nom-exif/latest/nom_exif/).
