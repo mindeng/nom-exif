@@ -245,8 +245,7 @@ fn parse_mp4_gps(moov_body: &[u8]) -> Option<String> {
     None
 }
 
-/// *Deprecated*: Please use [`parse_track_info`](crate::parse_track_info)
-/// instead.
+/// *Deprecated*: Please use [`crate::MediaParser`] instead.
 ///
 /// Analyze the byte stream in the `reader` as a MOV file, attempting to extract
 /// any possible metadata it may contain, and return it in the form of key-value
@@ -282,6 +281,7 @@ fn parse_mp4_gps(moov_body: &[u8]) -> Option<String> {
 /// ("height", U32(1280))"#,
 /// );
 /// ```
+#[deprecated(since = "2.0.0")]
 pub fn parse_mov_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, EntryValue)>> {
     #[allow(deprecated)]
     parse_metadata(reader)
