@@ -472,6 +472,8 @@ impl MediaParser {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{LazyLock, Mutex, MutexGuard};
+
     use super::*;
     use test_case::case;
 
@@ -482,6 +484,11 @@ mod tests {
         Invalid,
     }
     use TrackExif::*;
+
+    static PARSER: LazyLock<Mutex<MediaParser>> = LazyLock::new(|| Mutex::new(MediaParser::new()));
+    fn parser() -> MutexGuard<'static, MediaParser> {
+        PARSER.lock().unwrap()
+    }
 
     #[case("3gp_640x360.3gp", Track)]
     #[case("broken.jpg", Exif)]
@@ -502,7 +509,7 @@ mod tests {
     #[case("ramdisk.img", Invalid)]
     #[case("webm_480.webm", Track)]
     fn parse_media(path: &str, te: TrackExif) {
-        let mut parser = MediaParser::new();
+        let mut parser = parser();
         let ms = MediaSource::file_path(Path::new("testdata").join(path));
         match te {
             Track => {
@@ -565,7 +572,7 @@ mod tests {
     #[test_case("meta.mp4", GpsIso6709, "+27.2939+112.6932/".into())]
     #[test_case("meta.mp4", CreateDate, DateTime::parse_from_str("2024-02-03T07:05:38Z", "%+").unwrap().into())]
     fn parse_track_info(path: &str, tag: TrackInfoTag, v: EntryValue) {
-        let mut parser = MediaParser::new();
+        let mut parser = parser();
 
         let mf = MediaSource::file(open_sample(path).unwrap()).unwrap();
         let info: TrackInfo = parser.parse(mf).unwrap();
