@@ -198,7 +198,7 @@ impl From<TrackInfoTag> for &str {
             TrackInfoTag::Model => "Model",
             TrackInfoTag::Software => "Software",
             TrackInfoTag::CreateDate => "CreateDate",
-            TrackInfoTag::DurationMs => "Duration",
+            TrackInfoTag::DurationMs => "DurationMs",
             TrackInfoTag::ImageWidth => "ImageWidth",
             TrackInfoTag::ImageHeight => "ImageHeight",
             TrackInfoTag::GpsIso6709 => "GpsIso6709",

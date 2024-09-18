@@ -206,7 +206,7 @@
 //! Model                           => iPhone X
 //! Software                        => 12.1.2
 //! CreateDate                      => 2024-02-02T08:09:57+00:00
-//! Duration                        => 500
+//! DurationMs                      => 500
 //! ImageWidth                      => 720
 //! ImageHeight                     => 1280
 //! GpsIso6709                      => +27.1281+100.2508+000.000/
@@ -225,7 +225,7 @@
 //!   "GpsIso6709": "+27.1281+100.2508+000.000/",
 //!   "CreateDate": "2024-02-02T08:09:57+00:00",
 //!   "Model": "iPhone X",
-//!   "Duration": "500"
+//!   "DurationMs": "500"
 //! }
 //! ```
 //!
@@ -243,7 +243,7 @@
 //! Model                           => iPhone 15 Pro
 //! Software                        => 17.1
 //! CreateDate                      => 2023-11-02T12:01:02+00:00
-//! Duration                        => 2795
+//! DurationMs                      => 2795
 //! ImageWidth                      => 1920
 //! ImageHeight                     => 1440
 //! GpsIso6709                      => +22.5797+113.9380+028.396/
@@ -255,13 +255,13 @@
 //! File: "testdata/webm_480.webm"
 //! ------------------------------------------------
 //! CreateDate                      => 2009-09-09T09:09:09+00:00
-//! Duration                        => 30543
+//! DurationMs                      => 30543
 //! ImageWidth                      => 480
 //! ImageHeight                     => 270
 //!
 //! File: "testdata/mka.mka"
 //! ------------------------------------------------
-//! Duration                        => 3422
+//! DurationMs                      => 3422
 //! ImageWidth                      => 0
 //! ImageHeight                     => 0
 //!

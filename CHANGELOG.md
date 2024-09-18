@@ -21,14 +21,19 @@
   - *.mkv, *.mka
   - *.3gp
 
+- rexiftool
+  - Add `--debug` command line parameter for printing and saving debug logs
+
 - Structs
   - `MediaSource`
   - `MediaParser`
   - `AsyncMediaSource`
   - `AsyncMediaParser`
   - `TrackInfo`
+  
 - Enums
   - `TrackInfoTag`
+  
 - Type Aliases
   - `URational`
   
