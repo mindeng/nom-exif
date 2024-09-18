@@ -97,7 +97,7 @@ impl TryFrom<&[u8]> for Mime {
     }
 }
 
-/// *Deprecated*: Please use [`MediaType`] instead.
+/// *Deprecated*: Please use [`MediaSource`] instead.
 #[deprecated(since = "2.0.0")]
 #[allow(unused)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

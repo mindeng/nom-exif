@@ -20,8 +20,7 @@ use crate::{
     EntryValue, FileFormat,
 };
 
-/// *Deprecated*: Please use [`parse_track_info`](crate::parse_track_info)
-/// instead.
+/// *Deprecated*: Please use [`MediaParser`] instead.
 ///
 /// Analyze the byte stream in the `reader` as a MOV/MP4 file, attempting to
 /// extract any possible metadata it may contain, and return it in the form of

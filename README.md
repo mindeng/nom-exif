@@ -8,66 +8,6 @@
 `nom-exif` is an Exif/metadata parsing library written in pure Rust with
 [nom](https://github.com/rust-bakery/nom).
 
-Both image (jpeg/heif/heic/jpg/tiff etc.) and video/audio
-(mov/mp4/3gp/webm/mkv/mka, etc.) files are supported.
-
-In addition to the high performance brought by Rust and nom, the library is
-also specifically designed and optimized for *batch file processing*
-scenarios. At the same time, the API design should be as simple and easy to
-use as possible.
-
-## Key Features
-
-- Ergonomic Design
-
-  - *Unified* multimedia file processing process.
-
-    No need to check the file extensions! `nom-exif` can automatically
-    detect supported file formats and parse them correctly.
-
-    The API has been carefully designed so that various types of multimedia
-    files can be easily processed using the same processing process.
-
-    Compared with the way the user judges the file name and then decides
-    which parsing function to call (such as `parse_jpg`, `parse_mp4`,
-    etc.), this work flow is simpler, more reliable, and more versatile
-    (can be applied to non-file scenarios, such as `TcpStream`).
-    
-    The usage is demonstrated in the following examples.
-    [examples/rexiftool] is also a good example.
-
-  - Two style APIs for Exif: *iterator* style ([`ExifIter`]) and *get*
-    style ([`Exif`]). The former is parse-on-demand, and therefore, more
-    detailed error information can be captured; the latter is simpler and
-    easier to use.
-  
-- Performance
-
-  - *Zero-copy* when appropriate: Use borrowing and slicing instead of
-    copying whenever possible.
-    
-  - Minimize I/O operations: When metadata is stored at the end/middle of a
-    large file (such as a QuickTime file does), `Seek` rather than `Read`
-    to quickly locate the location of the metadata (if the reader supports
-    `Seek`).
-    
-  - Pay as you go: When working with [`ExifIter`], all entries are
-    lazy-parsed. That is, only when you iterate over [`ExifIter`] will the
-    IFD entries be parsed one by one.
-
-  - Share I/O and parsing buffer between multiple parse calls: This can
-    improve performance and avoid the overhead and memory fragmentation
-    caused by frequent memory allocation. This feature is very useful when
-    you need to perform batch parsing.
-    
-- Robustness and stability: Through long-term [Fuzz
-  testing](https://github.com/rust-fuzz/afl.rs), and tons of crash issues
-  discovered during testing have been fixed. Thanks to
-  [@sigaloid](https://github.com/sigaloid) for [pointing this
-  out](https://github.com/mindeng/nom-exif/pull/5)!
-
-- Supports both *sync* and *async* interfaces.
-
 ## Supported File Types
 
 - Image
@@ -78,10 +18,60 @@ use as possible.
   - ISO base media file format (ISOBMFF): *.mp4, *.mov, *.3gp, etc.
   - Matroska based file format: *.webm, *.mkv, *.mka, etc.
 
-## Unified multimedia file processing process
+## Key Features
 
-By using `MediaSource` + `MediaParser`, we can easily unify the parsing
-process of multiple different types of multimedia files.
+- Ergonomic Design
+
+  - **Unified Workflow** for Various File Types
+  
+    Now, multimedia files of different types and formats (including images,
+    videos, and audio) can be processed using a unified method. This consistent
+    API interface simplifies user experience and reduces cognitive load.
+    
+    The usage is demonstrated in the following examples. `examples/rexiftool`
+    is also a good example.
+  
+  - Two style APIs for Exif
+  
+    *iterator* style ([`ExifIter`]) and *get* style ([`Exif`]). The former is
+    parse-on-demand, and therefore, more detailed error information can be
+    captured; the latter is simpler and easier to use.
+  
+- Performance
+
+  - *Zero-copy* when appropriate: Use borrowing and slicing instead of
+    copying whenever possible.
+    
+  - Minimize I/O operations: When metadata is stored at the end/middle of a
+    large file (such as a QuickTime file does), `Seek` rather than `Read`
+    to quickly locate the location of the metadata (if the reader supports
+    `Seek`).
+  
+  - Share I/O and parsing buffer between multiple parse calls: This can
+    improve performance and avoid the overhead and memory fragmentation
+    caused by frequent memory allocation. This feature is very useful when
+    you need to perform batch parsing.
+    
+  - Pay as you go: When working with [`ExifIter`], all entries are
+    lazy-parsed. That is, only when you iterate over [`ExifIter`] will the
+    IFD entries be parsed one by one.
+    
+- Robustness and stability
+
+  Through long-term [Fuzz testing](https://github.com/rust-fuzz/afl.rs), and
+  tons of crash issues discovered during testing have been fixed. Thanks to
+  [@sigaloid](https://github.com/sigaloid) for [pointing this
+  out](https://github.com/mindeng/nom-exif/pull/5)!
+
+- Supports both *sync* and *async* APIs
+
+## Unified Workflow for Various File Types
+
+By using `MediaSource` & `MediaParser`, multimedia files of different types and
+formats (including images, videos, and audio) can be processed using a unified
+method.
+
+Here's an example:
 
 ```rust
 use nom_exif::*;
@@ -119,20 +109,13 @@ fn main() -> Result<()> {
 }
 ```
 
-## `MediaSource` + `MediaParser`, `AsyncMediaSource` + `AsyncMediaParser`
+## Sync API: `MediaSource` + `MediaParser`
 
-- `MediaSource` is an abstraction of multimedia data sources, which can be
-  created from any object that implements the `Read` trait, and can be
-  parsed by `MediaParser`.
+`MediaSource` is an abstraction of multimedia data sources, which can be
+created from any object that implements the `Read` trait, and can be parsed by
+`MediaParser`.
 
-  See [`MediaSource`] & [`MediaParser`] for more information.
-
-- Likewise, `AsyncMediaParser` is an abstraction for asynchronous
-  multimedia data sources, which can be created from any object that
-  implements the `AsyncRead` trait, and can be parsed by
-  `AsyncMediaParser`.
-
-  See [`AsyncMediaSource`] & [`AsyncMediaParser`] for more information.
+Example:
 
 ```rust
 use nom_exif::*;
@@ -173,21 +156,27 @@ fn main() -> Result<()> {
 }
 ```
 
-## Async API Usage
+See [`MediaSource`] & [`MediaParser`] for more information.
 
-Enable `async` feature flag for nom-exif in your `Cargo.toml`:
+## Async API: `AsyncMediaSource` + `AsyncMediaParser`
+
+Likewise, `AsyncMediaParser` is an abstraction for asynchronous multimedia data
+sources, which can be created from any object that implements the `AsyncRead`
+trait, and can be parsed by `AsyncMediaParser`.
+
+Enable `async` feature flag for `nom-exif` in your `Cargo.toml`:
 
 ```toml
 [dependencies]
 nom-exif = { version = "1", features = ["async"] }
 ```
 
-For detailed usage, please refer to: [`AsyncMediaParser::parse`].
+See [`AsyncMediaSource`] & [`AsyncMediaParser`] for more information.
 
 ## GPS Info
 
-`ExifIter` provides a convenience method for parsing gps information.
-(`Exif` also provides a `get_gps_info` mthod).
+`ExifIter` provides a convenience method for parsing gps information. (`Exif` &
+`TrackInfo` also provide a `get_gps_info` mthod).
     
 ```rust
 use nom_exif::*;
@@ -215,7 +204,7 @@ documentation](https://docs.rs/nom-exif/latest/nom_exif/).
 
 ## CLI Tool `rexiftool`
 
-### Normal output
+### Human Readable Output
 
 `cargo run --example rexiftool testdata/meta.mov`:
 
@@ -230,7 +219,7 @@ ImageHeight                     => 1280
 GpsIso6709                      => +27.1281+100.2508+000.000/
 ```
 
-### Json dump
+### Json Dump
 
 `cargo run --example rexiftool testdata/meta.mov -j`:
 
@@ -247,7 +236,7 @@ GpsIso6709                      => +27.1281+100.2508+000.000/
 }
 ```
 
-### Process directory
+### Parsing Files in Directory
 
 `rexiftool` also supports batch parsing of all files in a folder
 (non-recursive).

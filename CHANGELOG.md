@@ -1,5 +1,47 @@
 # Changelog
 
+## nom-exif v2.0.2
+
+[v2.0.0..v2.0.2](https://github.com/mindeng/nom-exif/compare/v2.0.0..v2.0.2)
+
+### Changed
+
+- Deprecated
+  - `parse_mov_metadata`: Please use `MediaParser` instead.
+
+## nom-exif v2.0.0
+
+[v1.5.2..v2.0.0](https://github.com/mindeng/nom-exif/compare/v1.5.2..v2.0.0)
+
+### Added
+
+- Support more file types
+  - *.tiff
+  - *.webm
+  - *.mkv, *.mka
+  - *.3gp
+
+- Structs
+  - `MediaSource`
+  - `MediaParser`
+  - `AsyncMediaSource`
+  - `AsyncMediaParser`
+  - `TrackInfo`
+- Enums
+  - `TrackInfoTag`
+- Type Aliases
+  - `URational`
+  
+### Changed
+
+- Deprecated
+  - `parse_exif`	    : Please use `MediaParser` instead.
+  - `parse_exif_async`	: Please use `MediaParser` instead.
+  - `parse_heif_exif`	: Please use `MediaParser` instead.
+  - `parse_jpeg_exif`	: Please use `MediaParser` instead.
+  - `parse_metadata`	: Please use `MediaParser` instead.
+  - `FileFormat`	    : Please use `MediaSource` instead.
+
 ## nom-exif v1.5.2
 
 [v1.5.1..v1.5.2](https://github.com/mindeng/nom-exif/compare/v1.5.1..v1.5.2)
@@ -36,6 +78,7 @@
 - `parse_exif_async`
 - `ExifIter`
 - `GPSInfo`
+- `LatLng`
 - `FileFormat`
 - `Exif::get`
 - `Exif::get_by_tag_code`
