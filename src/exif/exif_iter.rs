@@ -634,54 +634,42 @@ impl IfdIter {
         None
     }
 
-    pub fn find_tz_offset(&self) -> Option<String> {
+    pub fn find_exif_iter(&self) -> Option<IfdIter> {
         let endian = self.endian;
         // find ExifOffset
         for i in 0..self.entry_num {
             let pos = self.pos + i as usize * IFD_ENTRY_SIZE;
-            let (remain, tag) =
+            let (_, tag) =
                 complete::u16::<_, nom::error::Error<_>>(endian)(&self.input[pos..]).ok()?;
             if tag == ExifTag::ExifOffset.code() {
-                let (_, (_, _, offset)) = tuple((
-                    complete::u16::<_, nom::error::Error<_>>(endian),
-                    complete::u32(endian),
-                    complete::u32(endian),
-                ))(remain)
-                .ok()?;
-
-                // find tz offset
-                return self.find_tz_offset_in_exif_subifd(offset);
+                let entry_data = self.input.slice_checked(pos..pos + IFD_ENTRY_SIZE)?;
+                let (_, entry) = self.parse_tag_entry(entry_data)?;
+                match entry {
+                    IfdEntry::IfdNew(iter) => return Some(iter),
+                    IfdEntry::Entry(_) | IfdEntry::Err(_) => return None,
+                }
             }
         }
         None
     }
 
-    fn find_tz_offset_in_exif_subifd(&self, offset: u32) -> Option<String> {
-        let num_entries = self.entry_num;
-        let pos = self.get_data_pos(offset + 2) as usize;
-        for i in 0..num_entries {
-            let pos = pos + i as usize * IFD_ENTRY_SIZE;
-            let entry_data = self.input.slice_checked(pos..pos + IFD_ENTRY_SIZE)?;
-            let (tag, res) = self.parse_tag_entry(entry_data)?;
-
-            if TZ_OFFSET_TAGS.contains(&tag) {
-                return match res {
-                    IfdEntry::IfdNew(_) => {
-                        tracing::warn!("got ifd when parsing tz offset");
-                        continue;
-                    }
-                    IfdEntry::Entry(v) => match v {
-                        EntryValue::Text(v) => return Some(v),
-                        _ => {
-                            tracing::warn!("tz offset is not a text");
-                            continue;
-                        }
-                    },
-                    IfdEntry::Err(_) => None,
-                };
+    pub fn find_tz_offset(&self) -> Option<String> {
+        let iter = self.find_exif_iter()?;
+        let mut offset = None;
+        for entry in iter {
+            let Some(tag) = entry.0 else {
+                continue;
+            };
+            if tag.code() == ExifTag::OffsetTimeOriginal.code()
+                || tag.code() == ExifTag::OffsetTimeDigitized.code()
+            {
+                return entry.1.as_str().map(|x| x.to_owned());
+            } else if tag.code() == ExifTag::OffsetTime.code() {
+                offset = entry.1.as_str().map(|x| x.to_owned());
             }
         }
-        None
+
+        offset
     }
 
     // Assume the current ifd is GPSInfo subifd.
@@ -813,6 +801,14 @@ impl IfdEntry {
     fn as_urational_array(&self) -> Option<&Vec<URational>> {
         if let IfdEntry::Entry(EntryValue::URationalArray(v)) = self {
             Some(v)
+        } else {
+            None
+        }
+    }
+
+    fn as_str(&self) -> Option<&str> {
+        if let IfdEntry::Entry(e) = self {
+            e.as_str()
         } else {
             None
         }
