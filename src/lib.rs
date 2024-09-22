@@ -343,6 +343,7 @@ mod heif;
 mod jpeg;
 mod loader;
 mod mov;
+mod number;
 mod parser;
 #[cfg(feature = "async")]
 mod parser_async;

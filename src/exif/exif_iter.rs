@@ -80,10 +80,10 @@ pub(crate) fn input_into_iter(
 /// `Iterator::next()` calls.
 pub struct ExifIter {
     // Use Arc to make sure we won't clone the owned data.
-    input: Arc<PartialVec>,
+    pub(crate) input: Arc<PartialVec>,
     tiff_header: TiffHeader,
     tz: Option<String>,
-    ifd0: IfdIter,
+    pub(crate) ifd0: IfdIter,
 
     // Iterating status
     ifds: Vec<IfdIter>,
@@ -430,15 +430,16 @@ pub(crate) struct IfdIter {
     ifd_idx: usize,
     tag_code: Option<ExifTagCode>,
 
-    // starts from "ifd/sub-ifd entries" (two bytes of ifd/sub-ifd entry num)
+    // starts from "ifd/sub-ifd entries" (the first two bytes is ifd/sub-ifd
+    // entry num)
     input: AssociatedInput,
 
     // IFD data offset relative to the TIFF header.
-    offset: u32,
+    pub offset: u32,
 
     pub tz: Option<String>,
     endian: Endianness,
-    entry_num: u16,
+    pub entry_num: u16,
 
     // Iterating status
     index: u16,

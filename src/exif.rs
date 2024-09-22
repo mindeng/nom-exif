@@ -17,9 +17,10 @@ use std::io::Read;
 use std::ops::Range;
 
 pub(crate) mod ifd;
-pub(crate) use exif_exif::{check_exif_header, TiffHeader};
+pub(crate) use exif_exif::{check_exif_header, TiffHeader, IFD_ENTRY_SIZE};
 pub(crate) use travel::IfdHeaderTravel;
 
+mod editor;
 mod exif_exif;
 mod exif_iter;
 mod gps;

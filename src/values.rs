@@ -1,5 +1,6 @@
 use std::{fmt::Display, string::FromUtf8Error};
 
+use bytes::{BufMut as _, BytesMut};
 use chrono::{
     offset::LocalResult, DateTime, FixedOffset, Local, NaiveDateTime, Offset, TimeZone as _, Utc,
 };
@@ -9,7 +10,11 @@ use nom::{multi::many_m_n, number::Endianness};
 use serde::{Deserialize, Serialize, Serializer};
 use thiserror::Error;
 
-use crate::ExifTag;
+use crate::{
+    exif::IFD_ENTRY_SIZE,
+    number::{put_f32, put_f64, put_i16, put_i32, put_i64, put_u16, put_u32, put_u64, Number},
+    ExifTag,
+};
 
 /// Represent a parsed entry value.
 #[derive(Debug, Clone, PartialEq)]
@@ -71,6 +76,24 @@ impl From<chrono::ParseError> for ParseEntryError {
 use ParseEntryError as Error;
 
 impl EntryData<'_> {
+    pub(crate) fn data_is_builtin(&self) -> bool {
+        // get component_size according to data format
+        let component_size = self.data_format.component_size();
+
+        // get entry data
+        let size = self.components_num as usize * component_size;
+        size <= 4
+    }
+
+    fn encode(&self) -> Vec<u8> {
+        let mut buf = BytesMut::with_capacity(IFD_ENTRY_SIZE);
+        put_u16(&mut buf, self.tag, self.endian);
+        put_u16(&mut buf, self.data_format as u16, self.endian);
+        put_u32(&mut buf, self.components_num, self.endian);
+        buf.put_slice(self.data);
+        buf.into()
+    }
+
     // Ensure that the returned Vec is not empty.
     fn try_as_rationals<T: TryFromBytes>(&self) -> Result<Vec<Rational<T>>, Error> {
         if self.components_num == 0 {
@@ -241,6 +264,81 @@ impl EntryValue {
                 1 => Ok(Self::F64(f64::try_from_bytes(data, endian)?)),
                 x => Err(Error::Unsupported(format!("double with {x} components"))),
             },
+        }
+    }
+
+    pub(crate) fn encode_into(&self, buf: &mut BytesMut, endian: Endianness) {
+        match self {
+            EntryValue::Text(v) => {
+                buf.put(v.as_bytes());
+            }
+            EntryValue::URational(v) => {
+                let v = encode_rational(v, endian);
+                buf.put_slice(&v);
+            }
+            EntryValue::IRational(v) => {
+                let v = encode_rational(v, endian);
+                buf.put_slice(&v);
+            }
+            EntryValue::U8(v) => buf.put_u8(*v),
+            EntryValue::U16(v) => {
+                put_u16(buf, *v, endian);
+            }
+            EntryValue::U32(n) => {
+                put_u32(buf, *n, endian);
+            }
+            EntryValue::U64(n) => {
+                put_u64(buf, *n, endian);
+            }
+            EntryValue::I8(n) => {
+                buf.put_i8(*n);
+            }
+            EntryValue::I16(n) => {
+                put_i16(buf, *n, endian);
+            }
+            EntryValue::I32(n) => {
+                put_i32(buf, *n, endian);
+            }
+            EntryValue::I64(n) => {
+                put_i64(buf, *n, endian);
+            }
+            EntryValue::F32(n) => {
+                put_f32(buf, *n, endian);
+            }
+            EntryValue::F64(n) => {
+                put_f64(buf, *n, endian);
+            }
+            EntryValue::Time(v) => {
+                buf.put_slice(
+                    v.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+                        .as_bytes(),
+                );
+            }
+            EntryValue::Undefined(v) => {
+                buf.put_slice(v);
+            }
+            EntryValue::URationalArray(v) => {
+                for r in v {
+                    buf.put_slice(&encode_rational(r, endian));
+                }
+            }
+            EntryValue::IRationalArray(v) => {
+                for r in v {
+                    buf.put_slice(&encode_rational(r, endian));
+                }
+            }
+            EntryValue::U16Array(v) => {
+                for n in v {
+                    let d: [u8; 2] = Number(*n, endian).into();
+                    buf.put_slice(&d);
+                }
+            }
+            EntryValue::U32Array(v) => {
+                for n in v {
+                    let d: [u8; 4] = Number(*n, endian).into();
+                    buf.put_slice(&d);
+                }
+            }
         }
     }
 
@@ -859,6 +957,21 @@ pub(crate) fn decode_rational<T: TryFromBytes>(
     let numerator = T::try_from_bytes(data, endian)?;
     let denominator = T::try_from_bytes(&data[4..], endian)?; // Safe-slice
     Ok(Rational::<T>(numerator, denominator))
+}
+
+pub(crate) fn encode_rational<const N: usize, T: Sized + Clone>(
+    v: &Rational<T>,
+    endian: Endianness,
+) -> Vec<u8>
+where
+    [u8; N]: std::convert::From<Number<T>>,
+{
+    let mut vec = Vec::with_capacity(2 * N);
+    let d0: [u8; N] = Number::<T>(v.0.to_owned(), endian).into();
+    let d1: [u8; N] = Number::<T>(v.1.to_owned(), endian).into();
+    vec.extend_from_slice(&d0);
+    vec.extend_from_slice(&d1);
+    vec
 }
 
 #[cfg(test)]
