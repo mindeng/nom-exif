@@ -816,11 +816,6 @@ impl IfdEntry {
 }
 
 pub(crate) const SUBIFD_TAGS: &[u16] = &[ExifTag::ExifOffset.code(), ExifTag::GPSInfo.code()];
-const TZ_OFFSET_TAGS: &[u16] = &[
-    ExifTag::OffsetTimeOriginal.code(),
-    ExifTag::OffsetTimeDigitized.code(),
-    ExifTag::OffsetTime.code(),
-];
 
 impl Iterator for IfdIter {
     type Item = (Option<ExifTagCode>, IfdEntry);
