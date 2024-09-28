@@ -155,7 +155,11 @@ impl<'a> BoxHolder<'a> {
     pub fn parse(input: &'a [u8]) -> IResult<&'a [u8], BoxHolder<'a>> {
         let (_, header) = BoxHeader::parse(input)?;
         tracing::debug!(box_type = header.box_type, ?header, "Got");
-        let (remain, data) = streaming::take(header.box_size)(input)?;
+
+        let box_size = usize::try_from(header.box_size)
+            .expect("header box size should always fit into a `usize`.");
+
+        let (remain, data) = streaming::take(box_size)(input)?;
 
         Ok((remain, BoxHolder { header, data }))
     }
