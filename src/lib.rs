@@ -85,7 +85,7 @@
 //!     ];
 //!
 //!     for f in files {
-//!         let ms = MediaSource::file_path("./testdata/exif.heic")?;
+//!         let ms = MediaSource::file_path(f)?;
 //!
 //!         if ms.has_exif() {
 //!             // Parse the file as an Exif-compatible file
