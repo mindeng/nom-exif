@@ -198,7 +198,7 @@ impl TiffHeader {
         // 12 bytes per entry
         let size = (num as usize)
             .checked_mul(IFD_ENTRY_SIZE)
-            .expect("should be fit");
+            .expect("should fit");
 
         if size > remain.len() {
             return Err(nom::Err::Incomplete(Needed::new(size - remain.len())));

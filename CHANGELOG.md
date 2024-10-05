@@ -1,5 +1,18 @@
 # Changelog
 
+## nom-exif v2.1.0
+
+[v2.0.2..v2.1.0](https://github.com/mindeng/nom-exif/compare/v2.0.2..v2.1.0)
+
+### Added
+
+- Type alias: `IRational`
+- Supports 32-bit target platforms, e.g.: `armv7-linux-androideabi`
+
+### Fix
+
+- Fix compiling errors on 32-bit target platforms
+
 ## nom-exif v2.0.2
 
 [v2.0.0..v2.0.2](https://github.com/mindeng/nom-exif/compare/v2.0.0..v2.0.2)

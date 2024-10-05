@@ -338,8 +338,7 @@ pub(crate) fn extract_moov_body_from_buf(input: &[u8]) -> Result<Range<usize>, P
         return Err(ParsingError::ClearAndSkip(to_skip + input.len()));
     }
 
-    assert!(header.body_size() <= usize::MAX.try_into().expect("should be fit"));
-    let size: usize = header.body_size().try_into().unwrap();
+    let size: usize = header.body_size().try_into().expect("must fit");
     let (_, body) =
         streaming::take(size)(remain).map_err(|e| convert_error(e, "moov is too small"))?;
 
