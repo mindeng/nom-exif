@@ -310,7 +310,7 @@ pub use video::{TrackInfo, TrackInfoTag};
 pub use parser_async::{AsyncMediaParser, AsyncMediaSource};
 
 pub use exif::{Exif, ExifIter, ExifTag, GPSInfo, LatLng, ParsedExifEntry};
-pub use values::{EntryValue, URational};
+pub use values::{EntryValue, IRational, URational};
 
 #[allow(deprecated)]
 pub use exif::parse_exif;
