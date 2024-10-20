@@ -414,7 +414,6 @@ impl Iterator for ExifIter {
                             tracing::warn!(?tag_code, ?e, "parse ifd entry error");
                             let res =
                                 Some(ParsedExifEntry::make_err(ifd.ifd_idx, tag_code.unwrap(), e));
-                            self.ifds.push(ifd);
                             return res;
                         }
                     }
