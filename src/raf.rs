@@ -78,7 +78,7 @@ mod tests {
 
     use super::*;
 
-    #[case("fujifilm_x_t1_01.raf")]
+    #[case("fujifilm_x_t1_01.raf.meta")]
     fn test_check_raf(path: &str) {
         let data = read_sample(path).unwrap();
         RafInfo::check(&data).unwrap();

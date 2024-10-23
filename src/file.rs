@@ -367,7 +367,7 @@ mod tests {
 
     #[test_case("exif.heic", Image(Heic))]
     #[test_case("exif.jpg", Image(Jpeg))]
-    #[test_case("fujifilm_x_t1_01.raf", Image(Raf))]
+    #[test_case("fujifilm_x_t1_01.raf.meta", Image(Raf))]
     #[test_case("meta.mp4", Video(Mp4))]
     #[test_case("meta.mov", Video(QuickTime))]
     #[test_case("embedded-in-heic.mov", Video(QuickTime))]

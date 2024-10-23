@@ -509,7 +509,7 @@ mod tests {
     #[case("embedded-in-heic.mov", Track)]
     #[case("exif.heic", Exif)]
     #[case("exif.jpg", Exif)]
-    #[case("fujifilm_x_t1_01.raf", Exif)]
+    #[case("fujifilm_x_t1_01.raf.meta", Exif)]
     #[case("meta.mov", Track)]
     #[case("meta.mp4", Track)]
     #[case("mka.mka", Track)]
