@@ -1,5 +1,13 @@
 # Changelog
 
+## nom-exif v2.2.0
+
+[v2.1.1..v2.2.0](https://github.com/mindeng/nom-exif/compare/v2.1.1..v2.2.0)
+
+### Added
+
+- Added support for RAF (Fujifilm RAW) file type.
+
 ## nom-exif v2.1.1
 
 [v2.1.0..v2.1.1](https://github.com/mindeng/nom-exif/compare/v2.1.0..v2.1.1)
