@@ -1,5 +1,13 @@
 # Changelog
 
+## nom-exif v2.1.1
+
+[v2.1.0..v2.1.1](https://github.com/mindeng/nom-exif/compare/v2.1.0..v2.1.1)
+
+### Fixed
+
+- Fix endless loop caused by some broken images.
+
 ## nom-exif v2.1.0
 
 [v2.0.2..v2.1.0](https://github.com/mindeng/nom-exif/compare/v2.0.2..v2.1.0)
@@ -9,7 +17,7 @@
 - Type alias: `IRational`
 - Supports 32-bit target platforms, e.g.: `armv7-linux-androideabi`
 
-### Fix
+### Fixed
 
 - Fix compiling errors on 32-bit target platforms
 
