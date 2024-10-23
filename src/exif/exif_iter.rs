@@ -886,6 +886,7 @@ mod tests {
     #[test_case("broken.jpg", "", MimeImage::Jpeg)]
     #[test_case("exif.heic", "+08:00", MimeImage::Heic)]
     #[test_case("tif.tif", "", MimeImage::Tiff)]
+    #[test_case("fujifilm_x_t1_01.raf", "", MimeImage::Raf)]
     fn exif_iter_tz(path: &str, tz: &str, img_type: MimeImage) {
         let buf = read_sample(path).unwrap();
         let (data, _) = extract_exif_with_mime(img_type, &buf, None).unwrap();

@@ -16,3 +16,4 @@ Cargo.lock
 .DS_Store
 /testdata/*.html
 /debug.log
+/testdata/fujifilm_x_t1_01.raf

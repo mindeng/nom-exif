@@ -9,9 +9,9 @@ use nom::{
     IResult,
 };
 
-use crate::bbox::FullBoxHeader;
+use crate::{bbox::FullBoxHeader, utils::parse_cstr};
 
-use super::{parse_cstr, ParseBody, ParseBox};
+use super::{ParseBody, ParseBox};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IinfBox {

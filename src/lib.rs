@@ -347,8 +347,10 @@ mod parser;
 #[cfg(feature = "async")]
 mod parser_async;
 mod partial_vec;
+mod raf;
 mod skip;
 mod slice;
+mod utils;
 mod values;
 mod video;
 

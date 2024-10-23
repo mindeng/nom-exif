@@ -321,19 +321,6 @@ impl<O, T: ParseBody<O>> ParseBox<O> for T {
     }
 }
 
-fn parse_cstr(input: &[u8]) -> IResult<&[u8], String> {
-    let (remain, s) = map_res(streaming::take_till(|b| b == 0), |bs: &[u8]| {
-        if bs.is_empty() {
-            Ok("".to_owned())
-        } else {
-            String::from_utf8(bs.to_vec())
-        }
-    })(input)?;
-
-    // consumes the zero byte
-    Ok((&remain[1..], s)) // Safe-slice
-}
-
 #[cfg(test)]
 mod tests {
     use crate::testkit::read_sample;

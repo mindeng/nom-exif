@@ -1,6 +1,7 @@
 use crate::error::{nom_error_to_parsing_error_with_state, ParsingError, ParsingErrorState};
 use crate::file::MimeImage;
 use crate::parser::{BufParser, ParsingState, ShareBuf};
+use crate::raf::RafInfo;
 use crate::skip::Skip;
 use crate::slice::SubsliceRange;
 use crate::{heif, jpeg, MediaParser, MediaSource};
@@ -134,13 +135,11 @@ pub(crate) fn extract_exif_with_mime(
     state: Option<ParsingState>,
 ) -> Result<(Option<&[u8]>, Option<ParsingState>), ParsingErrorState> {
     let (exif_data, state) = match img_type {
-        crate::file::MimeImage::Jpeg => jpeg::extract_exif_data(buf)
+        MimeImage::Jpeg => jpeg::extract_exif_data(buf)
             .map(|res| (res.1, state.clone()))
             .map_err(|e| nom_error_to_parsing_error_with_state(e, state))?,
-        crate::file::MimeImage::Heic | crate::file::MimeImage::Heif => {
-            heif_extract_exif(state, buf)?
-        }
-        crate::file::MimeImage::Tiff => {
+        MimeImage::Heic | crate::file::MimeImage::Heif => heif_extract_exif(state, buf)?,
+        MimeImage::Tiff => {
             let (header, data_start) = match state {
                 Some(ParsingState::TiffHeader(ref h)) => (h.to_owned(), 0),
                 None => {
@@ -166,6 +165,9 @@ pub(crate) fn extract_exif_with_mime(
 
             (Some(buf), state)
         }
+        MimeImage::Raf => RafInfo::parse(buf)
+            .map(|res| (res.1.exif_data, state.clone()))
+            .map_err(|e| nom_error_to_parsing_error_with_state(e, state))?,
     };
     Ok((exif_data, state))
 }

@@ -11,6 +11,7 @@ use crate::{
     exif::TiffHeader,
     jpeg::check_jpeg,
     loader::Load,
+    raf::RafInfo,
     slice::SubsliceRange,
 };
 
@@ -63,6 +64,7 @@ pub(crate) enum MimeImage {
     Heic,
     Heif,
     Tiff,
+    Raf, // Fujifilm RAW, image/x-fuji-raf
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
@@ -89,6 +91,8 @@ impl TryFrom<&[u8]> for Mime {
             Mime::Image(MimeImage::Tiff)
         } else if check_jpeg(input).is_ok() {
             Mime::Image(MimeImage::Jpeg)
+        } else if RafInfo::check(input).is_ok() {
+            Mime::Image(MimeImage::Raf)
         } else {
             return Err(crate::Error::UnrecognizedFileFormat);
         };
@@ -363,6 +367,7 @@ mod tests {
 
     #[test_case("exif.heic", Image(Heic))]
     #[test_case("exif.jpg", Image(Jpeg))]
+    #[test_case("fujifilm_x_t1_01.raf", Image(Raf))]
     #[test_case("meta.mp4", Video(Mp4))]
     #[test_case("meta.mov", Video(QuickTime))]
     #[test_case("embedded-in-heic.mov", Video(QuickTime))]
