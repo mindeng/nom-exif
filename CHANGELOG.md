@@ -1,8 +1,8 @@
 # Changelog
 
-## nom-exif v2.2.0
+## nom-exif v2.2.1
 
-[v2.1.1..v2.2.0](https://github.com/mindeng/nom-exif/compare/v2.1.1..v2.2.0)
+[v2.1.1..v2.2.1](https://github.com/mindeng/nom-exif/compare/v2.1.1..v2.2.1)
 
 ### Added
 
