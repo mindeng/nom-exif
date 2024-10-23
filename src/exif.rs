@@ -236,6 +236,8 @@ pub async fn parse_exif_async<T: AsyncRead + Unpin + Send>(
 #[cfg(test)]
 #[allow(deprecated)]
 mod tests {
+    use std::{sync::mpsc, thread, time::Duration};
+
     use crate::{
         file::MimeImage,
         testkit::{open_sample, read_sample},
@@ -348,5 +350,22 @@ mod tests {
             .map(|e| format!("{} => {}", e.tag().unwrap(), e.get_value().unwrap()))
             .collect();
         assert_eq!(res.join(", "), "Make => Apple, Model => iPhone 12 Pro");
+    }
+
+    #[test]
+    fn endless_loop() {
+        let (sender, receiver) = mpsc::channel();
+
+        thread::spawn(move || {
+            let name = "endless_loop.jpg";
+            let f = open_sample(name).unwrap();
+            let iter = parse_exif(f, None).unwrap().unwrap();
+            let _: Exif = iter.into();
+            sender.send(()).unwrap();
+        });
+
+        receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("There is an infinite loop in the parsing process!");
     }
 }
