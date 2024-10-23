@@ -14,6 +14,7 @@
   - *.heic, *.heif, etc.
   - *.jpg, *.jpeg
   - *.tiff, *.tif
+  - *.RAF (Fujifilm RAW)
 - Video/Audio
   - ISO base media file format (ISOBMFF): *.mp4, *.mov, *.3gp, etc.
   - Matroska based file format: *.webm, *.mkv, *.mka, etc.
