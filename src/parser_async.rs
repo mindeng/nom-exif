@@ -17,7 +17,9 @@ use crate::{
     error::{ParsedError, ParsingError, ParsingErrorState},
     exif::parse_exif_iter_async,
     file::Mime,
-    parser::{Buf, ParsingState, ShareBuf, INIT_BUF_SIZE, MAX_GROW_SIZE, MIN_GROW_SIZE},
+    parser::{
+        Buf, ParsingState, ShareBuf, INIT_BUF_SIZE, MAX_ALLOC_SIZE, MAX_GROW_SIZE, MIN_GROW_SIZE,
+    },
     partial_vec::PartialVec,
     skip::AsyncSkip,
     video::parse_track_info,
@@ -178,7 +180,9 @@ pub(crate) trait AsyncBufParser: Buf + Debug {
             tracing::debug!(skip_n, "skip by using our buffer");
             let mut skipped = 0;
             while skipped < skip_n {
-                let n = self.fill_buf(reader, skip_n - skipped).await?;
+                let mut to_skip = skip_n - skipped;
+                to_skip = min(to_skip, MAX_ALLOC_SIZE);
+                let n = self.fill_buf(reader, to_skip).await?;
                 skipped += n;
                 if skipped <= skip_n {
                     self.clear();
@@ -404,11 +408,16 @@ impl AsyncMediaParser {
 }
 
 impl AsyncBufParser for AsyncMediaParser {
+    #[tracing::instrument(skip(self, reader))]
     async fn fill_buf<R: AsyncRead + Unpin>(
         &mut self,
         reader: &mut R,
         size: usize,
     ) -> io::Result<usize> {
+        if size > MAX_ALLOC_SIZE {
+            tracing::error!(?size, "the requested buffer size is too big");
+            return Err(io::ErrorKind::Unsupported.into());
+        }
         self.buf_mut().reserve_exact(size);
 
         let n = reader.take(size as u64).read_to_end(self.buf_mut()).await?;

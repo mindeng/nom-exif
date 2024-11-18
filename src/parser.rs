@@ -126,6 +126,8 @@ pub(crate) const INIT_BUF_SIZE: usize = 4096;
 pub(crate) const MIN_GROW_SIZE: usize = 4096;
 // Max size of APP1 is 0xFFFF
 pub(crate) const MAX_GROW_SIZE: usize = 63 * 1024;
+// Set a reasonable upper limit for single buffer allocation.
+pub(crate) const MAX_ALLOC_SIZE: usize = 100 * 1024 * 1024;
 
 pub(crate) trait Buf {
     fn buffer(&self) -> &[u8];
@@ -235,7 +237,9 @@ pub(crate) trait BufParser: Buf + Debug {
             tracing::debug!(skip_n, "skip by using our buffer");
             let mut skipped = 0;
             while skipped < skip_n {
-                let n = self.fill_buf(reader, skip_n - skipped)?;
+                let mut to_skip = skip_n - skipped;
+                to_skip = min(to_skip, MAX_ALLOC_SIZE);
+                let n = self.fill_buf(reader, to_skip)?;
                 skipped += n;
                 if skipped <= skip_n {
                     self.clear();
@@ -257,7 +261,12 @@ pub(crate) trait BufParser: Buf + Debug {
 }
 
 impl BufParser for MediaParser {
+    #[tracing::instrument(skip(self, reader))]
     fn fill_buf<R: Read>(&mut self, reader: &mut R, size: usize) -> io::Result<usize> {
+        if size > MAX_ALLOC_SIZE {
+            tracing::error!(?size, "the requested buffer size is too big");
+            return Err(io::ErrorKind::Unsupported.into());
+        }
         self.buf_mut().reserve_exact(size);
 
         let n = reader.take(size as u64).read_to_end(self.buf_mut())?;
