@@ -1,5 +1,5 @@
 use nom::{
-    branch::alt, bytes::complete::tag, combinator, number::Endianness, sequence, IResult, Needed,
+    branch::alt, bytes::streaming::tag, combinator, number::Endianness, sequence, IResult, Needed,
 };
 
 use crate::{EntryValue, ExifIter, ExifTag, GPSInfo, ParsedExifEntry};
@@ -229,12 +229,8 @@ impl TiffHeader {
     }
 }
 
-/// data.len() MUST >= 6
-pub(crate) fn check_exif_header(data: &[u8]) -> bool {
-    use nom::bytes::complete;
-    assert!(data.len() >= 6);
-
-    complete::tag::<_, _, nom::error::Error<_>>(EXIF_IDENT)(data).is_ok()
+pub(crate) fn check_exif_header(data: &[u8]) -> Result<bool, nom::Err<nom::error::Error<&[u8]>>> {
+    tag::<_, _, nom::error::Error<_>>(EXIF_IDENT)(data).map(|_| true)
 }
 
 pub(crate) fn check_exif_header2(i: &[u8]) -> IResult<&[u8], ()> {

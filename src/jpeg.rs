@@ -74,10 +74,28 @@ impl<'a> Segment<'a> {
 }
 
 fn find_exif_segment(input: &[u8]) -> IResult<&[u8], Option<Segment<'_>>> {
-    let (remain, segment) = travel_until(input, |s| {
-        (s.marker_code == MarkerCode::APP1.code() && check_exif_header(s.payload))
-            || s.marker_code == MarkerCode::Sos.code() // searching stop at SOS
-    })?;
+    let mut remain = input;
+
+    let (remain, segment) = loop {
+        let (rem, (_, code)) = tuple((streaming::tag([0xFF]), number::streaming::u8))(remain)?;
+        let (rem, segment) = parse_segment(code, rem)?;
+        // Sanity check
+        assert!(rem.len() < remain.len());
+        remain = rem;
+        tracing::debug!(
+            marker = format!("0x{:04x}", segment.marker_code),
+            size = format!("0x{:04x}", segment.payload.len()),
+            "got segment"
+        );
+
+        let s = &segment;
+        if (s.marker_code == MarkerCode::APP1.code() && check_exif_header(s.payload)?)
+            || s.marker_code == MarkerCode::Sos.code()
+        // searching stop at SOS
+        {
+            break (remain, segment);
+        }
+    };
 
     if segment.marker_code != MarkerCode::Sos.code() {
         Ok((remain, Some(segment)))
@@ -154,7 +172,7 @@ pub(crate) fn check_jpeg_exif<'a>(input: &'a [u8]) -> IResult<&'a [u8], bool> {
             }
 
             let (rem, header) = streaming::take(EXIF_HEADER_SIZE)(rem)?;
-            let b = check_exif_header(header);
+            let b = check_exif_header(header)?;
             return Ok((rem, b));
         } else {
             // skip to next segment

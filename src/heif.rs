@@ -88,7 +88,7 @@ pub(crate) fn extract_exif_with_meta<'a>(
 
     if let Some(data) = data {
         let (remain, _) = be_u32(data)?;
-        if check_exif_header(remain) {
+        if check_exif_header(remain)? {
             Ok((out_remain, Some(&remain[6..]))) // Safe-slice
         } else {
             Ok((out_remain, None))
