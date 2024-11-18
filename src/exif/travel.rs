@@ -141,11 +141,9 @@ impl<'a> IfdHeaderTravel<'a> {
 
     #[tracing::instrument(skip(self))]
     pub fn travel_ifd(&mut self, depth: usize) -> Result<(), ParsingError> {
-        // Currently, we ignore ifd1 data in *.tif files
-        if depth > 1 {
-            let msg = "depth shouldn't be greater than 1";
+        if depth >= 3 {
+            let msg = "depth shouldn't be greater than 3";
             tracing::error!(msg);
-            debug_assert!(false, "{}", msg);
             return Err(ParsingError::Failed(msg.into()));
         }
 
@@ -161,7 +159,15 @@ impl<'a> IfdHeaderTravel<'a> {
             pos += IFD_ENTRY_SIZE;
 
             if let Some(ifd) = sub_ifd {
-                sub_ifds.push(ifd);
+                if ifd.offset <= self.offset {
+                    tracing::error!(
+                        current_ifd_offset = self.offset,
+                        subifd_offset = ifd.offset,
+                        "bad new SUB-IFD in TIFF: offset is smaller than current IFD"
+                    );
+                } else {
+                    sub_ifds.push(ifd);
+                }
             }
         }
 
@@ -169,7 +175,7 @@ impl<'a> IfdHeaderTravel<'a> {
             ifd.travel_ifd(depth + 1)?;
         }
 
-        // ignore ifd1 in TIFF
+        // Currently, we ignore ifd1 data in *.tif files
         Ok(())
     }
 }
