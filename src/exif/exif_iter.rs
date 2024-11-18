@@ -378,6 +378,14 @@ impl Iterator for ExifIter {
 
                     match entry {
                         IfdEntry::IfdNew(new_ifd) => {
+                            if new_ifd.offset <= ifd.offset {
+                                tracing::debug!(
+                                    ?tag_code,
+                                    ?new_ifd,
+                                    "bad new SUB-IFD: offset is smaller than current IFD"
+                                );
+                                continue;
+                            }
                             let is_subifd = if new_ifd.ifd_idx == ifd.ifd_idx {
                                 // Push the current ifd before enter sub-ifd.
                                 self.ifds.push(ifd);
