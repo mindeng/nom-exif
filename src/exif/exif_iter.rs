@@ -898,8 +898,8 @@ mod tests {
     fn exif_iter_tz(path: &str, tz: &str, img_type: MimeImage) {
         let buf = read_sample(path).unwrap();
         let (data, _) = extract_exif_with_mime(img_type, &buf, None).unwrap();
-        let subslice_range = data.and_then(|x| buf.subslice_range(x)).unwrap();
-        let iter = input_into_iter((buf, subslice_range), None).unwrap();
+        let subslice_in_range = data.and_then(|x| buf.subslice_in_range(x)).unwrap();
+        let iter = input_into_iter((buf, subslice_in_range), None).unwrap();
         let expect = if tz.is_empty() {
             None
         } else {

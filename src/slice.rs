@@ -19,7 +19,7 @@ pub trait SubsliceOffset {
 }
 
 pub trait SubsliceRange {
-    fn subslice_range(&self, inner: &Self) -> Option<Range<usize>>;
+    fn subslice_in_range(&self, inner: &Self) -> Option<Range<usize>>;
 }
 
 impl<T> SubsliceOffset for [T] {
@@ -38,7 +38,7 @@ impl<T> SubsliceRange for [T]
 where
     [T]: SubsliceOffset,
 {
-    fn subslice_range(&self, inner: &Self) -> Option<Range<usize>> {
+    fn subslice_in_range(&self, inner: &Self) -> Option<Range<usize>> {
         let offset = self.subslice_offset(inner)?;
         let end = offset.checked_add(inner.len())?;
         let start = self.as_ptr() as usize;

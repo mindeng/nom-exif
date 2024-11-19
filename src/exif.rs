@@ -88,7 +88,7 @@ fn extract_exif_range(img: MimeImage, buf: &[u8], state: Option<ParsingState>) -
         ParsingState::HeifExifSize(_) => None,
     });
     Ok(exif_data
-        .and_then(|x| buf.subslice_range(x))
+        .and_then(|x| buf.subslice_in_range(x))
         .map(|x| (x, header)))
 }
 
@@ -320,8 +320,8 @@ mod tests {
         let (data, _) = extract_exif_with_mime(MimeImage::Jpeg, &buf, None).unwrap();
         let data = data.unwrap();
 
-        let subslice_range = buf.subslice_range(data).unwrap();
-        let iter = input_into_iter((buf, subslice_range), None).unwrap();
+        let subslice_in_range = buf.subslice_in_range(data).unwrap();
+        let iter = input_into_iter((buf, subslice_in_range), None).unwrap();
         let exif: Exif = iter.into();
 
         let gps = exif.get_gps_info().unwrap().unwrap();
