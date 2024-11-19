@@ -173,10 +173,15 @@ impl ExifIter {
             }
             Err(e) => return Err(e.clone().into()),
         };
+        if offset as usize >= iter.input.len() {
+            return Err(crate::Error::ParseFailed(
+                "GPSInfo offset is out of range".into(),
+            ));
+        }
 
         let mut gps_subifd = match IfdIter::try_new(
             gps.ifd,
-            iter.input.partial(&iter.input[offset as usize..]),
+            iter.input.partial(&iter.input[offset as usize..]), // Safe-slice
             offset,
             iter.tiff_header.endian,
             iter.tz.clone(),
