@@ -253,6 +253,17 @@ fn parse_track(input: &[u8]) -> Result<Option<VideoTrackInfo>, ParseWebmFailed> 
         };
 
         if id == TracksId::VideoTrack {
+            let end = pos + header.data_size;
+            if end > input.len() {
+                tracing::warn!(
+                    ?pos,
+                    end = pos + header.data_size,
+                    input_len = input.len(),
+                    "invalid track sub-element"
+                );
+                continue;
+            }
+            // Safe-slice
             return parse_video_track(&input[pos..pos + header.data_size]);
         }
     }
