@@ -67,7 +67,7 @@ struct Segment<'a> {
     payload: &'a [u8],
 }
 
-impl<'a> Segment<'a> {
+impl Segment<'_> {
     pub fn payload_len(&self) -> usize {
         self.payload.len()
     }

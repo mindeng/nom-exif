@@ -12,7 +12,7 @@ pub struct IdatBox<'a> {
 
 #[allow(unused)]
 impl<'a> IdatBox<'a> {
-    pub fn parse(input: &'a [u8]) -> IResult<&'a [u8], IdatBox> {
+    pub fn parse(input: &'a [u8]) -> IResult<&'a [u8], IdatBox<'a>> {
         let (remain, header) = BoxHeader::parse(input)?;
 
         let box_size = usize::try_from(header.box_size).expect("box size must fit into a `usize`.");
