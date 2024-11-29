@@ -182,7 +182,7 @@ impl ExifIter {
         let mut gps_subifd = match IfdIter::try_new(
             gps.ifd,
             iter.input.partial(&iter.input[offset as usize..]), // Safe-slice
-            offset,
+            offset as u64,
             iter.tiff_header.endian,
             iter.tz.clone(),
         ) {
@@ -413,7 +413,7 @@ impl Iterator for ExifIter {
                                 return Some(ParsedExifEntry::make_ok(
                                     ifd_idx,
                                     tag_code.unwrap(),
-                                    EntryValue::U32(offset),
+                                    EntryValue::U32(offset as u32),
                                 ));
                             }
                         }
@@ -446,7 +446,7 @@ pub(crate) struct IfdIter {
     input: AssociatedInput,
 
     // IFD data offset relative to the TIFF header.
-    offset: u32,
+    offset: u64,
 
     pub tz: Option<String>,
     endian: Endianness,
@@ -506,7 +506,7 @@ impl IfdIter {
     pub fn try_new(
         ifd_idx: usize,
         input: AssociatedInput,
-        offset: u32,
+        offset: u64,
         endian: Endianness,
         tz: Option<String>,
     ) -> crate::Result<Self> {
@@ -541,6 +541,7 @@ impl IfdIter {
             complete::u32(endian),
         ))(entry_data)
         .ok()?;
+        let value_or_offset = value_or_offset as u64;
 
         if tag == 0 {
             return None;
@@ -558,7 +559,7 @@ impl IfdIter {
         Some((tag, res))
     }
 
-    fn get_data_pos(&self, value_or_offset: u32) -> u32 {
+    fn get_data_pos(&self, value_or_offset: u64) -> u64 {
         value_or_offset.saturating_sub(self.offset)
     }
 
@@ -568,7 +569,7 @@ impl IfdIter {
         data_format: DataFormat,
         components_num: u32,
         entry_data: &[u8],
-        value_or_offset: u32,
+        value_or_offset: u64,
     ) -> (u16, IfdEntry) {
         // get component_size according to data format
         let component_size = data_format.component_size();
@@ -617,7 +618,7 @@ impl IfdIter {
     fn new_ifd_iter(
         &self,
         ifd_idx: usize,
-        value_or_offset: u32,
+        value_or_offset: u64,
         tag: Option<u16>,
     ) -> Option<IfdEntry> {
         let pos = self.get_data_pos(value_or_offset) as usize;
@@ -862,6 +863,7 @@ impl Iterator for IfdIter {
             let (_, offset) =
                 complete::u32::<_, nom::error::Error<_>>(endian)(&self.input[self.pos..]).ok()?;
 
+            let offset = offset as u64;
             if offset == 0 {
                 // IFD parsing completed
                 tracing::debug!(?self, "IFD parsing completed");
@@ -899,6 +901,7 @@ mod tests {
     #[test_case("broken.jpg", "", MimeImage::Jpeg)]
     #[test_case("exif.heic", "+08:00", MimeImage::Heic)]
     #[test_case("tif.tif", "", MimeImage::Tiff)]
+    //#[test_case("bif.tif", "", MimeImage::Tiff)]
     #[test_case("fujifilm_x_t1_01.raf.meta", "", MimeImage::Raf)]
     fn exif_iter_tz(path: &str, tz: &str, img_type: MimeImage) {
         let buf = read_sample(path).unwrap();

@@ -16,7 +16,7 @@ pub(crate) struct IfdHeaderTravel<'a> {
     ifd_data: &'a [u8],
 
     // IFD data offset relative to the TIFF header.
-    offset: u32,
+    offset: u64,
 
     endian: Endianness,
 }
@@ -30,11 +30,11 @@ pub(crate) struct EntryInfo<'a> {
     pub data_format: DataFormat,
     #[allow(unused)]
     pub data_offset: Option<u32>,
-    pub sub_ifd_offset: Option<u32>,
+    pub sub_ifd_offset: Option<u64>,
 }
 
 impl<'a> IfdHeaderTravel<'a> {
-    pub fn new(input: &'a [u8], offset: u32, endian: Endianness) -> Self {
+    pub fn new(input: &'a [u8], offset: u64, endian: Endianness) -> Self {
         Self {
             ifd_data: input,
             endian,
@@ -54,6 +54,7 @@ impl<'a> IfdHeaderTravel<'a> {
             streaming::u32(endian),
             streaming::u32(endian),
         ))(entry_data)?;
+        let value_or_offset = value_or_offset as u64;
 
         if tag == 0 {
             return Ok((remain, None));
@@ -112,11 +113,11 @@ impl<'a> IfdHeaderTravel<'a> {
         Ok((&[][..], Some(entry)))
     }
 
-    fn get_data_pos(&'a self, value_or_offset: u32) -> u32 {
+    fn get_data_pos(&'a self, value_or_offset: u64) -> u64 {
         value_or_offset.saturating_sub(self.offset)
     }
 
-    fn parse_ifd_entry_header(&self, pos: u32) -> IResult<&[u8], Option<IfdHeaderTravel<'a>>> {
+    fn parse_ifd_entry_header(&self, pos: u64) -> IResult<&[u8], Option<IfdHeaderTravel<'a>>> {
         let (_, entry_data) =
             nom::bytes::streaming::take(IFD_ENTRY_SIZE)(&self.ifd_data[pos as usize..])?;
 
@@ -149,14 +150,14 @@ impl<'a> IfdHeaderTravel<'a> {
 
         tracing::debug!(ifd_data_len = self.ifd_data.len(), offset = self.offset);
         let (remain, entry_num) = TiffHeader::parse_ifd_entry_num(self.ifd_data, self.endian)?;
-        let mut pos = self.ifd_data.len() - remain.len();
+        let mut pos = (self.ifd_data.len() - remain.len()) as u64;
 
         let mut sub_ifds = Vec::new();
 
         // parse entries
         for _ in 0..entry_num {
-            let (_, sub_ifd) = self.parse_ifd_entry_header(pos as u32)?;
-            pos += IFD_ENTRY_SIZE;
+            let (_, sub_ifd) = self.parse_ifd_entry_header(pos)?;
+            pos += IFD_ENTRY_SIZE as u64;
 
             if let Some(ifd) = sub_ifd {
                 if ifd.offset <= self.offset {
