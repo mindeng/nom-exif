@@ -162,7 +162,7 @@ impl EntryValue {
             DataFormat::U8 => match components_num {
                 1 => Ok(Self::U8(data[0])),
                 x => Err(Error::Unsupported(format!(
-                    "usigned byte with {x} components"
+                    "unsigned byte with {x} components"
                 ))),
             },
             DataFormat::Text => Ok(EntryValue::Text(
