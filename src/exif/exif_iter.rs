@@ -13,7 +13,8 @@ use crate::{
     EntryValue, ExifTag,
 };
 
-use super::{exif_exif::IFD_ENTRY_SIZE, tags::ExifTagCode, GPSInfo, TiffHeader};
+// exif_exif::IFD_ENTRY_SIZE,
+use super::{tags::ExifTagCode, GPSInfo, TiffHeader};
 
 /// Parses header from input data, and returns an [`ExifIter`].
 ///
@@ -54,6 +55,7 @@ pub(crate) fn input_into_iter(
         input.partial(&data[start..]),
         header.ifd0_offset,
         header.endian,
+        header.bigtiff,
         None,
     )?;
 
@@ -184,6 +186,7 @@ impl ExifIter {
             iter.input.partial(&iter.input[offset as usize..]), // Safe-slice
             offset as u64,
             iter.tiff_header.endian,
+            iter.tiff_header.bigtiff,
             iter.tz.clone(),
         ) {
             Ok(ifd0) => ifd0.tag_code(ExifTag::GPSInfo.code()),
@@ -450,7 +453,8 @@ pub(crate) struct IfdIter {
 
     pub tz: Option<String>,
     endian: Endianness,
-    entry_num: u16,
+    bigtiff: bool,
+    entry_num: u64,
 
     // Iterating status
     index: u16,
@@ -508,6 +512,7 @@ impl IfdIter {
         input: AssociatedInput,
         offset: u64,
         endian: Endianness,
+        bigtiff: bool,
         tz: Option<String>,
     ) -> crate::Result<Self> {
         if input.len() < 2 {
@@ -516,7 +521,7 @@ impl IfdIter {
             ));
         }
         // should use the complete header data to parse ifd entry num
-        let (_, entry_num) = TiffHeader::parse_ifd_entry_num(&input[..], endian)?;
+        let (_, entry_num) = TiffHeader::parse_ifd_entry_num(&input[..], endian, bigtiff)?;
 
         Ok(Self {
             ifd_idx,
@@ -526,6 +531,7 @@ impl IfdIter {
             entry_num,
             tz,
             endian,
+            bigtiff,
             // Skip the first two bytes, which is the entry num
             pos: 2,
             index: 0,
@@ -628,6 +634,7 @@ impl IfdIter {
                 self.input.partial(&self.input[pos..]),
                 value_or_offset,
                 self.endian,
+                self.bigtiff,
                 self.tz.clone(),
             ) {
                 Ok(iter) => return Some(IfdEntry::IfdNew(iter.tag_code_maybe(tag))),
@@ -651,11 +658,16 @@ impl IfdIter {
         let endian = self.endian;
         // find ExifOffset
         for i in 0..self.entry_num {
-            let pos = self.pos + i as usize * IFD_ENTRY_SIZE;
+            let entry_size = if self.bigtiff {
+                20
+            } else {
+                12 // IFD_ENTRY_SIZE
+            };
+            let pos = self.pos + i as usize * entry_size;
             let (_, tag) =
                 complete::u16::<_, nom::error::Error<_>>(endian)(&self.input[pos..]).ok()?;
             if tag == ExifTag::ExifOffset.code() {
-                let entry_data = self.input.slice_checked(pos..pos + IFD_ENTRY_SIZE)?;
+                let entry_data = self.input.slice_checked(pos..pos + entry_size)?;
                 let (_, entry) = self.parse_tag_entry(entry_data)?;
                 match entry {
                     IfdEntry::IfdNew(iter) => return Some(iter),
@@ -842,15 +854,20 @@ impl Iterator for IfdIter {
         //     pos = format!("{:08x}", self.pos),
         //     "next IFD entry"
         // );
-        if self.input.len() < self.pos + IFD_ENTRY_SIZE {
+        let entry_size: usize = if self.bigtiff {
+            20
+        } else {
+            12 // IFD_ENTRY_SIZE
+        };
+        if self.input.len() < (self.pos + entry_size) as usize {
             return None;
         }
 
         let endian = self.endian;
-        if self.index > self.entry_num {
+        if (self.index as u64) > self.entry_num {
             return None;
         }
-        if self.index == self.entry_num {
+        if (self.index as u64) == self.entry_num {
             tracing::debug!(
                 self.ifd_idx,
                 self.index,
@@ -875,11 +892,9 @@ impl Iterator for IfdIter {
                 .map(|x| (None, x));
         }
 
-        let entry_data = self
-            .input
-            .slice_checked(self.pos..self.pos + IFD_ENTRY_SIZE)?;
+        let entry_data = self.input.slice_checked(self.pos..self.pos + entry_size)?;
         self.index += 1;
-        self.pos += IFD_ENTRY_SIZE;
+        self.pos += entry_size;
 
         let (tag, res) = self.parse_tag_entry(entry_data)?;
 
