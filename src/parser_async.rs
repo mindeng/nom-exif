@@ -485,6 +485,7 @@ mod tests {
     #[case("exif-one-entry.heic", Exif)]
     #[case("no-exif.jpg", NoData)]
     #[case("tif.tif", Exif)]
+    //#[case("bif.tif", Exif)]
     #[case("ramdisk.img", Invalid)]
     #[case("webm_480.webm", Track)]
     async fn parse_media(path: &str, te: TrackExif) {

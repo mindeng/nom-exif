@@ -1,6 +1,4 @@
-use nom::{
-    branch::alt, bytes::streaming::tag, combinator, number::Endianness, sequence, IResult, Needed,
-};
+use nom::{branch::alt, bytes::streaming::tag, combinator, number::Endianness, IResult, Needed};
 
 use crate::{EntryValue, ExifIter, ExifTag, GPSInfo, ParsedExifEntry};
 
@@ -158,43 +156,75 @@ impl From<ExifIter> for Exif {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct TiffHeader {
     pub endian: Endianness,
-    pub ifd0_offset: u32,
+    pub bigtiff: bool,
+    pub ifd0_offset: u64,
 }
 
 impl Default for TiffHeader {
     fn default() -> Self {
         Self {
             endian: Endianness::Big,
+            bigtiff: false,
             ifd0_offset: 0,
         }
     }
 }
 
-pub(crate) const IFD_ENTRY_SIZE: usize = 12;
+pub(crate) const IFD_REGULAR_TIFF_ENTRY_SIZE: usize = 12;
+pub(crate) const IFD_BIG_TIFF_ENTRY_SIZE: usize = 20;
 
 impl TiffHeader {
     pub fn parse(input: &[u8]) -> IResult<&[u8], TiffHeader> {
-        use nom::number::streaming::{u16, u32};
         let (remain, endian) = TiffHeader::parse_endian(input)?;
-        let (_, (_, offset)) = sequence::tuple((
-            combinator::verify(u16(endian), |magic| *magic == 0x2a),
-            u32(endian),
-        ))(remain)?;
+        let (remain, bigtiff) = TiffHeader::parse_bigtiff(remain, endian)?;
+        let (remain, offset) = if bigtiff {
+            // http://bigtiff.org/ describes the BigTIFF header additions as constants 0x8 and 0x0.
+            let (remain, first_word) = nom::number::streaming::u16(endian)(remain)?;
+            if first_word != 0x8 {
+                return Err(nom::Err::Failure(nom::error::make_error(
+                    input,
+                    nom::error::ErrorKind::Fail,
+                )));
+            }
+            let (remain, second_word) = nom::number::streaming::u16(endian)(remain)?;
+            if second_word != 0x0 {
+                return Err(nom::Err::Failure(nom::error::make_error(
+                    input,
+                    nom::error::ErrorKind::Fail,
+                )));
+            }
+            // offset
+            nom::number::streaming::u64(endian)(remain)?
+        } else {
+            let (remain, offset) = nom::number::streaming::u32(endian)(remain)?;
+            (remain, offset as u64)
+        };
 
         let header = Self {
             endian,
+            bigtiff,
             ifd0_offset: offset,
         };
 
         Ok((remain, header))
     }
 
-    pub fn parse_ifd_entry_num(input: &[u8], endian: Endianness) -> IResult<&[u8], u16> {
-        let (remain, num) = nom::number::streaming::u16(endian)(input)?; // Safe-slice
+    pub fn parse_ifd_entry_num(
+        input: &[u8],
+        endian: Endianness,
+        bigtiff: bool,
+    ) -> IResult<&[u8], u64> {
+        let (remain, num) = if bigtiff {
+            nom::number::streaming::u64(endian)(input)?
+        } else {
+            let (remain, num) = nom::number::streaming::u16(endian)(input)?;
+            (remain, num as u64)
+        };
         if num == 0 {
             return Ok((remain, 0));
         }
 
+        /* TODO
         // 12 bytes per entry
         let size = (num as usize)
             .checked_mul(IFD_ENTRY_SIZE)
@@ -203,6 +233,7 @@ impl TiffHeader {
         if size > remain.len() {
             return Err(nom::Err::Incomplete(Needed::new(size - remain.len())));
         }
+        */
 
         Ok((remain, num))
     }
@@ -226,6 +257,20 @@ impl TiffHeader {
                 Endianness::Little
             }
         })(input)
+    }
+
+    fn parse_bigtiff(input: &[u8], endian: Endianness) -> IResult<&[u8], bool> {
+        let (remain, magic_marker) = nom::number::streaming::u16(endian)(input)?;
+        if magic_marker == 43 {
+            Ok((remain, true))
+        } else if magic_marker == 42 {
+            Ok((remain, false))
+        } else {
+            Err(nom::Err::Failure(nom::error::make_error(
+                input,
+                nom::error::ErrorKind::Fail,
+            )))
+        }
     }
 }
 
@@ -270,6 +315,7 @@ mod tests {
             header,
             TiffHeader {
                 endian: Endianness::Big,
+                bigtiff: false,
                 ifd0_offset: 8,
             }
         );

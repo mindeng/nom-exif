@@ -156,10 +156,13 @@ pub(crate) fn extract_exif_with_mime(
                 }
                 _ => unreachable!(),
             };
-
             // full fill TIFF data
-            let mut iter =
-                IfdHeaderTravel::new(&buf[data_start..], header.ifd0_offset, header.endian);
+            let mut iter = IfdHeaderTravel::new(
+                &buf[data_start..],
+                header.ifd0_offset,
+                header.endian,
+                header.bigtiff,
+            );
             iter.travel_ifd(0)
                 .map_err(|e| ParsingErrorState::new(e, state.clone()))?;
 
