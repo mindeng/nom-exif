@@ -40,7 +40,6 @@ use crate::{
 /// Passing in a `BufRead` should be avoided because [`MediaParser`] comes with
 /// its own buffer management and the buffers can be shared between multiple
 /// parsing tasks, thus avoiding frequent memory allocations.
-
 pub struct MediaSource<R, S = Seekable> {
     pub(crate) reader: R,
     pub(crate) buf: Vec<u8>,
