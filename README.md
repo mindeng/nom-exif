@@ -177,7 +177,7 @@ See [`AsyncMediaSource`] & [`AsyncMediaParser`] for more information.
 ## GPS Info
 
 `ExifIter` provides a convenience method for parsing gps information. (`Exif` &
-`TrackInfo` also provide a `get_gps_info` mthod).
+`TrackInfo` also provide a `get_gps_info` method).
     
 ```rust
 use nom_exif::*;
