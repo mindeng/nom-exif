@@ -116,6 +116,7 @@ impl<'a> IfdHeaderTravel<'a> {
         value_or_offset.saturating_sub(self.offset)
     }
 
+    #[tracing::instrument(skip(self))]
     fn parse_ifd_entry_header(&self, pos: u32) -> IResult<&[u8], Option<IfdHeaderTravel<'a>>> {
         let (_, entry_data) =
             nom::bytes::streaming::take(IFD_ENTRY_SIZE)(&self.ifd_data[pos as usize..])?;
@@ -129,7 +130,7 @@ impl<'a> IfdHeaderTravel<'a> {
 
             if let Some(offset) = entry.sub_ifd_offset {
                 let tag: ExifTag = entry.tag.try_into().unwrap();
-                println!("sub-ifd: {:?}", tag);
+                tracing::debug!("sub-ifd: {:?}", tag);
                 let sub_ifd =
                     IfdHeaderTravel::new(&self.ifd_data[offset as usize..], offset, self.endian);
                 return Ok((remain, Some(sub_ifd)));
