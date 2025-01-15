@@ -330,13 +330,13 @@ impl ParsedExifEntry {
         }
     }
 
-    fn make_err(ifd: usize, tag: ExifTagCode, e: ParseEntryError) -> Self {
-        Self {
-            ifd,
-            tag,
-            res: Some(Err(EntryError(e))),
-        }
-    }
+    // fn make_err(ifd: usize, tag: ExifTagCode, e: ParseEntryError) -> Self {
+    //     Self {
+    //         ifd,
+    //         tag,
+    //         res: Some(Err(EntryError(e))),
+    //     }
+    // }
 }
 
 impl Debug for ParsedExifEntry {
@@ -379,7 +379,7 @@ impl Iterator for ExifIter {
             let cur_ifd_idx = ifd.ifd_idx;
             match ifd.next() {
                 Some((tag_code, entry)) => {
-                    // tracing::debug!(ifd = ifd.ifd_idx, ?tag_code, ?entry, "next tag entry");
+                    tracing::debug!(ifd = ifd.ifd_idx, ?tag_code, ?entry, "next tag entry");
 
                     match entry {
                         IfdEntry::IfdNew(new_ifd) => {
@@ -425,9 +425,11 @@ impl Iterator for ExifIter {
                         }
                         IfdEntry::Err(e) => {
                             tracing::warn!(?tag_code, ?e, "parse ifd entry error");
-                            let res =
-                                Some(ParsedExifEntry::make_err(ifd.ifd_idx, tag_code.unwrap(), e));
-                            return res;
+                            // let res =
+                            //     Some(ParsedExifEntry::make_err(ifd.ifd_idx, tag_code.unwrap(), e));
+                            // return res;
+                            self.ifds.push(ifd);
+                            continue;
                         }
                     }
                 }

@@ -37,6 +37,7 @@ pub enum EntryValue {
     URationalArray(Vec<URational>),
     IRationalArray(Vec<IRational>),
 
+    U8Array(Vec<u8>),
     U16Array(Vec<u16>),
     U32Array(Vec<u32>),
 }
@@ -161,9 +162,7 @@ impl EntryValue {
         match data_format {
             DataFormat::U8 => match components_num {
                 1 => Ok(Self::U8(data[0])),
-                x => Err(Error::Unsupported(format!(
-                    "unsigned byte with {x} components"
-                ))),
+                _ => Ok(Self::U8Array(data.into())),
             },
             DataFormat::Text => Ok(EntryValue::Text(
                 get_cstr(data).map_err(|e| Error::InvalidData(e.to_string()))?,
@@ -468,6 +467,7 @@ impl Display for EntryValue {
             EntryValue::IRationalArray(v) => {
                 format!("IRationalArray[{}]", rationals_to_string::<i32>(v)).fmt(f)
             }
+            EntryValue::U8Array(v) => array_to_string("U8Array", v, f),
             EntryValue::U32Array(v) => array_to_string("U32Array", v, f),
             EntryValue::U16Array(v) => array_to_string("U16Array", v, f),
         }
