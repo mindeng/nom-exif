@@ -1,21 +1,19 @@
 [package]
 name = "nom-exif"
 rust-version = "1.80"
-version = "2.2.1"
+version = "2.3.0"
 edition = "2021"
 license-file = "LICENSE"
 description = "Exif/metadata parsing library written in pure Rust, both image (jpeg/heif/heic/jpg/tiff etc.) and video/audio (mov/mp4/3gp/webm/mkv/mka, etc.) files are supported."
 homepage = "https://github.com/mindeng/nom-exif"
 repository = "https://github.com/mindeng/nom-exif"
-exclude = [
-    "testdata/*",
-]
+exclude = ["testdata/*"]
 categories = [
-    "multimedia::images",
-    "multimedia::video",
-    "multimedia::audio",
-    "parsing",
-    "parser-implementations",
+  "multimedia::images",
+  "multimedia::video",
+  "multimedia::audio",
+  "parsing",
+  "parser-implementations",
 ]
 keywords = ["metadata", "exif"]
 
@@ -45,7 +43,12 @@ serde_json = "1.0"
 regex = { version = "1.10" }
 clap = { version = "4.4", features = ["derive"] }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
-tokio = { version = "1.40.0", features = ["rt-multi-thread", "macros", "fs", "io-util"] }
+tokio = { version = "1.40.0", features = [
+  "rt-multi-thread",
+  "macros",
+  "fs",
+  "io-util",
+] }
 
 [[example]]
 name = "rexiftool"

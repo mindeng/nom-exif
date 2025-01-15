@@ -1,5 +1,25 @@
 # Changelog
 
+## nom-exif v2.3.0
+
+[v2.2.1..v2.3.0](https://github.com/mindeng/nom-exif/compare/v2.2.1..v2.3.0)
+
+### Added
+
+- `EntryValue::U8Array`
+
+### Fixed
+
+- Doesn't recognize DateTimeOriginal tag in file. #33
+- Update to avoid Rust 1.83 lints #30
+- println! prints lines to output #27
+- range start index panic in src/exif/exif_iter.rs #25
+- Panic range end index 131151 out of range for slice of length 129 #24
+- Memory allocation failed when decoding invalid file #22
+- assertion failed: data.len() >= 6 when checking broken exif file #21
+- Panic depth shouldn't be greater than 1 #20
+- freeze when checking broken file #19
+
 ## nom-exif v2.2.1
 
 [v2.1.1..v2.2.1](https://github.com/mindeng/nom-exif/compare/v2.1.1..v2.2.1)
@@ -45,10 +65,10 @@
 ### Added
 
 - Support more file types
-  - *.tiff
-  - *.webm
-  - *.mkv, *.mka
-  - *.3gp
+  - `*.tiff`
+  - `*.webm`
+  - `*.mkv`, `*.mka`
+  - `*.3gp`
 
 - rexiftool
   - Add `--debug` command line parameter for printing and saving debug logs
@@ -69,12 +89,12 @@
 ### Changed
 
 - Deprecated
-  - `parse_exif`	    : Please use `MediaParser` instead.
-  - `parse_exif_async`	: Please use `MediaParser` instead.
-  - `parse_heif_exif`	: Please use `MediaParser` instead.
-  - `parse_jpeg_exif`	: Please use `MediaParser` instead.
-  - `parse_metadata`	: Please use `MediaParser` instead.
-  - `FileFormat`	    : Please use `MediaSource` instead.
+  - `parse_exif`     : Please use `MediaParser` instead.
+  - `parse_exif_async` : Please use `MediaParser` instead.
+  - `parse_heif_exif` : Please use `MediaParser` instead.
+  - `parse_jpeg_exif` : Please use `MediaParser` instead.
+  - `parse_metadata` : Please use `MediaParser` instead.
+  - `FileFormat`     : Please use `MediaSource` instead.
 
 ## nom-exif v1.5.2
 
@@ -88,7 +108,6 @@
   to do that limitation when parsing box body (this restriction is necessary
   for the robustness of the program). Additionally, I also changed the size
   limit on the box body to a more reasonable value.
-
 
 ## nom-exif v1.5.1
 
@@ -132,7 +151,7 @@
 
 [v1.4.0..v1.4.1](https://github.com/mindeng/nom-exif/compare/v1.4.0..v1.4.1)
 
-### Performance Improved!
+### Performance Improved
 
 - Avoid data copying when extracting moov body.
 
@@ -144,7 +163,7 @@
 
 [v1.3.0..v1.4.0](https://github.com/mindeng/nom-exif/compare/v1.3.0..v1.4.0)
 
-### Performance Improved!
+### Performance Improved
 
 - Avoid data copying during parsing IFD entries.
 
