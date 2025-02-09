@@ -2,6 +2,14 @@
 
 ## nom-exif v2.3.0
 
+[v2.3.0..v2.3.1](https://github.com/mindeng/nom-exif/compare/v2.3.0..v2.3.1)
+
+### Fixed
+
+- parse GPS strings correctly #35
+
+## nom-exif v2.3.0
+
 [v2.2.1..v2.3.0](https://github.com/mindeng/nom-exif/compare/v2.2.1..v2.3.0)
 
 ### Added
