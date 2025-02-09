@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use iso6709parse::{parse_string_representation, ISO6709Coord};
+use iso6709parse::ISO6709Coord;
 
 use crate::values::{IRational, URational};
 
@@ -158,7 +158,7 @@ pub struct InvalidISO6709Coord;
 impl FromStr for GPSInfo {
     type Err = InvalidISO6709Coord;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let info: Self = parse_string_representation(s).map_err(|_| InvalidISO6709Coord)?;
+        let info: Self = iso6709parse::parse(s).map_err(|_| InvalidISO6709Coord)?;
         Ok(info)
     }
 }
@@ -171,16 +171,16 @@ impl From<ISO6709Coord> for GPSInfo {
 
         Self {
             latitude_ref: if v.lat >= 0.0 { 'N' } else { 'S' },
-            latitude: v.lat.into(),
+            latitude: v.lat.abs().into(),
             longitude_ref: if v.lon >= 0.0 { 'E' } else { 'W' },
-            longitude: v.lon.into(),
+            longitude: v.lon.abs().into(),
             altitude_ref: v
                 .altitude
                 .map(|x| if x >= 0.0 { 0 } else { 1 })
                 .unwrap_or(0),
             altitude: v
                 .altitude
-                .map(|x| ((x * 1000.0).trunc() as u32, 1000).into())
+                .map(|x| ((x.abs() * 1000.0).trunc() as u32, 1000).into())
                 .unwrap_or_default(),
             ..Default::default()
         }
@@ -320,6 +320,45 @@ mod tests {
         assert_eq!(
             below.format_iso6709(),
             "+40.68917-074.04444-33.333CRSWGS_84/"
+        );
+    }
+
+    #[test]
+    fn gps_iso6709_with_invalid_alt() {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
+        let iso: ISO6709Coord = iso6709parse::parse("+26.5322-078.1969+019.099/").unwrap();
+        assert_eq!(iso.lat, 26.5322);
+        assert_eq!(iso.lon, -78.1969);
+        assert_eq!(iso.altitude, None);
+
+        let iso: GPSInfo = iso6709parse::parse("+26.5322-078.1969+019.099/").unwrap();
+        assert_eq!(iso.latitude_ref, 'N');
+        assert_eq!(
+            iso.latitude,
+            LatLng(
+                Rational::<u32>(26, 1),
+                Rational::<u32>(31, 1),
+                Rational::<u32>(93, 100),
+            )
+        );
+
+        assert_eq!(iso.longitude_ref, 'W');
+        assert_eq!(
+            iso.longitude,
+            LatLng(
+                Rational::<u32>(78, 1),
+                Rational::<u32>(11, 1),
+                Rational::<u32>(81, 100),
+            )
+        );
+
+        assert_eq!(iso.altitude_ref, 0);
+        assert_eq!(
+            iso.altitude,
+            URational {
+                ..Default::default()
+            }
         );
     }
 }
