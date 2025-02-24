@@ -130,7 +130,17 @@ impl<'a> IfdHeaderTravel<'a> {
 
             if let Some(offset) = entry.sub_ifd_offset {
                 let tag: ExifTag = entry.tag.try_into().unwrap();
-                tracing::debug!("sub-ifd: {:?}", tag);
+                tracing::debug!(
+                    ?offset,
+                    data_len = self.ifd_data.len(),
+                    "sub-ifd: {:?}",
+                    tag
+                );
+
+                // Full fill bytes until sub-ifd header
+                let (_, _) =
+                    nom::bytes::streaming::take(offset as usize - remain.len() + 2)(self.ifd_data)?;
+
                 let sub_ifd =
                     IfdHeaderTravel::new(&self.ifd_data[offset as usize..], offset, self.endian);
                 return Ok((remain, Some(sub_ifd)));

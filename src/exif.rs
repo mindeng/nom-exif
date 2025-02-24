@@ -129,6 +129,7 @@ pub(crate) async fn parse_exif_iter_async<
     range_to_iter(parser, out)
 }
 
+#[tracing::instrument(skip(buf))]
 pub(crate) fn extract_exif_with_mime(
     img_type: crate::file::MimeImage,
     buf: &[u8],
@@ -158,10 +159,12 @@ pub(crate) fn extract_exif_with_mime(
             };
 
             // full fill TIFF data
+            tracing::debug!("full fill TIFF data");
             let mut iter =
                 IfdHeaderTravel::new(&buf[data_start..], header.ifd0_offset, header.endian);
             iter.travel_ifd(0)
                 .map_err(|e| ParsingErrorState::new(e, state.clone()))?;
+            tracing::debug!("full fill TIFF data done");
 
             (Some(buf), state)
         }

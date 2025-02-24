@@ -1,5 +1,11 @@
 # Changelog
 
+## nom-exif v2.4.1
+
+### Fixed
+
+- Fix: Panic for Nikon D200 raw NEF file (parse_ifd_entry_header) #34
+
 ## nom-exif v2.4.0
 
 ### Added
