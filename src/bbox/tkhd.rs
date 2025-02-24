@@ -123,7 +123,7 @@ fn find_video_track(input: &[u8]) -> crate::Result<Option<BoxHolder>> {
             };
 
             // component subtype
-            if hdlr.body_data().len() < 4 {
+            if hdlr.body_data().len() < 12 {
                 return true;
             }
             let subtype = &hdlr.body_data()[8..12]; // Safe-slice
@@ -160,5 +160,16 @@ mod tests {
 
         assert_eq!(tkhd.width, width);
         assert_eq!(tkhd.height, height);
+    }
+
+    #[test_case("crash_moov-trak")]
+    fn tkhd_crash(path: &str) {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
+        let buf = read_sample(path).unwrap();
+
+        let (_, bbox) = travel_while(&buf, |b| b.box_type() != "moov").unwrap();
+        let bbox = bbox.unwrap();
+        let _ = parse_video_tkhd_in_moov(bbox.body_data());
     }
 }
