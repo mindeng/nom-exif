@@ -61,6 +61,7 @@ impl<R, S: Skip<R>> Debug for MediaSource<R, S> {
 const HEADER_PARSE_BUF_SIZE: usize = 128;
 
 impl<R: Read, S: Skip<R>> MediaSource<R, S> {
+    #[tracing::instrument(skip(reader))]
     fn build(mut reader: R) -> crate::Result<Self> {
         // TODO: reuse MediaParser to parse header
         let mut buf = Vec::with_capacity(HEADER_PARSE_BUF_SIZE);
@@ -69,6 +70,7 @@ impl<R: Read, S: Skip<R>> MediaSource<R, S> {
             .take(HEADER_PARSE_BUF_SIZE as u64)
             .read_to_end(&mut buf)?;
         let mime: Mime = buf.as_slice().try_into()?;
+        tracing::debug!(?mime);
         Ok(Self {
             reader,
             buf,

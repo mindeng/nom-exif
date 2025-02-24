@@ -145,7 +145,16 @@ impl Debug for BoxHolder<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BoxHolder")
             .field("header", &self.header)
-            .field("data len", &self.data.len())
+            .field("body_size", &self.body_data().len())
+            .field(
+                "data",
+                &(self
+                    .body_data()
+                    .iter()
+                    .take(64)
+                    .map(|x| x.as_char())
+                    .collect::<String>()),
+            )
             .finish()
     }
 }

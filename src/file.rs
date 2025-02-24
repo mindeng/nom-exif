@@ -183,6 +183,7 @@ fn get_ebml_doc_type(input: &[u8]) -> crate::Result<String> {
     Ok(doc)
 }
 
+#[tracing::instrument(skip_all)]
 fn parse_bmff_mime(input: &[u8]) -> crate::Result<Mime> {
     let (ftyp, Some(major_brand)) =
         get_ftyp_and_major_brand(input).map_err(|_| crate::Error::UnrecognizedFileFormat)?
@@ -194,6 +195,8 @@ fn parse_bmff_mime(input: &[u8]) -> crate::Result<Mime> {
 
         return Err(crate::Error::UnrecognizedFileFormat);
     };
+
+    tracing::debug!(?ftyp);
 
     // Check if it is a QuickTime file
     if QT_BRAND_NAMES.iter().any(|v| v.as_bytes() == major_brand) {
