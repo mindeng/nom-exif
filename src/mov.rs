@@ -7,7 +7,7 @@ use std::{
 use chrono::DateTime;
 use nom::{bytes::streaming, IResult};
 
-use crate::bbox::to_boxes;
+use crate::{bbox::to_boxes, values::get_cstr};
 #[allow(deprecated)]
 use crate::{
     bbox::{
@@ -215,7 +215,12 @@ fn convert_video_tags(entries: Vec<(String, EntryValue)>) -> BTreeMap<TrackInfoT
                     .and_then(parse_udta_gps)
                     .map(|v| (TrackInfoTag::GpsIso6709, EntryValue::Text(v)))
             } else if k == "udta.auth" {
-                Some((TrackInfoTag::Author, v))
+                v.as_u8array()
+                    // The first 4 bytes is zero, skip them
+                    .and_then(|d| if d.len() > 4 { Some(&d[4..]) } else { None })
+                    // .map(|v| (TrackInfoTag::Author, EntryValue::U8Array(v.to_owned())))
+                    .and_then(|b| get_cstr(b).ok())
+                    .map(|v| (TrackInfoTag::Author, EntryValue::Text(v)))
             } else if k.starts_with("udta.") {
                 let tag = TryInto::<TrackInfoTag>::try_into(k.as_str()).ok();
                 tag.map(|t| (t, v))
@@ -244,6 +249,7 @@ fn parse_udta_gps(data: &[u8]) -> Option<String> {
         tracing::warn!("moov/udta/©xyz body is too small");
         None
     } else {
+        // The first 4 bytes is zero, skip them
         let location = data[4..] // Safe-slice
             .iter()
             .map(|b| *b as char)

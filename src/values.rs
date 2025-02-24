@@ -4,7 +4,7 @@ use chrono::{
     offset::LocalResult, DateTime, FixedOffset, Local, NaiveDateTime, Offset, TimeZone as _, Utc,
 };
 
-use nom::{multi::many_m_n, number::Endianness};
+use nom::{multi::many_m_n, number::Endianness, AsChar};
 #[cfg(feature = "json_dump")]
 use serde::{Deserialize, Serialize, Serializer};
 use thiserror::Error;
@@ -667,14 +667,24 @@ impl From<IRational> for URational {
     }
 }
 
-fn get_cstr(data: &[u8]) -> std::result::Result<String, FromUtf8Error> {
-    String::from_utf8(
-        data.iter()
-            .take_while(|b| **b != 0)
-            .filter(|b| **b != 0)
-            .cloned()
-            .collect::<Vec<u8>>(),
-    )
+pub(crate) fn get_cstr(data: &[u8]) -> std::result::Result<String, FromUtf8Error> {
+    let vec = filter_zero(data);
+    if let Ok(s) = String::from_utf8(vec) {
+        Ok(s)
+    } else {
+        Ok(filter_zero(data)
+            .into_iter()
+            .map(|x| x.as_char())
+            .collect::<String>())
+    }
+}
+
+fn filter_zero(data: &[u8]) -> Vec<u8> {
+    data.iter()
+        .take_while(|b| **b != 0)
+        .filter(|b| **b != 0)
+        .cloned()
+        .collect::<Vec<u8>>()
 }
 
 pub(crate) trait TryFromBytes: Sized {

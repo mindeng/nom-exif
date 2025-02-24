@@ -48,7 +48,7 @@ pub enum TrackInfoTag {
     /// please use [`TrackInfo::get_gps_info`].
     GpsIso6709,
 
-    /// Its value is an `EntryValue::U8Array`.
+    /// Its value is an `EntryValue::Text`.
     Author,
 }
 
