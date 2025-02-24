@@ -1,5 +1,12 @@
 # Changelog
 
+## nom-exif v2.4.2
+
+### Fixed
+
+- Fix: panic: skip a large number of bytes #28 #26
+- Fix: panic when parsing moov/trak #29
+
 ## nom-exif v2.4.1
 
 ### Fixed
