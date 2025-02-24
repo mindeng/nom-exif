@@ -1,5 +1,5 @@
 use std::{
-    collections::{btree_map, BTreeMap},
+    collections::BTreeMap,
     io::{Read, Seek},
     ops::Range,
 };
@@ -7,6 +7,7 @@ use std::{
 use chrono::DateTime;
 use nom::{bytes::streaming, IResult};
 
+use crate::bbox::to_boxes;
 #[allow(deprecated)]
 use crate::{
     bbox::{
@@ -86,7 +87,7 @@ pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, E
         }
     };
 
-    let map: BTreeMap<TrackInfoTag, EntryValue> = map_qt_tag_to_video_tag(entries.clone());
+    let map: BTreeMap<TrackInfoTag, EntryValue> = convert_video_tags(entries.clone());
     let mut extras = parse_mvhd_tkhd(&moov_body);
 
     const CREATIONDATE_KEY: &str = "com.apple.quicktime.creationdate";
@@ -114,13 +115,14 @@ pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, E
         _ => unreachable!(),
     }));
 
-    // If the GPSInfo doesn't exist, then try to find GPS info from box
-    // `moov/udta/©xyz`. For mp4 files, Android phones store GPS info in that
-    // box.
-    if !map.contains_key(&TrackInfoTag::GpsIso6709) {
-        if let Some(gps) = parse_mp4_gps(&moov_body) {
-            const LOCATION_KEY: &str = "com.apple.quicktime.location.ISO6709";
-            entries.push((LOCATION_KEY.to_string(), gps.into()));
+    if map.contains_key(&TrackInfoTag::GpsIso6709) {
+        const LOCATION_KEY: &str = "com.apple.quicktime.location.ISO6709";
+        if let Some(idx) = entries.iter().position(|(k, _)| k == "udta.©xyz") {
+            entries.remove(idx);
+            entries.push((
+                LOCATION_KEY.to_string(),
+                map.get(&TrackInfoTag::GpsIso6709).unwrap().to_owned(),
+            ));
         }
     }
 
@@ -139,7 +141,7 @@ pub(crate) fn parse_qt(
         }
     };
 
-    let mut entries: BTreeMap<TrackInfoTag, EntryValue> = map_qt_tag_to_video_tag(entries);
+    let mut entries: BTreeMap<TrackInfoTag, EntryValue> = convert_video_tags(entries);
     let extras = parse_mvhd_tkhd(moov_body);
     if entries.contains_key(&TrackInfoTag::CreateDate) {
         entries.remove(&TrackInfoTag::CreateDate);
@@ -161,18 +163,9 @@ pub(crate) fn parse_mp4(
         }
     };
 
-    let mut entries: BTreeMap<TrackInfoTag, EntryValue> = map_qt_tag_to_video_tag(entries);
+    let mut entries: BTreeMap<TrackInfoTag, EntryValue> = convert_video_tags(entries);
     let extras = parse_mvhd_tkhd(moov_body);
     entries.extend(extras);
-
-    // If the GPSInfo doesn't exist, then try to find GPS info from box
-    // `moov/udta/©xyz`. For mp4 files, Android phones store GPS info in that
-    // box.
-    if let btree_map::Entry::Vacant(e) = entries.entry(TrackInfoTag::GpsIso6709) {
-        if let Some(gps) = parse_mp4_gps(moov_body) {
-            e.insert(gps.into());
-        }
-    }
 
     Ok(entries)
 }
@@ -198,9 +191,7 @@ fn parse_mvhd_tkhd(moov_body: &[u8]) -> BTreeMap<TrackInfoTag, EntryValue> {
     entries
 }
 
-fn map_qt_tag_to_video_tag(
-    entries: Vec<(String, EntryValue)>,
-) -> BTreeMap<TrackInfoTag, EntryValue> {
+fn convert_video_tags(entries: Vec<(String, EntryValue)>) -> BTreeMap<TrackInfoTag, EntryValue> {
     entries
         .into_iter()
         .filter_map(|(k, v)| {
@@ -216,6 +207,14 @@ fn map_qt_tag_to_video_tag(
                 Some((TrackInfoTag::Software, v))
             } else if k == "com.apple.quicktime.location.ISO6709" {
                 Some((TrackInfoTag::GpsIso6709, v))
+            } else if k == "udta.©xyz" {
+                // For mp4 files, Android phones store GPS info in that box.
+                v.as_u8array()
+                    .and_then(parse_udta_gps)
+                    .map(|v| (TrackInfoTag::GpsIso6709, EntryValue::Text(v)))
+            } else if k.starts_with("udta.") {
+                let tag = TryInto::<TrackInfoTag>::try_into(k.as_str()).ok();
+                tag.map(|t| (t, v))
             } else {
                 None
             }
@@ -225,23 +224,28 @@ fn map_qt_tag_to_video_tag(
 
 /// Try to find GPS info from box `moov/udta/©xyz`. For mp4 files, Android
 /// phones store GPS info in that box.
-fn parse_mp4_gps(moov_body: &[u8]) -> Option<String> {
-    let bbox = match find_box(moov_body, "udta/©xyz") {
-        Ok((_, b)) => b,
-        Err(_) => None,
-    };
-    if let Some(bbox) = bbox {
-        if bbox.body_data().len() <= 4 {
-            tracing::warn!("moov/udta/©xyz body is too small");
-        } else {
-            let location = bbox.body_data()[4..] // Safe-slice
-                .iter()
-                .map(|b| *b as char)
-                .collect::<String>();
-            return Some(location);
-        }
+// fn parse_mp4_gps(moov_body: &[u8]) -> Option<String> {
+//     let bbox = match find_box(moov_body, "udta/©xyz") {
+//         Ok((_, b)) => b,
+//         Err(_) => None,
+//     };
+//     if let Some(bbox) = bbox {
+//         return parse_udta_gps(bbox.body_data());
+//     }
+//     None
+// }
+
+fn parse_udta_gps(data: &[u8]) -> Option<String> {
+    if data.len() <= 4 {
+        tracing::warn!("moov/udta/©xyz body is too small");
+        None
+    } else {
+        let location = data[4..] // Safe-slice
+            .iter()
+            .map(|b| *b as char)
+            .collect::<String>();
+        Some(location)
     }
-    None
 }
 
 /// *Deprecated*: Please use [`crate::MediaParser`] instead.
@@ -347,21 +351,43 @@ pub(crate) fn extract_moov_body_from_buf(input: &[u8]) -> Result<Range<usize>, P
 
 type EntriesResult<'a> = IResult<&'a [u8], Option<Vec<(String, EntryValue)>>>;
 
+#[tracing::instrument(skip(input))]
 fn parse_moov_body(input: &[u8]) -> EntriesResult {
-    let (remain, Some(meta)) = find_box(input, "meta")? else {
-        return Ok((input, None));
+    tracing::debug!("parse_moov_body");
+
+    let mut entries = parse_meta(input).unwrap_or_default();
+
+    if let Ok((_, Some(udta))) = find_box(input, "udta") {
+        tracing::debug!("udta");
+        if let Ok(boxes) = to_boxes(udta.body_data()) {
+            for entry in boxes.iter() {
+                tracing::debug!(?entry, "udta entry");
+                entries.push((
+                    format!("udta.{}", entry.box_type()),
+                    EntryValue::U8Array(Vec::from(entry.body_data())),
+                ));
+            }
+        }
+    }
+
+    Ok((input, Some(entries)))
+}
+
+fn parse_meta(input: &[u8]) -> Option<Vec<(String, EntryValue)>> {
+    let (_, Some(meta)) = find_box(input, "meta").ok()? else {
+        return None;
     };
 
-    let (_, Some(keys)) = find_box(meta.body_data(), "keys")? else {
-        return Ok((remain, None));
+    let (_, Some(keys)) = find_box(meta.body_data(), "keys").ok()? else {
+        return None;
     };
 
-    let (_, Some(ilst)) = find_box(meta.body_data(), "ilst")? else {
-        return Ok((remain, None));
+    let (_, Some(ilst)) = find_box(meta.body_data(), "ilst").ok()? else {
+        return None;
     };
 
-    let (_, keys) = KeysBox::parse_box(keys.data)?;
-    let (_, ilst) = IlstBox::parse_box(ilst.data)?;
+    let (_, keys) = KeysBox::parse_box(keys.data).ok()?;
+    let (_, ilst) = IlstBox::parse_box(ilst.data).ok()?;
 
     let entries = keys
         .entries
@@ -370,7 +396,7 @@ fn parse_moov_body(input: &[u8]) -> EntriesResult {
         .zip(ilst.items.into_iter().map(|v| v.value))
         .collect::<Vec<_>>();
 
-    Ok((input, Some(entries)))
+    Some(entries)
 }
 
 /// Change timezone format from iso 8601 to rfc3339, e.g.:

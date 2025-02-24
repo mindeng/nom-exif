@@ -3,6 +3,8 @@ use std::{
     fmt::Display,
 };
 
+use thiserror::Error;
+
 use crate::{
     ebml::webm::parse_webm,
     error::ParsingError,
@@ -45,6 +47,9 @@ pub enum TrackInfoTag {
     /// If you need a parsed [`GPSInfo`] which provides more detailed GPS info,
     /// please use [`TrackInfo::get_gps_info`].
     GpsIso6709,
+
+    /// Its value is an `EntryValue::U8Array`.
+    UdtaAuth,
 }
 
 /// Represents parsed track info.
@@ -136,6 +141,7 @@ impl TrackInfo {
 ///     [(27, 1), (7, 1), (68, 100)].into(),
 /// );
 /// ```
+#[tracing::instrument(skip(input))]
 pub(crate) fn parse_track_info(
     input: &[u8],
     mime_video: MimeVideo,
@@ -151,6 +157,7 @@ pub(crate) fn parse_track_info(
                 MimeVideo::QuickTime => parse_qt(moov_body)?.into(),
 
                 MimeVideo::Mp4 | MimeVideo::_3gpp => parse_mp4(moov_body)?.into(),
+
                 _ => unreachable!(),
             }
         }
@@ -202,6 +209,31 @@ impl From<TrackInfoTag> for &str {
             TrackInfoTag::ImageWidth => "ImageWidth",
             TrackInfoTag::ImageHeight => "ImageHeight",
             TrackInfoTag::GpsIso6709 => "GpsIso6709",
+            TrackInfoTag::UdtaAuth => "udta.auth",
         }
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("unknown TrackInfoTag: {0}")]
+pub struct UnknownTrackInfoTag(pub String);
+
+impl TryFrom<&str> for TrackInfoTag {
+    type Error = UnknownTrackInfoTag;
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let tag = match value {
+            "Make" => TrackInfoTag::Make,
+            "Model" => TrackInfoTag::Model,
+            "Software" => TrackInfoTag::Software,
+            "CreateDate" => TrackInfoTag::CreateDate,
+            "DurationMs" => TrackInfoTag::DurationMs,
+            "ImageWidth" => TrackInfoTag::ImageWidth,
+            "ImageHeight" => TrackInfoTag::ImageHeight,
+            "GpsIso6709" => TrackInfoTag::GpsIso6709,
+            "udta.auth" => TrackInfoTag::UdtaAuth,
+            x => return Err(UnknownTrackInfoTag(x.to_owned())),
+        };
+
+        Ok(tag)
     }
 }

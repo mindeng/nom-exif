@@ -354,6 +354,14 @@ impl EntryValue {
             None
         }
     }
+
+    pub fn as_u8array(&self) -> Option<&[u8]> {
+        if let EntryValue::U8Array(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
 }
 
 /// # Exif Data format

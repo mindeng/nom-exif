@@ -193,6 +193,23 @@ impl<'a> BoxHolder<'a> {
 
 type BoxResult<'a> = IResult<&'a [u8], Option<BoxHolder<'a>>>;
 
+pub fn to_boxes(input: &[u8]) -> crate::Result<Vec<BoxHolder<'_>>> {
+    let mut res = Vec::new();
+    let mut remain = input;
+    loop {
+        if remain.is_empty() {
+            break;
+        }
+
+        let (rem, bbox) = BoxHolder::parse(remain)?;
+        res.push(bbox);
+        // Sanity check, to avoid infinite loops caused by unexpected errors.
+        assert!(rem.len() < remain.len());
+        remain = rem;
+    }
+    Ok(res)
+}
+
 /// Parses every top level box while `predicate` returns true, then returns the
 /// last parsed box.
 pub fn travel_while<'a, F>(input: &'a [u8], mut predicate: F) -> BoxResult<'a>
