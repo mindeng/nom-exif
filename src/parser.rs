@@ -233,7 +233,12 @@ pub(crate) trait BufParser: Buf + Debug {
         tracing::debug!(skip_n, "clear and skip bytes");
         self.clear();
 
-        let done = S::skip_by_seek(reader, skip_n.try_into().unwrap())?;
+        let done = S::skip_by_seek(
+            reader,
+            skip_n
+                .try_into()
+                .map_err(|_| ParsedError::Failed("skip too many bytes".into()))?,
+        )?;
         if !done {
             tracing::debug!(skip_n, "skip by using our buffer");
             let mut skipped = 0;
@@ -604,5 +609,18 @@ mod tests {
         let mf = MediaSource::unseekable(open_sample(path).unwrap()).unwrap();
         let info: TrackInfo = parser.parse(mf).unwrap();
         assert_eq!(info.get(tag).unwrap(), &v);
+    }
+
+    #[test_case("crash_moov-trak")]
+    #[test_case("crash_skip_large")]
+    #[test_case("crash_add_large")]
+    fn parse_track_crash(path: &str) {
+        let mut parser = parser();
+
+        let mf = MediaSource::file(open_sample(path).unwrap()).unwrap();
+        let _: TrackInfo = parser.parse(mf).unwrap_or_default();
+
+        let mf = MediaSource::unseekable(open_sample(path).unwrap()).unwrap();
+        let _: TrackInfo = parser.parse(mf).unwrap_or_default();
     }
 }

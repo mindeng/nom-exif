@@ -349,7 +349,11 @@ pub(crate) fn extract_moov_body_from_buf(input: &[u8]) -> Result<Range<usize>, P
     .map_err(|e| convert_error(e, "search atom moov failed"))?;
 
     if to_skip > 0 {
-        return Err(ParsingError::ClearAndSkip(to_skip + input.len()));
+        return Err(ParsingError::ClearAndSkip(
+            to_skip
+                .checked_add(input.len())
+                .ok_or_else(|| ParsingError::Failed("to_skip is too big".into()))?,
+        ));
     }
 
     let size: usize = header.body_size().try_into().expect("must fit");

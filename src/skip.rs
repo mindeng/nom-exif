@@ -96,7 +96,10 @@ impl<R: Seek> Skip<R> for Seekable {
 
     #[inline]
     fn skip_by_seek(reader: &mut R, skip: u64) -> io::Result<bool> {
-        reader.seek_relative(skip.try_into().unwrap())?;
+        reader.seek_relative(
+            skip.try_into()
+                .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?,
+        )?;
         Ok(true)
     }
 
