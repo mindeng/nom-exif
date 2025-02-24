@@ -1,6 +1,13 @@
 # Changelog
 
-## nom-exif v2.3.0
+## nom-exif v2.4.0
+
+### Added
+
+- Add `TrackInfoTag::Author` #36
+  - Parse `udta/auth` or `com.apple.quicktime.author` info from `mp4`/`mov` files
+
+## nom-exif v2.3.1
 
 [v2.3.0..v2.3.1](https://github.com/mindeng/nom-exif/compare/v2.3.0..v2.3.1)
 
