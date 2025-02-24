@@ -362,6 +362,13 @@ impl EntryValue {
             None
         }
     }
+    pub fn to_u8array(self) -> Option<Vec<u8>> {
+        if let EntryValue::U8Array(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
 }
 
 /// # Exif Data format

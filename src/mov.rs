@@ -205,6 +205,8 @@ fn convert_video_tags(entries: Vec<(String, EntryValue)>) -> BTreeMap<TrackInfoT
                 Some((TrackInfoTag::Model, v))
             } else if k == "com.apple.quicktime.software" {
                 Some((TrackInfoTag::Software, v))
+            } else if k == "com.apple.quicktime.author" {
+                Some((TrackInfoTag::Author, v))
             } else if k == "com.apple.quicktime.location.ISO6709" {
                 Some((TrackInfoTag::GpsIso6709, v))
             } else if k == "udta.©xyz" {
@@ -212,6 +214,8 @@ fn convert_video_tags(entries: Vec<(String, EntryValue)>) -> BTreeMap<TrackInfoT
                 v.as_u8array()
                     .and_then(parse_udta_gps)
                     .map(|v| (TrackInfoTag::GpsIso6709, EntryValue::Text(v)))
+            } else if k == "udta.auth" {
+                Some((TrackInfoTag::Author, v))
             } else if k.starts_with("udta.") {
                 let tag = TryInto::<TrackInfoTag>::try_into(k.as_str()).ok();
                 tag.map(|t| (t, v))

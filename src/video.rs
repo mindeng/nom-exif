@@ -49,7 +49,7 @@ pub enum TrackInfoTag {
     GpsIso6709,
 
     /// Its value is an `EntryValue::U8Array`.
-    UdtaAuth,
+    Author,
 }
 
 /// Represents parsed track info.
@@ -209,7 +209,7 @@ impl From<TrackInfoTag> for &str {
             TrackInfoTag::ImageWidth => "ImageWidth",
             TrackInfoTag::ImageHeight => "ImageHeight",
             TrackInfoTag::GpsIso6709 => "GpsIso6709",
-            TrackInfoTag::UdtaAuth => "udta.auth",
+            TrackInfoTag::Author => "Author",
         }
     }
 }
@@ -230,7 +230,7 @@ impl TryFrom<&str> for TrackInfoTag {
             "ImageWidth" => TrackInfoTag::ImageWidth,
             "ImageHeight" => TrackInfoTag::ImageHeight,
             "GpsIso6709" => TrackInfoTag::GpsIso6709,
-            "udta.auth" => TrackInfoTag::UdtaAuth,
+            "Author" => TrackInfoTag::Author,
             x => return Err(UnknownTrackInfoTag(x.to_owned())),
         };
 
