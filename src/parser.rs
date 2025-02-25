@@ -597,7 +597,7 @@ mod tests {
     #[test_case("meta.mp4", DurationMs, 1063_u64.into())]
     #[test_case("meta.mp4", GpsIso6709, "+27.2939+112.6932/".into())]
     #[test_case("meta.mp4", CreateDate, DateTime::parse_from_str("2024-02-03T07:05:38Z", "%+").unwrap().into())]
-    #[test_case("udta.auth.mp4", Author, "UÄReplayKitRecording".into(); "udta author")]
+    #[test_case("udta.auth.mp4", Author, "ReplayKitRecording".into(); "udta author")]
     #[test_case("auth.mov", Author, "ReplayKitRecording".into(); "mov author")]
     fn parse_track_info(path: &str, tag: TrackInfoTag, v: EntryValue) {
         let mut parser = parser();

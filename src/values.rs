@@ -679,10 +679,12 @@ pub(crate) fn get_cstr(data: &[u8]) -> std::result::Result<String, FromUtf8Error
     }
 }
 
-fn filter_zero(data: &[u8]) -> Vec<u8> {
+pub(crate) fn filter_zero(data: &[u8]) -> Vec<u8> {
     data.iter()
+        // skip leading zero bytes
+        .skip_while(|b| **b == 0)
+        // ignore tailing zero bytes, and all bytes after zero bytes
         .take_while(|b| **b != 0)
-        .filter(|b| **b != 0)
         .cloned()
         .collect::<Vec<u8>>()
 }

@@ -7,7 +7,7 @@ use std::{
 use chrono::DateTime;
 use nom::{bytes::streaming, IResult};
 
-use crate::{bbox::to_boxes, values::get_cstr};
+use crate::{bbox::to_boxes, values::filter_zero};
 #[allow(deprecated)]
 use crate::{
     bbox::{
@@ -216,10 +216,7 @@ fn convert_video_tags(entries: Vec<(String, EntryValue)>) -> BTreeMap<TrackInfoT
                     .map(|v| (TrackInfoTag::GpsIso6709, EntryValue::Text(v)))
             } else if k == "udta.auth" {
                 v.as_u8array()
-                    // The first 4 bytes is zero, skip them
-                    .and_then(|d| if d.len() > 4 { Some(&d[4..]) } else { None })
-                    // .map(|v| (TrackInfoTag::Author, EntryValue::U8Array(v.to_owned())))
-                    .and_then(|b| get_cstr(b).ok())
+                    .and_then(parse_udta_auth)
                     .map(|v| (TrackInfoTag::Author, EntryValue::Text(v)))
             } else if k.starts_with("udta.") {
                 let tag = TryInto::<TrackInfoTag>::try_into(k.as_str()).ok();
@@ -255,6 +252,21 @@ fn parse_udta_gps(data: &[u8]) -> Option<String> {
             .map(|b| *b as char)
             .collect::<String>();
         Some(location)
+    }
+}
+
+const ISO_639_2_UND: [u8; 2] = [0x55, 0xc4];
+
+fn parse_udta_auth(data: &[u8]) -> Option<String> {
+    // Skip leading zero bytes
+    let data = filter_zero(data);
+
+    // Skip leading language flags.
+    // Refer to: https://exiftool.org/forum/index.php?topic=11498.0
+    if data.starts_with(&ISO_639_2_UND) {
+        String::from_utf8(data.into_iter().skip(2).collect()).ok()
+    } else {
+        String::from_utf8(data).ok()
     }
 }
 
