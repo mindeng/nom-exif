@@ -1,5 +1,11 @@
 # Changelog
 
+## nom-exif v2.4.3
+
+### Fixed
+
+- Ignore undetermined language flag (0x55c4) when parsing `TrackInfoTag::Author` info #36
+
 ## nom-exif v2.4.2
 
 ### Fixed
