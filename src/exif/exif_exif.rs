@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use nom::{
     branch::alt, bytes::streaming::tag, combinator, number::Endianness, sequence, IResult, Needed,
 };
@@ -155,7 +157,7 @@ impl From<ExifIter> for Exif {
 }
 
 /// TIFF Header
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) struct TiffHeader {
     pub endian: Endianness,
     pub ifd0_offset: u32,
@@ -167,6 +169,20 @@ impl Default for TiffHeader {
             endian: Endianness::Big,
             ifd0_offset: 0,
         }
+    }
+}
+
+impl Debug for TiffHeader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let endian_str = match self.endian {
+            Endianness::Big => "Big",
+            Endianness::Little => "Little",
+            Endianness::Native => "Native",
+        };
+        f.debug_struct("TiffHeader")
+            .field("endian", &endian_str)
+            .field("ifd0_offset", &format!("{:#x}", self.ifd0_offset))
+            .finish()
     }
 }
 

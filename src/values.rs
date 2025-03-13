@@ -1,8 +1,6 @@
 use std::{fmt::Display, string::FromUtf8Error};
 
-use chrono::{
-    offset::LocalResult, DateTime, FixedOffset, Local, NaiveDateTime, Offset, TimeZone as _, Utc,
-};
+use chrono::{DateTime, FixedOffset, NaiveDateTime, Offset, Utc};
 
 use nom::{multi::many_m_n, number::Endianness, AsChar};
 #[cfg(feature = "json_dump")]
@@ -13,6 +11,7 @@ use crate::ExifTag;
 
 /// Represent a parsed entry value.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum EntryValue {
     Text(String),
     URational(URational),
@@ -32,6 +31,7 @@ pub enum EntryValue {
     F64(f64),
 
     Time(DateTime<FixedOffset>),
+    NaiveDateTime(NaiveDateTime),
     Undefined(Vec<u8>),
 
     URationalArray(Vec<URational>),
@@ -141,18 +141,14 @@ impl EntryValue {
                 let s = get_cstr(data).map_err(|e| Error::InvalidData(e.to_string()))?;
 
                 let t = if let Some(tz) = tz {
-                    let s = format!("{s} {tz}");
-                    DateTime::parse_from_str(&s, "%Y:%m:%d %H:%M:%S %z")?
+                    let tz = repair_tz_str(tz);
+                    let ss = format!("{s} {tz}");
+                    match DateTime::parse_from_str(&ss, "%Y:%m:%d %H:%M:%S %z") {
+                        Ok(t) => t,
+                        Err(_) => return Ok(EntryValue::NaiveDateTime(parse_naive_time(s)?)),
+                    }
                 } else {
-                    let t = NaiveDateTime::parse_from_str(&s, "%Y:%m:%d %H:%M:%S")?;
-                    let t = Local.from_local_datetime(&t);
-                    let t = if let LocalResult::Single(t) = t {
-                        Ok(t)
-                    } else {
-                        Err(Error::InvalidData(format!("parse time failed: {s}")))
-                    }?;
-
-                    t.with_timezone(t.offset())
+                    return Ok(EntryValue::NaiveDateTime(parse_naive_time(s)?));
                 };
 
                 return Ok(EntryValue::Time(t));
@@ -370,6 +366,30 @@ impl EntryValue {
         }
     }
 }
+fn parse_naive_time(s: String) -> Result<NaiveDateTime, ParseEntryError> {
+    let t = NaiveDateTime::parse_from_str(&s, "%Y:%m:%d %H:%M:%S")?;
+    Ok(t)
+}
+// fn parse_time_with_local_tz(s: String) -> Result<DateTime<FixedOffset>, ParseEntryError> {
+//     let t = NaiveDateTime::parse_from_str(&s, "%Y:%m:%d %H:%M:%S")?;
+//     let t = Local.from_local_datetime(&t);
+//     let t = if let LocalResult::Single(t) = t {
+//         Ok(t)
+//     } else {
+//         Err(Error::InvalidData(format!("parse time failed: {s}")))
+//     }?;
+//     Ok(t.with_timezone(t.offset()))
+// }
+
+fn repair_tz_str(tz: &str) -> String {
+    if let Some(idx) = tz.find(":") {
+        if tz[idx..].len() < 3 {
+            // Add tailed 0
+            return format!("{tz}0");
+        }
+    }
+    tz.into()
+}
 
 /// # Exif Data format
 ///
@@ -457,6 +477,7 @@ impl Display for EntryValue {
             EntryValue::U8(v) => Display::fmt(&v, f),
             EntryValue::I8(v) => Display::fmt(&v, f),
             EntryValue::Time(v) => Display::fmt(&v.to_rfc3339(), f),
+            EntryValue::NaiveDateTime(v) => Display::fmt(&v.format("%Y-%m-%d %H:%M:%S"), f),
             EntryValue::Undefined(v) => {
                 // Display up to MAX_DISPLAY_NUM components, and replace the rest with ellipsis
                 const MAX_DISPLAY_NUM: usize = 8;

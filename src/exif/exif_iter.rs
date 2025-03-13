@@ -41,6 +41,11 @@ pub(crate) fn input_into_iter(
                 return Err(crate::Error::ParseFailed("no enough bytes".into()));
             }
 
+            tracing::debug!(
+                ?header,
+                data_len = format!("{:#x}", input.len()),
+                "TIFF header parsed"
+            );
             (header, start)
         }
     };
@@ -895,23 +900,38 @@ mod tests {
     use crate::file::MimeImage;
     use crate::slice::SubsliceRange;
     use crate::testkit::read_sample;
+    use crate::Exif;
     use test_case::test_case;
 
-    #[test_case("exif.jpg", "+08:00", MimeImage::Jpeg)]
-    #[test_case("broken.jpg", "", MimeImage::Jpeg)]
-    #[test_case("exif.heic", "+08:00", MimeImage::Heic)]
-    #[test_case("tif.tif", "", MimeImage::Tiff)]
-    #[test_case("fujifilm_x_t1_01.raf.meta", "", MimeImage::Raf)]
-    fn exif_iter_tz(path: &str, tz: &str, img_type: MimeImage) {
+    #[test_case("exif.jpg", "+08:00", "2023-07-09T20:36:33+08:00", MimeImage::Jpeg)]
+    #[test_case("exif-no-tz.jpg", "", "2023-07-09 20:36:33", MimeImage::Jpeg)]
+    #[test_case("broken.jpg", "-", "2014-09-21 15:51:22", MimeImage::Jpeg)]
+    #[test_case("exif.heic", "+08:00", "2022-07-22T21:26:32+08:00", MimeImage::Heic)]
+    #[test_case("tif.tif", "-", "-", MimeImage::Tiff)]
+    #[test_case(
+        "fujifilm_x_t1_01.raf.meta",
+        "-",
+        "2014-01-30 12:49:13",
+        MimeImage::Raf
+    )]
+    fn exif_iter_tz(path: &str, tz: &str, time: &str, img_type: MimeImage) {
         let buf = read_sample(path).unwrap();
         let (data, _) = extract_exif_with_mime(img_type, &buf, None).unwrap();
         let subslice_in_range = data.and_then(|x| buf.subslice_in_range(x)).unwrap();
         let iter = input_into_iter((buf, subslice_in_range), None).unwrap();
-        let expect = if tz.is_empty() {
+        let expect = if tz == "-" {
             None
         } else {
             Some(tz.to_string())
         };
         assert_eq!(iter.tz, expect);
+        let exif: Exif = iter.into();
+        let value = exif.get(crate::ExifTag::DateTimeOriginal);
+        if time == "-" {
+            assert!(value.is_none());
+        } else {
+            let value = value.unwrap();
+            assert_eq!(value.to_string(), time);
+        }
     }
 }
