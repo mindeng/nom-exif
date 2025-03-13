@@ -254,21 +254,27 @@ mod tests {
 
     #[test_case("exif.heic", "+43.29013+084.22713+1595.950CRSWGS_84/")]
     #[test_case("exif.jpg", "+22.53113+114.02148/")]
+    #[test_case("invalid-gps", "-")]
     fn gps(path: &str, gps_str: &str) {
         let f = open_sample(path).unwrap();
         let iter = parse_exif(f, None)
             .expect("should be Ok")
             .expect("should not be None");
-        let gps_info = iter
-            .parse_gps_info()
-            .expect("should be parsed Ok")
-            .expect("should not be None");
 
-        // let gps_info = iter
-        //     .consume_parse_gps_info()
-        //     .expect("should be parsed Ok")
-        //     .expect("should not be None");
-        assert_eq!(gps_info.format_iso6709(), gps_str);
+        if gps_str == "-" {
+            assert!(iter.parse_gps_info().expect("should be ok").is_none());
+        } else {
+            let gps_info = iter
+                .parse_gps_info()
+                .expect("should be parsed Ok")
+                .expect("should not be None");
+
+            // let gps_info = iter
+            //     .consume_parse_gps_info()
+            //     .expect("should be parsed Ok")
+            //     .expect("should not be None");
+            assert_eq!(gps_info.format_iso6709(), gps_str);
+        }
     }
 
     #[cfg(feature = "async")]

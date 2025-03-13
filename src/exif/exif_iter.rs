@@ -718,16 +718,16 @@ impl IfdIter {
                 }
                 ExifTag::GPSLatitude => {
                     if let Some(v) = entry.as_urational_array() {
-                        gps.latitude = v.iter().collect();
+                        gps.latitude = v.try_into().ok()?;
                     } else if let Some(v) = entry.as_irational_array() {
-                        gps.latitude = v.iter().collect();
+                        gps.latitude = v.try_into().ok()?;
                     }
                 }
                 ExifTag::GPSLongitude => {
                     if let Some(v) = entry.as_urational_array() {
-                        gps.longitude = v.iter().collect();
+                        gps.longitude = v.try_into().ok()?;
                     } else if let Some(v) = entry.as_irational_array() {
-                        gps.longitude = v.iter().collect();
+                        gps.longitude = v.try_into().ok()?;
                     }
                 }
                 ExifTag::GPSAltitude => {

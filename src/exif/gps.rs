@@ -131,28 +131,26 @@ impl FromIterator<URational> for LatLng {
     }
 }
 
-impl<'a> FromIterator<&'a URational> for LatLng {
-    fn from_iter<T: IntoIterator<Item = &'a URational>>(iter: T) -> Self {
-        let mut values = iter.into_iter();
-        Self(
-            *values.next().unwrap(),
-            *values.next().unwrap(),
-            *values.next().unwrap(),
-        )
+impl TryFrom<&Vec<URational>> for LatLng {
+    type Error = crate::Error;
+    fn try_from(value: &Vec<URational>) -> Result<Self, Self::Error> {
+        if value.len() < 3 {
+            Err(crate::Error::ParseFailed("invalid URational data".into()))
+        } else {
+            Ok(Self(value[0], value[1], value[2]))
+        }
     }
 }
-
-impl<'a> FromIterator<&'a IRational> for LatLng {
-    fn from_iter<T: IntoIterator<Item = &'a IRational>>(iter: T) -> Self {
-        let mut values = iter.into_iter();
-        Self(
-            (*values.next().unwrap()).into(),
-            (*values.next().unwrap()).into(),
-            (*values.next().unwrap()).into(),
-        )
+impl TryFrom<&Vec<IRational>> for LatLng {
+    type Error = crate::Error;
+    fn try_from(value: &Vec<IRational>) -> Result<Self, Self::Error> {
+        if value.len() < 3 {
+            Err(crate::Error::ParseFailed("invalid URational data".into()))
+        } else {
+            Ok(Self(value[0].into(), value[1].into(), value[2].into()))
+        }
     }
 }
-
 pub struct InvalidISO6709Coord;
 
 impl FromStr for GPSInfo {
