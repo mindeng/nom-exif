@@ -1,5 +1,16 @@
 # Changelog
 
+## nom-exif v2.5.0
+
+### Added
+
+- `EntryValue::NaiveDateTime` #38
+
+### Fixed
+
+- Try to repair broken `OffsetTimeOriginal`/`OffsetTime`,
+  if it's not repairable, then parse time as an `NaiveDateTime`. #39
+
 ## nom-exif v2.4.3
 
 ### Fixed
