@@ -1,5 +1,11 @@
 # Changelog
 
+## nom-exif v2.5.1
+
+### Fixed
+
+- Panic when parsing GPSInfo #37
+
 ## nom-exif v2.5.0
 
 ### Added
