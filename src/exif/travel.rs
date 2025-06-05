@@ -4,7 +4,11 @@ use nom::{
     IResult, Needed,
 };
 
-use crate::{error::ParsingError, exif::TiffHeader, values::DataFormat, ExifTag};
+use crate::{
+    error::ParsingError,
+    exif::{tags::ExifTagCode, TiffHeader},
+    values::DataFormat,
+};
 
 use super::{exif_exif::IFD_ENTRY_SIZE, exif_iter::SUBIFD_TAGS};
 
@@ -14,6 +18,8 @@ use super::{exif_exif::IFD_ENTRY_SIZE, exif_iter::SUBIFD_TAGS};
 pub(crate) struct IfdHeaderTravel<'a> {
     // starts from "ifd/sub-ifd entries" (two bytes of ifd/sub-ifd entry num)
     ifd_data: &'a [u8],
+
+    tag: ExifTagCode,
 
     // IFD data offset relative to the TIFF header.
     offset: u32,
@@ -34,9 +40,10 @@ pub(crate) struct EntryInfo<'a> {
 }
 
 impl<'a> IfdHeaderTravel<'a> {
-    pub fn new(input: &'a [u8], offset: u32, endian: Endianness) -> Self {
+    pub fn new(input: &'a [u8], tag: ExifTagCode, offset: u32, endian: Endianness) -> Self {
         Self {
             ifd_data: input,
+            tag,
             endian,
             offset,
         }
@@ -129,7 +136,7 @@ impl<'a> IfdHeaderTravel<'a> {
             // }
 
             if let Some(offset) = entry.sub_ifd_offset {
-                let tag: ExifTag = entry.tag.try_into().unwrap();
+                let tag: ExifTagCode = entry.tag.into();
                 tracing::debug!(
                     ?offset,
                     data_len = self.ifd_data.len(),
@@ -141,8 +148,12 @@ impl<'a> IfdHeaderTravel<'a> {
                 let (_, _) =
                     nom::bytes::streaming::take(offset as usize - remain.len() + 2)(self.ifd_data)?;
 
-                let sub_ifd =
-                    IfdHeaderTravel::new(&self.ifd_data[offset as usize..], offset, self.endian);
+                let sub_ifd = IfdHeaderTravel::new(
+                    &self.ifd_data[offset as usize..],
+                    tag,
+                    offset,
+                    self.endian,
+                );
                 return Ok((remain, Some(sub_ifd)));
             }
         }
@@ -171,10 +182,18 @@ impl<'a> IfdHeaderTravel<'a> {
 
             if let Some(ifd) = sub_ifd {
                 if ifd.offset <= self.offset {
+                    let hex = self.ifd_data[pos - IFD_ENTRY_SIZE..]
+                        .iter()
+                        .take(IFD_ENTRY_SIZE)
+                        .map(|b| format!("{:02X}", b))
+                        .collect::<String>();
+
                     tracing::error!(
                         current_ifd_offset = self.offset,
                         subifd_offset = ifd.offset,
-                        "bad new SUB-IFD in TIFF: offset is smaller than current IFD"
+                        tag = ifd.tag.to_string(),
+                        data = hex,
+                        "bad new SUB-IFD in TIFF: offset is smaller than current IFD",
                     );
                 } else {
                     sub_ifds.push(ifd);

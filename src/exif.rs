@@ -160,8 +160,12 @@ pub(crate) fn extract_exif_with_mime(
 
             // full fill TIFF data
             tracing::debug!("full fill TIFF data");
-            let mut iter =
-                IfdHeaderTravel::new(&buf[data_start..], header.ifd0_offset, header.endian);
+            let mut iter = IfdHeaderTravel::new(
+                &buf[data_start..],
+                tags::ExifTagCode::Code(0x2a),
+                header.ifd0_offset,
+                header.endian,
+            );
             iter.travel_ifd(0)
                 .map_err(|e| ParsingErrorState::new(e, state.clone()))?;
             tracing::debug!("full fill TIFF data done");
