@@ -37,6 +37,8 @@ const MP4_BRAND_NAMES: &[&str] = &[
 
 const QT_BRAND_NAMES: &[&str] = &["qt  ", "mqt "];
 
+const CR3_BRAND_NAMES: &[&str] = &["crx "];
+
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub(crate) enum Mime {
     Image(MimeImage),
@@ -65,6 +67,7 @@ pub(crate) enum MimeImage {
     Heif,
     Tiff,
     Raf, // Fujifilm RAW, image/x-fuji-raf
+    Cr3, // Canon RAW, image/x-canon-cr3
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
@@ -217,6 +220,11 @@ fn parse_bmff_mime(input: &[u8]) -> crate::Result<Mime> {
             return Ok(Mime::Video(MimeVideo::_3gpp));
         }
         return Ok(Mime::Video(MimeVideo::Mp4));
+    }
+
+    // Check if it is a CR3 file
+    if CR3_BRAND_NAMES.iter().any(|v| v.as_bytes() == major_brand) {
+        return Ok(Mime::Image(MimeImage::Cr3));
     }
 
     // Check compatible brands

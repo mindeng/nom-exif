@@ -1,0 +1,10 @@
+Copyright » Copyright 2025 Roland Dreier - CC BY-SA
+ImageHeight » 3648
+ImageWidth » 5472
+Make » Canon
+Model » Canon EOS R6
+ModifyDate » 2025-09-06 20:24:47
+Orientation » 1
+ResolutionUnit » 2
+XResolution » 72/1 (72.0000)
+YResolution » 72/1 (72.0000)

@@ -142,7 +142,7 @@ mod tests {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 
         let buf = read_sample(path).unwrap();
-	let (exif, _state) = extract_exif_data(None, &buf[..]).unwrap();
+        let (exif, _state) = extract_exif_data(None, &buf[..]).unwrap();
 
         if exif_size == 0 {
             assert!(exif.is_none());

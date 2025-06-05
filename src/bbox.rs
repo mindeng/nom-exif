@@ -7,6 +7,7 @@ use nom::{
     number, AsChar, IResult, Needed,
 };
 
+pub mod cr3_moov;
 mod idat;
 mod iinf;
 mod iloc;
@@ -15,6 +16,8 @@ mod keys;
 mod meta;
 mod mvhd;
 mod tkhd;
+mod uuid;
+pub use cr3_moov::Cr3MoovBox;
 pub use ilst::IlstBox;
 pub use keys::KeysBox;
 pub use meta::MetaBox;

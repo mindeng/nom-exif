@@ -340,6 +340,7 @@ pub use mov::{parse_metadata, parse_mov_metadata};
 
 mod bbox;
 mod buffer;
+mod cr3;
 mod ebml;
 mod error;
 mod exif;

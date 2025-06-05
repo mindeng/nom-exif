@@ -143,6 +143,7 @@ pub(crate) trait Buf {
 pub(crate) enum ParsingState {
     TiffHeader(TiffHeader),
     HeifExifSize(usize),
+    Cr3ExifSize(usize),
 }
 
 impl Display for ParsingState {
@@ -150,6 +151,7 @@ impl Display for ParsingState {
         match self {
             ParsingState::TiffHeader(h) => Display::fmt(&format!("ParsingState: {h:?})"), f),
             ParsingState::HeifExifSize(n) => Display::fmt(&format!("ParsingState: {n}"), f),
+            ParsingState::Cr3ExifSize(n) => Display::fmt(&format!("ParsingState: {n}"), f),
         }
     }
 }
