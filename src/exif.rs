@@ -4,7 +4,7 @@ use crate::parser::{BufParser, ParsingState, ShareBuf};
 use crate::raf::RafInfo;
 use crate::skip::Skip;
 use crate::slice::SubsliceRange;
-use crate::{heif, jpeg, MediaParser, MediaSource};
+use crate::{cr3, heif, jpeg, MediaParser, MediaSource};
 #[allow(deprecated)]
 use crate::{partial_vec::PartialVec, FileFormat};
 pub use exif_exif::Exif;
@@ -86,6 +86,7 @@ fn extract_exif_range(img: MimeImage, buf: &[u8], state: Option<ParsingState>) -
     let header = state.and_then(|x| match x {
         ParsingState::TiffHeader(h) => Some(h),
         ParsingState::HeifExifSize(_) => None,
+        ParsingState::Cr3ExifSize(_) => None,
     });
     Ok(exif_data
         .and_then(|x| buf.subslice_in_range(x))
@@ -174,6 +175,7 @@ pub(crate) fn extract_exif_with_mime(
         MimeImage::Raf => RafInfo::parse(buf)
             .map(|res| (res.1.exif_data, state.clone()))
             .map_err(|e| nom_error_to_parsing_error_with_state(e, state))?,
+        MimeImage::Cr3 => cr3_extract_exif(state, buf)?,
     };
     Ok((exif_data, state))
 }
@@ -183,6 +185,13 @@ fn heif_extract_exif(
     buf: &[u8],
 ) -> Result<(Option<&[u8]>, Option<ParsingState>), ParsingErrorState> {
     heif::extract_exif_data(state, buf)
+}
+
+fn cr3_extract_exif(
+    state: Option<ParsingState>,
+    buf: &[u8],
+) -> Result<(Option<&[u8]>, Option<ParsingState>), ParsingErrorState> {
+    cr3::extract_exif_data(state, buf)
 }
 
 #[cfg(feature = "async")]
