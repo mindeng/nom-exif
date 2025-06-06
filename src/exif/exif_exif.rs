@@ -156,6 +156,8 @@ impl From<ExifIter> for Exif {
     }
 }
 
+pub(crate) const TIFF_HEADER_LEN: usize = 8;
+
 /// TIFF Header
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct TiffHeader {

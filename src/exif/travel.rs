@@ -16,15 +16,15 @@ use super::{exif_exif::IFD_ENTRY_SIZE, exif_iter::SUBIFD_TAGS};
 ///
 /// Currently only used to extract Exif data for *.tiff files
 pub(crate) struct IfdHeaderTravel<'a> {
-    // starts from "ifd/sub-ifd entries" (two bytes of ifd/sub-ifd entry num)
-    ifd_data: &'a [u8],
+    // starts from file beginning
+    data: &'a [u8],
 
     tag: ExifTagCode,
 
-    // IFD data offset relative to the TIFF header.
-    offset: u32,
-
     endian: Endianness,
+
+    // ifd data offset
+    offset: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -40,9 +40,9 @@ pub(crate) struct EntryInfo<'a> {
 }
 
 impl<'a> IfdHeaderTravel<'a> {
-    pub fn new(input: &'a [u8], tag: ExifTagCode, offset: u32, endian: Endianness) -> Self {
+    pub fn new(input: &'a [u8], offset: usize, tag: ExifTagCode, endian: Endianness) -> Self {
         Self {
-            ifd_data: input,
+            data: input,
             tag,
             endian,
             offset,
@@ -86,25 +86,28 @@ impl<'a> IfdHeaderTravel<'a> {
             tracing::debug!(
                 components_num,
                 size,
-                "tag {:04x} entry data @ offset {:08x} start {:08x} end {:08x} my_offset: {:08x} data len {:08x}",
+                "tag {:04x} entry data start {:08x} end {:08x} my_offset: {:08x} data len {:08x}",
                 tag,
                 value_or_offset,
                 start,
                 end,
-                self.offset,
-                self.ifd_data.len()
+                self.data.len(),
             );
-            if end > self.ifd_data.len() {
-                return Err(nom::Err::Incomplete(Needed::new(end - self.ifd_data.len())));
+            if end > self.data.len() {
+                return Err(nom::Err::Incomplete(Needed::new(end - self.data.len())));
             }
-            (&self.ifd_data[start..end], Some(start as u32))
+            (&self.data[start..end], Some(start as u32))
         } else {
             (entry_data, None)
         };
 
         let sub_ifd_offset = if SUBIFD_TAGS.contains(&tag) {
             let offset = self.get_data_pos(value_or_offset);
-            Some(offset)
+            if offset > 0 {
+                Some(offset)
+            } else {
+                None
+            }
         } else {
             None
         };
@@ -120,13 +123,14 @@ impl<'a> IfdHeaderTravel<'a> {
     }
 
     fn get_data_pos(&'a self, value_or_offset: u32) -> u32 {
-        value_or_offset.saturating_sub(self.offset)
+        // value_or_offset.saturating_sub(self.offset)
+        value_or_offset
     }
 
     #[tracing::instrument(skip(self))]
     fn parse_ifd_entry_header(&self, pos: u32) -> IResult<&[u8], Option<IfdHeaderTravel<'a>>> {
         let (_, entry_data) =
-            nom::bytes::streaming::take(IFD_ENTRY_SIZE)(&self.ifd_data[pos as usize..])?;
+            nom::bytes::streaming::take(IFD_ENTRY_SIZE)(&self.data[pos as usize..])?;
 
         let (remain, entry) = self.parse_tag_entry_header(entry_data)?;
 
@@ -137,23 +141,13 @@ impl<'a> IfdHeaderTravel<'a> {
 
             if let Some(offset) = entry.sub_ifd_offset {
                 let tag: ExifTagCode = entry.tag.into();
-                tracing::debug!(
-                    ?offset,
-                    data_len = self.ifd_data.len(),
-                    "sub-ifd: {:?}",
-                    tag
-                );
+                tracing::debug!(?offset, data_len = self.data.len(), "sub-ifd: {:?}", tag);
 
                 // Full fill bytes until sub-ifd header
                 let (_, _) =
-                    nom::bytes::streaming::take(offset as usize - remain.len() + 2)(self.ifd_data)?;
+                    nom::bytes::streaming::take(offset as usize - remain.len() + 2)(self.data)?;
 
-                let sub_ifd = IfdHeaderTravel::new(
-                    &self.ifd_data[offset as usize..],
-                    tag,
-                    offset,
-                    self.endian,
-                );
+                let sub_ifd = IfdHeaderTravel::new(self.data, offset as usize, tag, self.endian);
                 return Ok((remain, Some(sub_ifd)));
             }
         }
@@ -169,9 +163,9 @@ impl<'a> IfdHeaderTravel<'a> {
             return Err(ParsingError::Failed(msg.into()));
         }
 
-        tracing::debug!(ifd_data_len = self.ifd_data.len(), offset = self.offset);
-        let (remain, entry_num) = TiffHeader::parse_ifd_entry_num(self.ifd_data, self.endian)?;
-        let mut pos = self.ifd_data.len() - remain.len();
+        let (_, entry_num) =
+            TiffHeader::parse_ifd_entry_num(&self.data[self.offset..], self.endian)?;
+        let mut pos = self.offset + 2;
 
         let mut sub_ifds = Vec::new();
 
@@ -181,23 +175,15 @@ impl<'a> IfdHeaderTravel<'a> {
             pos += IFD_ENTRY_SIZE;
 
             if let Some(ifd) = sub_ifd {
-                if ifd.offset <= self.offset {
-                    let hex = self.ifd_data[pos - IFD_ENTRY_SIZE..]
+                tracing::debug!(
+                    data = self.data[pos - IFD_ENTRY_SIZE..]
                         .iter()
                         .take(IFD_ENTRY_SIZE)
                         .map(|b| format!("{:02X}", b))
-                        .collect::<String>();
-
-                    tracing::error!(
-                        current_ifd_offset = self.offset,
-                        subifd_offset = ifd.offset,
-                        tag = ifd.tag.to_string(),
-                        data = hex,
-                        "bad new SUB-IFD in TIFF: offset is smaller than current IFD",
-                    );
-                } else {
-                    sub_ifds.push(ifd);
-                }
+                        .collect::<String>(),
+                    tag = ifd.tag.to_string(),
+                );
+                sub_ifds.push(ifd);
             }
         }
 

@@ -240,7 +240,6 @@ fn convert_video_tags(entries: Vec<(String, EntryValue)>) -> BTreeMap<TrackInfoT
 //     }
 //     None
 // }
-
 fn parse_udta_gps(data: &[u8]) -> Option<String> {
     if data.len() <= 4 {
         tracing::warn!("moov/udta/©xyz body is too small");

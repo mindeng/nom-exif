@@ -7,8 +7,8 @@ use crate::slice::SubsliceRange;
 use crate::{heif, jpeg, MediaParser, MediaSource};
 #[allow(deprecated)]
 use crate::{partial_vec::PartialVec, FileFormat};
-use exif_exif::check_exif_header2;
 pub use exif_exif::Exif;
+use exif_exif::{check_exif_header2, TIFF_HEADER_LEN};
 use exif_iter::input_into_iter;
 pub use exif_iter::{ExifIter, ParsedExifEntry};
 pub use gps::{GPSInfo, LatLng};
@@ -141,19 +141,18 @@ pub(crate) fn extract_exif_with_mime(
             .map_err(|e| nom_error_to_parsing_error_with_state(e, state))?,
         MimeImage::Heic | crate::file::MimeImage::Heif => heif_extract_exif(state, buf)?,
         MimeImage::Tiff => {
-            let (header, data_start) = match state {
-                Some(ParsingState::TiffHeader(ref h)) => (h.to_owned(), 0),
+            let header = match state {
+                Some(ParsingState::TiffHeader(ref h)) => h.to_owned(),
                 None => {
                     let (_, header) = TiffHeader::parse(buf)
                         .map_err(|e| nom_error_to_parsing_error_with_state(e, None))?;
                     if header.ifd0_offset as usize > buf.len() {
                         let clear_and_skip =
-                            ParsingError::ClearAndSkip(header.ifd0_offset as usize);
+                            ParsingError::Need(header.ifd0_offset as usize - TIFF_HEADER_LEN + 2);
                         let state = Some(ParsingState::TiffHeader(header));
                         return Err(ParsingErrorState::new(clear_and_skip, state));
                     }
-                    let start = header.ifd0_offset as usize;
-                    (header, start)
+                    header
                 }
                 _ => unreachable!(),
             };
@@ -161,9 +160,9 @@ pub(crate) fn extract_exif_with_mime(
             // full fill TIFF data
             tracing::debug!("full fill TIFF data");
             let mut iter = IfdHeaderTravel::new(
-                &buf[data_start..],
+                buf,
+                header.ifd0_offset as usize,
                 tags::ExifTagCode::Code(0x2a),
-                header.ifd0_offset,
                 header.endian,
             );
             iter.travel_ifd(0)

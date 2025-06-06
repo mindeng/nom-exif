@@ -1,9 +1,6 @@
 use std::{fmt::Debug, sync::Arc};
 
-use nom::{
-    number::{complete, Endianness},
-    sequence::tuple,
-};
+use nom::{number::complete, sequence::tuple};
 use thiserror::Error;
 
 use crate::{
@@ -28,39 +25,31 @@ pub(crate) fn input_into_iter(
     input: impl Into<PartialVec> + Debug,
     state: Option<TiffHeader>,
 ) -> crate::Result<ExifIter> {
-    let input = input.into();
-    let (header, start) = match state {
+    let input: PartialVec = input.into();
+    let header = match state {
         // header has been parsed, and header has been skipped, input data
         // is the IFD data
-        Some(header) => (header, 0),
+        Some(header) => header,
         _ => {
             // header has not been parsed, input data includes IFD header
             let (_, header) = TiffHeader::parse(&input[..])?;
-            let start = header.ifd0_offset as usize;
-            if start > input.len() {
-                return Err(crate::Error::ParseFailed("no enough bytes".into()));
-            }
 
             tracing::debug!(
                 ?header,
                 data_len = format!("{:#x}", input.len()),
                 "TIFF header parsed"
             );
-            (header, start)
+            header
         }
     };
 
+    let start = header.ifd0_offset as usize;
+    if start > input.len() {
+        return Err(crate::Error::ParseFailed("no enough bytes".into()));
+    }
     tracing::debug!(?header, offset = start);
 
-    let data = &input[..];
-
-    let mut ifd0 = IfdIter::try_new(
-        0,
-        input.partial(&data[start..]),
-        header.ifd0_offset,
-        header.endian,
-        None,
-    )?;
+    let mut ifd0 = IfdIter::try_new(0, input.to_owned(), header.to_owned(), start, None)?;
 
     let tz = ifd0.find_tz_offset();
     ifd0.tz = tz.clone();
@@ -186,9 +175,9 @@ impl ExifIter {
 
         let mut gps_subifd = match IfdIter::try_new(
             gps.ifd,
-            iter.input.partial(&iter.input[offset as usize..]), // Safe-slice
-            offset,
-            iter.tiff_header.endian,
+            iter.input.partial(&iter.input[..]),
+            iter.tiff_header,
+            offset as usize,
             iter.tz.clone(),
         ) {
             Ok(ifd0) => ifd0.tag_code(ExifTag::GPSInfo.code()),
@@ -388,14 +377,15 @@ impl Iterator for ExifIter {
 
                     match entry {
                         IfdEntry::IfdNew(new_ifd) => {
-                            if new_ifd.offset <= ifd.offset {
-                                tracing::error!(
-                                    ?tag_code,
-                                    ?new_ifd,
-                                    "bad new SUB-IFD: offset is smaller than current IFD"
-                                );
-                                continue;
-                            }
+                            // NOTE: new_ifd.offset may smaller than current ifd.offset
+                            // if new_ifd.offset <= ifd.offset {
+                            //     tracing::error!(
+                            //         ?tag_code,
+                            //         ?new_ifd,
+                            //         "bad new SUB-IFD: offset is smaller than current IFD"
+                            //     );
+                            //     continue;
+                            // }
                             let is_subifd = if new_ifd.ifd_idx == ifd.ifd_idx {
                                 // Push the current ifd before enter sub-ifd.
                                 self.ifds.push(ifd);
@@ -418,7 +408,7 @@ impl Iterator for ExifIter {
                                 return Some(ParsedExifEntry::make_ok(
                                     ifd_idx,
                                     tag_code.unwrap(),
-                                    EntryValue::U32(offset),
+                                    EntryValue::U32(offset as u32),
                                 ));
                             }
                         }
@@ -449,15 +439,16 @@ pub(crate) struct IfdIter {
     ifd_idx: usize,
     tag_code: Option<ExifTagCode>,
 
-    // starts from "ifd/sub-ifd entries" (two bytes of ifd/sub-ifd entry num)
+    // starts from TIFF header
     input: AssociatedInput,
 
-    // IFD data offset relative to the TIFF header.
-    offset: u32,
+    // ifd data offset
+    offset: usize,
+
+    header: TiffHeader,
+    entry_num: u16,
 
     pub tz: Option<String>,
-    endian: Endianness,
-    entry_num: u16,
 
     // Iterating status
     index: u16,
@@ -470,9 +461,8 @@ impl Debug for IfdIter {
             .field("ifd_idx", &self.ifd_idx)
             .field("tag", &self.tag_code)
             .field("data len", &self.input.len())
-            .field("offset", &self.offset)
             .field("tz", &self.tz)
-            .field("endian", &self.endian)
+            .field("header", &self.header)
             .field("entry_num", &self.entry_num)
             .field("index", &self.index)
             .field("pos", &self.pos)
@@ -484,7 +474,7 @@ impl IfdIter {
     pub fn rewind(&mut self) {
         self.index = 0;
         // Skip the first two bytes, which is the entry num
-        self.pos = 2;
+        self.pos = self.offset + 2;
     }
 
     pub fn clone_and_rewind(&self) -> Self {
@@ -513,8 +503,8 @@ impl IfdIter {
     pub fn try_new(
         ifd_idx: usize,
         input: AssociatedInput,
-        offset: u32,
-        endian: Endianness,
+        header: TiffHeader,
+        offset: usize,
         tz: Option<String>,
     ) -> crate::Result<Self> {
         if input.len() < 2 {
@@ -523,24 +513,26 @@ impl IfdIter {
             ));
         }
         // should use the complete header data to parse ifd entry num
-        let (_, entry_num) = TiffHeader::parse_ifd_entry_num(&input[..], endian)?;
+        assert!(offset <= input.len());
+        let ifd_data = input.partial(&input[offset..]);
+        let (_, entry_num) = TiffHeader::parse_ifd_entry_num(&ifd_data, header.endian)?;
 
         Ok(Self {
             ifd_idx,
             tag_code: None,
             input,
             offset,
+            header,
             entry_num,
             tz,
-            endian,
             // Skip the first two bytes, which is the entry num
-            pos: 2,
+            pos: offset + 2,
             index: 0,
         })
     }
 
     fn parse_tag_entry(&self, entry_data: &[u8]) -> Option<(u16, IfdEntry)> {
-        let endian = self.endian;
+        let endian = self.header.endian;
         let (_, (tag, data_format, components_num, value_or_offset)) = tuple((
             complete::u16::<_, nom::error::Error<_>>(endian),
             complete::u16(endian),
@@ -565,8 +557,9 @@ impl IfdIter {
         Some((tag, res))
     }
 
-    fn get_data_pos(&self, value_or_offset: u32) -> u32 {
-        value_or_offset.saturating_sub(self.offset)
+    fn get_data_pos(&self, value_or_offset: u32) -> usize {
+        // value_or_offset.saturating_sub(self.offset)
+        value_or_offset as usize
     }
 
     fn parse_entry(
@@ -585,12 +578,11 @@ impl IfdIter {
         let data = if size <= 4 {
             &entry_data[8..8 + size] // Safe-slice
         } else {
-            let start = self.get_data_pos(value_or_offset) as usize;
+            let start = self.get_data_pos(value_or_offset);
             let end = start + size;
             let Some(data) = self.input.slice_checked(start..end) else {
                 tracing::warn!(
-                    "entry data overflow, self.offset: {:08x} tag: {:04x} start: {:08x} end: {:08x} ifd data len {:08x}",
-                    self.offset,
+                    "entry data overflow, tag: {:04x} start: {:08x} end: {:08x} ifd data len {:08x}",
                     tag,
                     start,
                     end,
@@ -609,7 +601,7 @@ impl IfdIter {
         }
 
         let entry = EntryData {
-            endian: self.endian,
+            endian: self.header.endian,
             tag,
             data,
             data_format,
@@ -627,13 +619,13 @@ impl IfdIter {
         value_or_offset: u32,
         tag: Option<u16>,
     ) -> Option<IfdEntry> {
-        let pos = self.get_data_pos(value_or_offset) as usize;
-        if pos < self.input.len() {
+        let offset = self.get_data_pos(value_or_offset);
+        if offset < self.input.len() {
             match IfdIter::try_new(
                 ifd_idx,
-                self.input.partial(&self.input[pos..]),
-                value_or_offset,
-                self.endian,
+                self.input.partial(&self.input[..]),
+                self.header.to_owned(),
+                offset,
                 self.tz.clone(),
             ) {
                 Ok(iter) => return Some(IfdEntry::IfdNew(iter.tag_code_maybe(tag))),
@@ -654,7 +646,7 @@ impl IfdIter {
     }
 
     pub fn find_exif_iter(&self) -> Option<IfdIter> {
-        let endian = self.endian;
+        let endian = self.header.endian;
         // find ExifOffset
         for i in 0..self.entry_num {
             let pos = self.pos + i as usize * IFD_ENTRY_SIZE;
@@ -841,18 +833,19 @@ impl Iterator for IfdIter {
 
     #[tracing::instrument(skip(self))]
     fn next(&mut self) -> Option<Self::Item> {
-        // tracing::debug!(
-        //     ifd = self.ifd_idx,
-        //     index = self.index,
-        //     entry_num = self.entry_num,
-        //     pos = format!("{:08x}", self.pos),
-        //     "next IFD entry"
-        // );
+        tracing::debug!(
+            ifd = self.ifd_idx,
+            index = self.index,
+            entry_num = self.entry_num,
+            offset = format!("{:08x}", self.offset),
+            pos = format!("{:08x}", self.pos),
+            "next IFD entry"
+        );
         if self.input.len() < self.pos + IFD_ENTRY_SIZE {
             return None;
         }
 
-        let endian = self.endian;
+        let endian = self.header.endian;
         if self.index > self.entry_num {
             return None;
         }
