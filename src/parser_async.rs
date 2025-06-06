@@ -17,9 +17,7 @@ use crate::{
     error::{ParsedError, ParsingError, ParsingErrorState},
     exif::parse_exif_iter_async,
     file::Mime,
-    parser::{
-        Buf, ParsingState, ShareBuf, INIT_BUF_SIZE, MAX_ALLOC_SIZE, MAX_GROW_SIZE, MIN_GROW_SIZE,
-    },
+    parser::{Buf, ParsingState, ShareBuf, INIT_BUF_SIZE, MAX_ALLOC_SIZE, MIN_GROW_SIZE},
     partial_vec::PartialVec,
     skip::AsyncSkip,
     video::parse_track_info,
@@ -143,7 +141,7 @@ pub(crate) trait AsyncBufParser: Buf + Debug {
                         ParsingError::Need(i) => {
                             tracing::debug!(need = i, "need more bytes");
                             let to_read = max(i, MIN_GROW_SIZE);
-                            let to_read = min(to_read, MAX_GROW_SIZE);
+                            // let to_read = min(to_read, MAX_GROW_SIZE);
 
                             let n = self.fill_buf(reader, to_read).await?;
                             if n == 0 {

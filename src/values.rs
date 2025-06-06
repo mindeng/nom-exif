@@ -441,7 +441,7 @@ impl TryFrom<u16> for DataFormat {
         if v >= Self::U8 as u16 && v <= Self::F64 as u16 {
             Ok(unsafe { std::mem::transmute::<u16, Self>(v) })
         } else {
-            Err(Error::InvalidData(format!("data format {v}")))
+            Err(Error::InvalidData(format!("data format 0x{v:02x}")))
         }
     }
 }

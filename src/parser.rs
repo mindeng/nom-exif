@@ -126,9 +126,9 @@ impl MediaSource<TcpStream, Unseekable> {
 pub(crate) const INIT_BUF_SIZE: usize = 4096;
 pub(crate) const MIN_GROW_SIZE: usize = 4096;
 // Max size of APP1 is 0xFFFF
-pub(crate) const MAX_GROW_SIZE: usize = 63 * 1024;
+// pub(crate) const MAX_GROW_SIZE: usize = 63 * 1024;
 // Set a reasonable upper limit for single buffer allocation.
-pub(crate) const MAX_ALLOC_SIZE: usize = 100 * 1024 * 1024;
+pub(crate) const MAX_ALLOC_SIZE: usize = 1024 * 1024 * 1024;
 
 pub(crate) trait Buf {
     fn buffer(&self) -> &[u8];
@@ -201,7 +201,7 @@ pub(crate) trait BufParser: Buf + Debug {
                         ParsingError::Need(i) => {
                             tracing::debug!(need = i, "need more bytes");
                             let to_read = max(i, MIN_GROW_SIZE);
-                            let to_read = min(to_read, MAX_GROW_SIZE);
+                            // let to_read = min(to_read, MAX_GROW_SIZE);
 
                             let n = self.fill_buf(reader, to_read)?;
                             if n == 0 {
@@ -267,9 +267,9 @@ pub(crate) trait BufParser: Buf + Debug {
 }
 
 impl BufParser for MediaParser {
-    #[tracing::instrument(skip(self, reader))]
+    #[tracing::instrument(skip(self, reader), fields(buf_len=self.buf().len()))]
     fn fill_buf<R: Read>(&mut self, reader: &mut R, size: usize) -> io::Result<usize> {
-        if size > MAX_ALLOC_SIZE {
+        if size + self.buf().len() > MAX_ALLOC_SIZE {
             tracing::error!(?size, "the requested buffer size is too big");
             return Err(io::ErrorKind::Unsupported.into());
         }
@@ -277,8 +277,16 @@ impl BufParser for MediaParser {
 
         let n = reader.take(size as u64).read_to_end(self.buf_mut())?;
         if n == 0 {
+            tracing::error!(buf_len = self.buf().len(), "fill_buf: EOF");
             return Err(std::io::ErrorKind::UnexpectedEof.into());
         }
+
+        tracing::debug!(
+            ?size,
+            ?n,
+            buf_len = self.buf().len(),
+            "fill_buf: read bytes"
+        );
 
         Ok(n)
     }
