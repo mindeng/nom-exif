@@ -46,7 +46,7 @@ SceneType » Undefined[0x01]
 SensingMethod » 2
 ShutterSpeedValue » 139397/18789 (7.4191)
 Software » 15.5
-SubjectArea » U16Array[2009, 1506, 2318, 1390]
+SubjectArea » U16Array[0x7d9, 0x5e2, 0x90e, 0x56e]
 WhiteBalanceMode » 0
 XResolution » 72/1 (72.0000)
 YResolution » 72/1 (72.0000)

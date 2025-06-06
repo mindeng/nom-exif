@@ -7,7 +7,7 @@ use nom::{
 use crate::{
     error::ParsingError,
     exif::{tags::ExifTagCode, TiffHeader},
-    values::DataFormat,
+    values::{array_to_string, DataFormat},
 };
 
 use super::{exif_exif::IFD_ENTRY_SIZE, exif_iter::SUBIFD_TAGS};
@@ -176,11 +176,7 @@ impl<'a> IfdHeaderTravel<'a> {
 
             if let Some(ifd) = sub_ifd {
                 tracing::debug!(
-                    data = self.data[pos - IFD_ENTRY_SIZE..]
-                        .iter()
-                        .take(IFD_ENTRY_SIZE)
-                        .map(|b| format!("{:02X}", b))
-                        .collect::<String>(),
+                    data = array_to_string("bytes", self.data),
                     tag = ifd.tag.to_string(),
                 );
                 sub_ifds.push(ifd);

@@ -373,7 +373,7 @@ impl Iterator for ExifIter {
             let cur_ifd_idx = ifd.ifd_idx;
             match ifd.next() {
                 Some((tag_code, entry)) => {
-                    tracing::debug!(ifd = ifd.ifd_idx, ?tag_code, ?entry, "next tag entry");
+                    tracing::debug!(ifd = ifd.ifd_idx, ?tag_code, "next tag entry");
 
                     match entry {
                         IfdEntry::IfdNew(new_ifd) => {

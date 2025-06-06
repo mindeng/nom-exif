@@ -1,4 +1,7 @@
-use std::{fmt::Display, string::FromUtf8Error};
+use std::{
+    fmt::{Display, LowerHex},
+    string::FromUtf8Error,
+};
 
 use chrono::{DateTime, FixedOffset, NaiveDateTime, Offset, Utc};
 
@@ -456,6 +459,12 @@ impl Serialize for EntryValue {
     }
 }
 
+// impl std::fmt::Debug for EntryValue {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         Display::fmt(self, f)
+//     }
+// }
+
 impl Display for EntryValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -478,52 +487,55 @@ impl Display for EntryValue {
             EntryValue::I8(v) => Display::fmt(&v, f),
             EntryValue::Time(v) => Display::fmt(&v.to_rfc3339(), f),
             EntryValue::NaiveDateTime(v) => Display::fmt(&v.format("%Y-%m-%d %H:%M:%S"), f),
-            EntryValue::Undefined(v) => {
-                // Display up to MAX_DISPLAY_NUM components, and replace the rest with ellipsis
-                const MAX_DISPLAY_NUM: usize = 8;
-                let s = v
-                    .iter()
-                    .map(|x| format!("0x{x:02x}"))
-                    .take(MAX_DISPLAY_NUM + 1)
-                    .enumerate()
-                    .map(|(i, x)| {
-                        if i >= MAX_DISPLAY_NUM {
-                            "...".to_owned()
-                        } else {
-                            x
-                        }
-                    })
-                    .collect::<Vec<String>>()
-                    .join(", ");
-                format!("Undefined[{}]", s).fmt(f)
-            }
+            EntryValue::Undefined(v) => fmt_array_to_string("Undefined", v, f),
             EntryValue::URationalArray(v) => {
                 format!("URationalArray[{}]", rationals_to_string::<u32>(v)).fmt(f)
             }
             EntryValue::IRationalArray(v) => {
                 format!("IRationalArray[{}]", rationals_to_string::<i32>(v)).fmt(f)
             }
-            EntryValue::U8Array(v) => array_to_string("U8Array", v, f),
-            EntryValue::U32Array(v) => array_to_string("U32Array", v, f),
-            EntryValue::U16Array(v) => array_to_string("U16Array", v, f),
+            EntryValue::U8Array(v) => fmt_array_to_string("U8Array", v, f),
+            EntryValue::U32Array(v) => fmt_array_to_string("U32Array", v, f),
+            EntryValue::U16Array(v) => fmt_array_to_string("U16Array", v, f),
         }
     }
 }
 
-fn array_to_string<T: Display>(
+pub(crate) fn fmt_array_to_string<T: Display + LowerHex>(
     name: &str,
     v: &[T],
     f: &mut std::fmt::Formatter,
 ) -> Result<(), std::fmt::Error> {
-    format!(
-        "{}[{}]",
-        name,
-        v.iter()
-            .map(|x| x.to_string())
-            .collect::<Vec<String>>()
-            .join(", ")
-    )
-    .fmt(f)
+    array_to_string(name, v).fmt(f)
+    // format!(
+    //     "{}[{}]",
+    //     name,
+    //     v.iter()
+    //         .map(|x| x.to_string())
+    //         .collect::<Vec<String>>()
+    //         .join(", ")
+    // )
+    // .fmt(f)
+}
+
+pub(crate) fn array_to_string<T: Display + LowerHex>(name: &str, v: &[T]) -> String {
+    // Display up to MAX_DISPLAY_NUM components, and replace the rest with ellipsis
+    const MAX_DISPLAY_NUM: usize = 8;
+    let s = v
+        .iter()
+        .map(|x| format!("0x{x:02x}"))
+        .take(MAX_DISPLAY_NUM + 1)
+        .enumerate()
+        .map(|(i, x)| {
+            if i >= MAX_DISPLAY_NUM {
+                "...".to_owned()
+            } else {
+                x
+            }
+        })
+        .collect::<Vec<String>>()
+        .join(", ");
+    format!("{}[{}]", name, s)
 }
 
 fn rationals_to_string<T>(rationals: &[Rational<T>]) -> String
