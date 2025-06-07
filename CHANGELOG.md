@@ -1,5 +1,11 @@
 # Changelog
 
+## nom-exif v2.5.2
+
+### Fixed
+
+- IFD parse error for large "MakerNote" entries (TIFF/IIQ source) #40
+
 ## nom-exif v2.5.1
 
 ### Fixed
