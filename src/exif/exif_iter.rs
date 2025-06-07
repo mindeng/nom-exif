@@ -1,4 +1,4 @@
-use std::{fmt::Debug, sync::Arc};
+use std::{collections::HashSet, fmt::Debug, sync::Arc};
 
 use nom::{number::complete, sequence::tuple};
 use thiserror::Error;
@@ -81,6 +81,7 @@ pub struct ExifIter {
 
     // Iterating status
     ifds: Vec<IfdIter>,
+    visited_offsets: HashSet<usize>,
 }
 
 impl Debug for ExifIter {
@@ -115,6 +116,7 @@ impl ExifIter {
             tz,
             ifd0,
             ifds,
+            visited_offsets: HashSet::new(),
         }
     }
 
@@ -131,6 +133,7 @@ impl ExifIter {
             tz: self.tz.clone(),
             ifd0,
             ifds,
+            visited_offsets: HashSet::new(),
         }
     }
 
@@ -386,6 +389,15 @@ impl Iterator for ExifIter {
                             //     );
                             //     continue;
                             // }
+
+                            if new_ifd.offset > 0 {
+                                if self.visited_offsets.contains(&new_ifd.offset) {
+                                    // Ignore repeated ifd parsing to avoid dead looping
+                                    continue;
+                                }
+                                self.visited_offsets.insert(new_ifd.offset);
+                            }
+
                             let is_subifd = if new_ifd.ifd_idx == ifd.ifd_idx {
                                 // Push the current ifd before enter sub-ifd.
                                 self.ifds.push(ifd);
