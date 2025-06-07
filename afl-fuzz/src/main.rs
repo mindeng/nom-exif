@@ -1,8 +1,16 @@
-use std::io::Cursor;
+use std::{
+    fs::File,
+    io::{self, Cursor},
+};
 
 use nom_exif::{Exif, ExifIter, MediaParser, MediaSource, TrackInfo};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Registry};
 
 fn main() {
+    if std::env::var("RUST_LOG").is_ok() {
+        init_tracing().expect("init tracing failed");
+    }
+
     afl::fuzz!(|data: &[u8]| {
         let mut parser = MediaParser::new();
 
@@ -49,4 +57,19 @@ fn main() {
         };
         let _: Result<TrackInfo, _> = parser.parse(ms);
     });
+}
+
+fn init_tracing() -> io::Result<()> {
+    let stdout_log = tracing_subscriber::fmt::layer().pretty();
+    let subscriber = Registry::default().with(stdout_log);
+
+    let file = File::create("debug.log")?;
+    let debug_log = tracing_subscriber::fmt::layer()
+        .with_ansi(false)
+        .with_writer(file);
+    let subscriber = subscriber.with(debug_log);
+
+    subscriber.init();
+
+    Ok(())
 }

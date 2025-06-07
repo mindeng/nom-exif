@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 afl = "0.15.8"
 nom-exif = { path = ".." }
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
