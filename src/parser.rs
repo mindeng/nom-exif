@@ -269,7 +269,7 @@ pub(crate) trait BufParser: Buf + Debug {
 impl BufParser for MediaParser {
     #[tracing::instrument(skip(self, reader), fields(buf_len=self.buf().len()))]
     fn fill_buf<R: Read>(&mut self, reader: &mut R, size: usize) -> io::Result<usize> {
-        if size + self.buf().len() > MAX_ALLOC_SIZE {
+        if size.saturating_add(self.buf().len()) > MAX_ALLOC_SIZE {
             tracing::error!(?size, "the requested buffer size is too big");
             return Err(io::ErrorKind::Unsupported.into());
         }
