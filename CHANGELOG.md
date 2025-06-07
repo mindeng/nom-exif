@@ -1,5 +1,12 @@
 # Changelog
 
+## nom-exif v2.5.3
+
+### Fixed
+
+- Fixed fuzzing-induced crashes.
+-
+
 ## nom-exif v2.5.2
 
 ### Fixed
