@@ -118,71 +118,6 @@ pub fn check_jpeg(input: &[u8]) -> crate::Result<()> {
     Ok(())
 }
 
-#[tracing::instrument(skip_all)]
-fn travel_until<'a, F>(input: &'a [u8], mut predicate: F) -> IResult<&'a [u8], Segment<'a>>
-where
-    F: FnMut(&Segment<'a>) -> bool,
-{
-    let mut remain = input;
-
-    loop {
-        let (rem, (_, code)) = tuple((streaming::tag([0xFF]), number::streaming::u8))(remain)?;
-        let (rem, segment) = parse_segment(code, rem)?;
-        // Sanity check
-        assert!(rem.len() < remain.len());
-        remain = rem;
-        tracing::debug!(
-            marker = format!("0x{:04x}", segment.marker_code),
-            size = format!("0x{:04x}", segment.payload.len()),
-            "got segment"
-        );
-
-        if predicate(&segment) {
-            break Ok((remain, segment));
-        }
-    }
-}
-
-#[tracing::instrument(skip_all)]
-pub(crate) fn check_jpeg_exif<'a>(input: &'a [u8]) -> IResult<&'a [u8], bool> {
-    // check SOI marker [0XFF, 0XD8]
-    let (mut loop_remain, (_, code)) =
-        tuple((nom::bytes::complete::tag([0xFF]), number::complete::u8))(input)?;
-
-    // SOI has no payload
-    if code != MarkerCode::Soi.code() {
-        return fail(loop_remain);
-    }
-
-    loop {
-        let (rem, (_, code)) = tuple((streaming::tag([0xFF]), number::streaming::u8))(loop_remain)?;
-        tracing::debug!("Got segment: 0x{:02x}", code);
-
-        // Stop searching at SOS
-        if code == MarkerCode::Sos.code() {
-            return Ok((rem, false));
-        }
-
-        let (rem, size) = number::streaming::be_u16(rem)?;
-        if code == MarkerCode::APP1.code() {
-            const EXIF_HEADER_SIZE: u16 = 6;
-            // size contains the two bytes of `size` itself
-            if size < EXIF_HEADER_SIZE + 2 {
-                return Ok((rem, false));
-            }
-
-            let (rem, header) = streaming::take(EXIF_HEADER_SIZE)(rem)?;
-            let b = check_exif_header(header)?;
-            return Ok((rem, b));
-        } else {
-            // skip to next segment
-            // size contains the two bytes of `size` itself
-            let (rem, _) = streaming::take(size - 2)(rem)?;
-            loop_remain = rem;
-        }
-    }
-}
-
 fn parse_segment(marker_code: u8, input: &[u8]) -> IResult<&[u8], Segment<'_>> {
     let remain = input;
 
@@ -295,10 +230,13 @@ mod tests {
     #[test_case("exif.jpg", true)]
     #[test_case("broken.jpg", true)]
     #[test_case("no-exif.jpg", false)]
-    fn check_jpeg(path: &str, has_exif: bool) {
+    fn test_check_jpeg(path: &str, has_exif: bool) {
         let data = read_sample(path).unwrap();
-        let (_, ok) = check_jpeg_exif(&data).unwrap();
-        assert_eq!(ok, has_exif);
+        check_jpeg(&data).unwrap();
+        let (_, data) = extract_exif_data(&data).unwrap();
+        if has_exif {
+            data.unwrap();
+        }
     }
 
     #[test_case("exif.jpg")]
