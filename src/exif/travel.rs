@@ -163,6 +163,13 @@ impl<'a> IfdHeaderTravel<'a> {
             return Err(ParsingError::Failed(msg.into()));
         }
 
+        if self.offset + 2 > self.data.len() {
+            return Err(ParsingError::Failed(format!(
+                "invalid ifd offset: {}",
+                self.offset
+            )));
+        }
+
         let (_, entry_num) =
             TiffHeader::parse_ifd_entry_num(&self.data[self.offset..], self.endian)?;
         let mut pos = self.offset + 2;
@@ -171,6 +178,9 @@ impl<'a> IfdHeaderTravel<'a> {
 
         // parse entries
         for _ in 0..entry_num {
+            if pos >= self.data.len() {
+                break;
+            }
             let (_, sub_ifd) = self.parse_ifd_entry_header(pos as u32)?;
             pos += IFD_ENTRY_SIZE;
 
