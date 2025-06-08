@@ -11,13 +11,13 @@
 ## Supported File Types
 
 - Image
-  - *.heic, *.heif, etc.
-  - *.jpg, *.jpeg
-  - *.tiff, *.tif
-  - *.RAF (Fujifilm RAW)
+  - .heic, .heif, etc.
+  - .jpg, .jpeg
+  - .tiff, .tif, .iiq (Phase One IIQ images), etc.
+  - .RAF (Fujifilm RAW)
 - Video/Audio
-  - ISO base media file format (ISOBMFF): *.mp4, *.mov, *.3gp, etc.
-  - Matroska based file format: *.webm, *.mkv, *.mka, etc.
+  - ISO base media file format (ISOBMFF): .mp4, .mov, .3gp, etc.
+  - Matroska based file format: .webm, .mkv, .mka, etc.
 
 ## Key Features
 
@@ -28,7 +28,7 @@
     Now, multimedia files of different types and formats (including images,
     videos, and audio) can be processed using a unified method. This consistent
     API interface simplifies user experience and reduces cognitive load.
-    
+
     The usage is demonstrated in the following examples. `examples/rexiftool`
     is also a good example.
   
@@ -42,7 +42,7 @@
 
   - *Zero-copy* when appropriate: Use borrowing and slicing instead of
     copying whenever possible.
-    
+
   - Minimize I/O operations: When metadata is stored at the end/middle of a
     large file (such as a QuickTime file does), `Seek` rather than `Read`
     to quickly locate the location of the metadata (if the reader supports
@@ -52,11 +52,11 @@
     improve performance and avoid the overhead and memory fragmentation
     caused by frequent memory allocation. This feature is very useful when
     you need to perform batch parsing.
-    
+
   - Pay as you go: When working with [`ExifIter`], all entries are
     lazy-parsed. That is, only when you iterate over [`ExifIter`] will the
     IFD entries be parsed one by one.
-    
+
 - Robustness and stability
 
   Through long-term [Fuzz testing](https://github.com/rust-fuzz/afl.rs), and
@@ -178,7 +178,7 @@ See [`AsyncMediaSource`] & [`AsyncMediaParser`] for more information.
 
 `ExifIter` provides a convenience method for parsing gps information. (`Exif` &
 `TrackInfo` also provide a `get_gps_info` method).
-    
+
 ```rust
 use nom_exif::*;
 
@@ -220,9 +220,13 @@ ImageHeight                     => 1280
 GpsIso6709                      => +27.1281+100.2508+000.000/
 ```
 
+Enabling option `--debug` to turn on tracing logs:
+
+`cargo run --example rexiftool -- --debug ./testdata/meta.mov`
+
 ### Json Dump
 
-`cargo run --example rexiftool testdata/meta.mov -j`:
+`cargo run --features json_dump --example rexiftool testdata/meta.mov -j`:
 
 ``` text
 {

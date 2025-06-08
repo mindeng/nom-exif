@@ -4,13 +4,13 @@
 //! ## Supported File Types
 //!
 //! - Image
-//!   - *.heic, *.heif, etc.
-//!   - *.jpg, *.jpeg
-//!   - *.tiff, *.tif
-//!   - *.RAF (Fujifilm RAW)
+//!   - .heic, .heif, etc.
+//!   - .jpg, .jpeg
+//!   - .tiff, .tif, .iiq (Phase One IIQ images), etc.
+//!   - .RAF (Fujifilm RAW)
 //! - Video/Audio
-//!   - ISO base media file format (ISOBMFF): *.mp4, *.mov, *.3gp, etc.
-//!   - Matroska based file format: *.webm, *.mkv, *.mka, etc.
+//!   - ISO base media file format (ISOBMFF): .mp4, .mov, .3gp, etc.
+//!   - Matroska based file format: .webm, .mkv, .mka, etc.
 //!
 //! ## Key Features
 //!
@@ -213,9 +213,13 @@
 //! GpsIso6709                      => +27.1281+100.2508+000.000/
 //! ```
 //!
+//! Enabling option `--debug` to turn on tracing logs:
+//!
+//! `cargo run --example rexiftool -- --debug ./testdata/meta.mov`
+//!
 //! ### Json Dump
 //!
-//! `cargo run --example rexiftool testdata/meta.mov -j`:
+//! `cargo run --features json_dump --example rexiftool testdata/meta.mov -j`:
 //!
 //! ``` text
 //! {
