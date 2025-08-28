@@ -8,7 +8,7 @@ use crate::{heif, jpeg, MediaParser, MediaSource};
 #[allow(deprecated)]
 use crate::{partial_vec::PartialVec, FileFormat};
 pub use exif_exif::Exif;
-use exif_exif::{check_exif_header2, TIFF_HEADER_LEN};
+use exif_exif::TIFF_HEADER_LEN;
 use exif_iter::input_into_iter;
 pub use exif_iter::{ExifIter, ParsedExifEntry};
 pub use gps::{GPSInfo, LatLng};
@@ -18,7 +18,7 @@ use std::io::Read;
 use std::ops::Range;
 
 pub(crate) mod ifd;
-pub(crate) use exif_exif::{check_exif_header, TiffHeader};
+pub(crate) use exif_exif::{check_exif_header, check_exif_header2, TiffHeader};
 pub(crate) use travel::IfdHeaderTravel;
 
 mod exif_exif;
@@ -182,41 +182,7 @@ fn heif_extract_exif(
     state: Option<ParsingState>,
     buf: &[u8],
 ) -> Result<(Option<&[u8]>, Option<ParsingState>), ParsingErrorState> {
-    let (data, state) = match state {
-        Some(ParsingState::HeifExifSize(size)) => {
-            let (_, data) = nom::bytes::streaming::take(size)(buf)
-                .map_err(|e| nom_error_to_parsing_error_with_state(e, state.clone()))?;
-            (Some(data), state)
-        }
-        None => {
-            let (_, meta) = heif::parse_meta_box(buf)
-                .map_err(|e| nom_error_to_parsing_error_with_state(e, state))?;
-
-            if let Some(meta) = meta {
-                if let Some(range) = meta.exif_data_offset() {
-                    if range.end > buf.len() {
-                        let state = ParsingState::HeifExifSize(range.len());
-                        let clear_and_skip = ParsingError::ClearAndSkip(range.start);
-                        return Err(ParsingErrorState::new(clear_and_skip, Some(state)));
-                    } else {
-                        (Some(&buf[range]), None)
-                    }
-                } else {
-                    return Err(ParsingErrorState::new(
-                        ParsingError::Failed("no exif offset in meta box".into()),
-                        None,
-                    ));
-                }
-            } else {
-                (None, None)
-            }
-        }
-        _ => unreachable!(),
-    };
-
-    let data = data.and_then(|x| check_exif_header2(x).map(|x| x.0).ok());
-
-    Ok((data, state))
+    heif::extract_exif_data(state, buf)
 }
 
 #[cfg(feature = "async")]
