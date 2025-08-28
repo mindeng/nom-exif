@@ -1,13 +1,15 @@
 use std::io::{Read, Seek};
 
 use nom::combinator::fail;
-use nom::{number::complete::be_u32, IResult};
+use nom::IResult;
 
 use crate::bbox::find_box;
 use crate::exif::Exif;
 use crate::{
     bbox::{BoxHolder, MetaBox, ParseBox},
-    exif::check_exif_header,
+    error::{nom_error_to_parsing_error_with_state, ParsingError, ParsingErrorState},
+    exif::check_exif_header2,
+    parser::ParsingState,
 };
 use crate::{ExifIter, MediaParser, MediaSource};
 
@@ -42,17 +44,45 @@ pub fn parse_heif_exif<R: Read + Seek>(reader: R) -> crate::Result<Option<Exif>>
     Ok(Some(iter.into()))
 }
 
-/// Extract Exif TIFF data from the bytes of a HEIF/HEIC file.
-#[allow(unused)]
-#[tracing::instrument(skip_all)]
-pub(crate) fn extract_exif_data(input: &[u8]) -> IResult<&[u8], Option<&[u8]>> {
-    let (remain, meta) = parse_meta_box(input)?;
+pub(crate) fn extract_exif_data(
+    state: Option<ParsingState>,
+    buf: &[u8],
+) -> Result<(Option<&[u8]>, Option<ParsingState>), ParsingErrorState> {
+    let (data, state) = match state {
+        Some(ParsingState::HeifExifSize(size)) => {
+            let (_, data) = nom::bytes::streaming::take(size)(buf)
+                .map_err(|e| nom_error_to_parsing_error_with_state(e, state.clone()))?;
+            (Some(data), state)
+        }
+        None => {
+            let (_, meta) =
+                parse_meta_box(buf).map_err(|e| nom_error_to_parsing_error_with_state(e, state))?;
 
-    if let Some(meta) = meta {
-        extract_exif_with_meta(input, &meta)
-    } else {
-        Ok((remain, None))
-    }
+            if let Some(meta) = meta {
+                if let Some(range) = meta.exif_data_offset() {
+                    if range.end > buf.len() {
+                        let state = ParsingState::HeifExifSize(range.len());
+                        let clear_and_skip = ParsingError::ClearAndSkip(range.start);
+                        return Err(ParsingErrorState::new(clear_and_skip, Some(state)));
+                    } else {
+                        (Some(&buf[range]), None)
+                    }
+                } else {
+                    return Err(ParsingErrorState::new(
+                        ParsingError::Failed("no exif offset in meta box".into()),
+                        None,
+                    ));
+                }
+            } else {
+                (None, None)
+            }
+        }
+        _ => unreachable!(),
+    };
+
+    let data = data.and_then(|x| check_exif_header2(x).map(|x| x.0).ok());
+
+    Ok((data, state))
 }
 
 pub(crate) fn parse_meta_box(input: &[u8]) -> IResult<&[u8], Option<MetaBox>> {
@@ -74,28 +104,6 @@ pub(crate) fn parse_meta_box(input: &[u8]) -> IResult<&[u8], Option<MetaBox>> {
     let (_, bbox) = MetaBox::parse_box(bbox.data)?;
     tracing::debug!(?bbox, "meta box parsed");
     Ok((remain, Some(bbox)))
-}
-
-pub(crate) fn extract_exif_with_meta<'a>(
-    input: &'a [u8],
-    bbox: &MetaBox,
-) -> IResult<&'a [u8], Option<&'a [u8]>> {
-    let (out_remain, data) = bbox.exif_data(input)?;
-    tracing::debug!(
-        data_len = data.as_ref().map(|x| x.len()),
-        "exif data extracted"
-    );
-
-    if let Some(data) = data {
-        let (remain, _) = be_u32(data)?;
-        if check_exif_header(remain)? {
-            Ok((out_remain, Some(&remain[6..]))) // Safe-slice
-        } else {
-            Ok((out_remain, None))
-        }
-    } else {
-        Ok((out_remain, None))
-    }
 }
 
 #[allow(deprecated)]
@@ -134,7 +142,7 @@ mod tests {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 
         let buf = read_sample(path).unwrap();
-        let (_, exif) = extract_exif_data(&buf[..]).unwrap();
+	let (exif, _state) = extract_exif_data(None, &buf[..]).unwrap();
 
         if exif_size == 0 {
             assert!(exif.is_none());
