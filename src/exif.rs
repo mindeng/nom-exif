@@ -12,7 +12,7 @@ use exif_exif::TIFF_HEADER_LEN;
 use exif_iter::input_into_iter;
 pub use exif_iter::{ExifIter, ParsedExifEntry};
 pub use gps::{GPSInfo, LatLng};
-pub use multi_exif::{DuplicateStrategy, MultiExifIter, MultiExifParsedEntry};
+pub use multi_exif::{DuplicateStrategy, MultiExifIter};
 pub use tags::ExifTag;
 
 use std::io::Read;
@@ -79,6 +79,42 @@ pub(crate) fn parse_exif_iter<R: Read, S: Skip<R>>(
     })?;
 
     range_to_iter(parser, out)
+}
+
+#[tracing::instrument(skip(reader))]
+pub(crate) fn parse_multi_exif_iter<R: Read, S: Skip<R>>(
+    parser: &mut MediaParser,
+    mime_img: MimeImage,
+    reader: &mut R,
+) -> Result<MultiExifIter, crate::Error> {
+    if mime_img != MimeImage::Cr3 {
+        return Err(format!("MultiExifIter is not supported for {mime_img:?}").into());
+    }
+
+    let mut iter = MultiExifIter::new(DuplicateStrategy::IgnoreDuplicates);
+
+    // TODO: The following is only demonstration code.
+    // Please make further modifications based on the CR3 file structure.
+    // For example, the `parse` callback of `load_and_parse` should be reimplemented
+    // to correctly parse the next CMT* box.
+
+    loop {
+        let out = parser.load_and_parse::<R, S, _, _>(reader, |buf, state| {
+            extract_exif_range(mime_img, buf, state)
+        })?;
+        if out.is_none() {
+            break;
+        }
+
+        // TODO: The current `block_id` should be returned via the `load_and_parse` call.
+        let block_id = "CMT1";
+        let data = out
+            .map(|(range, _)| parser.share_buf(range))
+            .ok_or_else(|| format!("Exif not found in block {block_id}"))?;
+        iter.add_tiff_data(block_id.to_owned(), data, None);
+    }
+
+    Ok(iter)
 }
 
 type ExifRangeResult = Result<Option<(Range<usize>, Option<TiffHeader>)>, ParsingErrorState>;
