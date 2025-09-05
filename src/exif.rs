@@ -12,6 +12,7 @@ use exif_exif::TIFF_HEADER_LEN;
 use exif_iter::input_into_iter;
 pub use exif_iter::{ExifIter, ParsedExifEntry};
 pub use gps::{GPSInfo, LatLng};
+pub use multi_exif::{DuplicateStrategy, MultiExifIter, MultiExifParsedEntry};
 pub use tags::ExifTag;
 
 use std::io::Read;
@@ -24,6 +25,7 @@ pub(crate) use travel::IfdHeaderTravel;
 mod exif_exif;
 mod exif_iter;
 mod gps;
+mod multi_exif;
 mod tags;
 mod travel;
 
