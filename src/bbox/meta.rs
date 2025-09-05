@@ -82,6 +82,7 @@ impl ParseBody<MetaBox> for MetaBox {
 }
 
 impl MetaBox {
+    #[allow(dead_code)]
     #[tracing::instrument(skip_all)]
     pub fn exif_data<'a>(&self, input: &'a [u8]) -> IResult<&'a [u8], Option<&'a [u8]>> {
         self.iinf
