@@ -12,7 +12,7 @@ use std::{
 use crate::{
     buffer::Buffers,
     error::{ParsedError, ParsingError, ParsingErrorState},
-    exif::{parse_exif_iter, parse_multi_exif_iter, MultiExifIter, TiffHeader},
+    exif::{parse_exif_iter, TiffHeader},
     file::Mime,
     partial_vec::PartialVec,
     skip::Skip,
@@ -322,15 +322,6 @@ impl<R: Read, S: Skip<R>> ParseOutput<R, S> for ExifIter {
             return Err(crate::Error::ParseFailed("no Exif data here".into()));
         }
         parse_exif_iter::<R, S>(parser, ms.mime.unwrap_image(), &mut ms.reader)
-    }
-}
-
-impl<R: Read, S: Skip<R>> ParseOutput<R, S> for MultiExifIter {
-    fn parse(parser: &mut MediaParser, mut ms: MediaSource<R, S>) -> crate::Result<Self> {
-        if !ms.has_exif() {
-            return Err(crate::Error::ParseFailed("no Exif data here".into()));
-        }
-        parse_multi_exif_iter::<R, S>(parser, ms.mime.unwrap_image(), &mut ms.reader)
     }
 }
 

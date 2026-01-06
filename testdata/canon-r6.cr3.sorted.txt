@@ -1,10 +1,39 @@
+ApertureValue » 196608/65536 (3.0000)
+ColorSpace » 1
 Copyright » Copyright 2025 Roland Dreier - CC BY-SA
+CreateDate » 2025-09-06 20:24:47
+CustomRendered » 0
+DateTimeOriginal » 2025-09-06 20:24:47
+ExifImageHeight » 3648
+ExifImageWidth » 5472
+ExifVersion » Undefined[0x30, 0x32, 0x33, 0x31]
+ExposureBiasValue » 1/1 (1.0000)
+ExposureMode » 0
+ExposureProgram » 3
+ExposureTime » 1/100 (0.0100)
+FNumber » 28/10 (2.8000)
+Flash » 0
+FlashPixVersion » Undefined[0x30, 0x31, 0x30, 0x30]
+FocalLength » 100/1 (100.0000)
+FocalPlaneResolutionUnit » 2
+FocalPlaneXResolution » 5472000/1413 (3872.6115)
+FocalPlaneYResolution » 3648000/942 (3872.6115)
+ISOSpeedRatings » 25600
 ImageHeight » 3648
 ImageWidth » 5472
+LensModel » EF100mm f/2.8L Macro IS USM
+LensSpecification » URationalArray[100/1 (100.0000), 100/1 (100.0000), 0/1 (0.0000), ...]
 Make » Canon
+MeteringMode » 5
 Model » Canon EOS R6
 ModifyDate » 2025-09-06 20:24:47
+OffsetTime » -08:00
+OffsetTimeOriginal » -08:00
 Orientation » 1
 ResolutionUnit » 2
+SceneCaptureType » 0
+SensitivityType » 2
+ShutterSpeedValue » 434176/65536 (6.6250)
+WhiteBalanceMode » 0
 XResolution » 72/1 (72.0000)
 YResolution » 72/1 (72.0000)

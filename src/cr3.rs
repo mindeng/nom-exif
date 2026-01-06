@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use nom::IResult;
 
 use crate::{
@@ -9,6 +11,54 @@ use crate::{
 
 pub(crate) fn parse_moov_box(input: &[u8]) -> IResult<&[u8], Option<Cr3MoovBox>> {
     Cr3MoovBox::parse(input)
+}
+
+/// Result containing all CMT ranges for CR3 files.
+/// Each tuple contains (block_id, data_range).
+#[derive(Debug, Clone)]
+pub(crate) struct Cr3CmtRanges {
+    /// All CMT ranges: (block_id, range)
+    pub ranges: Vec<(&'static str, Range<usize>)>,
+}
+
+/// Extract all CMT data ranges from a CR3 file buffer.
+/// Returns the moov box and all CMT ranges if available.
+pub(crate) fn extract_all_cmt_ranges(
+    buf: &[u8],
+) -> Result<Option<Cr3CmtRanges>, ParsingErrorState> {
+    let (_, moov) =
+        parse_moov_box(buf).map_err(|e| nom_error_to_parsing_error_with_state(e, None))?;
+
+    let Some(moov) = moov else {
+        return Ok(None);
+    };
+
+    let ranges = moov.all_cmt_data_offsets();
+    if ranges.is_empty() {
+        return Err(ParsingErrorState::new(
+            ParsingError::Failed(
+                "CR3 file contains no EXIF data: Canon UUID box found but no CMT offsets available"
+                    .into(),
+            ),
+            None,
+        ));
+    }
+
+    // Validate all ranges are within buffer bounds
+    for (block_id, range) in &ranges {
+        if range.end > buf.len() {
+            // For now, we'll skip validation and let it fail later if needed
+            // This matches the behavior of the original extract_exif_data
+            tracing::warn!(
+                block_id,
+                range_end = range.end,
+                buf_len = buf.len(),
+                "CMT range extends beyond buffer"
+            );
+        }
+    }
+
+    Ok(Some(Cr3CmtRanges { ranges }))
 }
 
 pub(crate) fn extract_exif_data(

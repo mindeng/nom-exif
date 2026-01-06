@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fmt::Debug, sync::Arc};
+use std::{collections::HashSet, fmt::Debug, ops::Range, sync::Arc};
 
 use nom::{number::complete, sequence::tuple};
 use thiserror::Error;
@@ -11,6 +11,19 @@ use crate::{
 };
 
 use super::{exif_exif::IFD_ENTRY_SIZE, tags::ExifTagCode, GPSInfo, TiffHeader};
+
+/// Represents an additional TIFF data block to be processed after the primary block.
+/// Used for CR3 files with multiple CMT boxes (CMT1, CMT2, CMT3).
+#[derive(Clone)]
+pub(crate) struct TiffDataBlock {
+    /// Block identifier (e.g., "CMT1", "CMT2", "CMT3")
+    #[allow(dead_code)]
+    pub block_id: String,
+    /// Data range within the shared buffer
+    pub data_range: Range<usize>,
+    /// TIFF header information (optional, if known)
+    pub header: Option<TiffHeader>,
+}
 
 /// Parses header from input data, and returns an [`ExifIter`].
 ///
@@ -82,6 +95,14 @@ pub struct ExifIter {
     // Iterating status
     ifds: Vec<IfdIter>,
     visited_offsets: HashSet<usize>,
+
+    // Multi-block support for CR3 files with multiple CMT boxes
+    /// Additional TIFF data blocks to process after the primary block
+    additional_blocks: Vec<TiffDataBlock>,
+    /// Current block index: 0 = primary block, 1+ = additional blocks
+    current_block_index: usize,
+    /// Tags encountered so far for duplicate filtering (ifd_index, tag_code)
+    encountered_tags: HashSet<(usize, u16)>,
 }
 
 impl Debug for ExifIter {
@@ -92,6 +113,8 @@ impl Debug for ExifIter {
             .field("ifd0", &self.ifd0)
             .field("state", &self.ifds.first().map(|x| (x.index, x.pos)))
             .field("ifds num", &self.ifds.len())
+            .field("additional_blocks", &self.additional_blocks.len())
+            .field("current_block_index", &self.current_block_index)
             .finish_non_exhaustive()
     }
 }
@@ -117,6 +140,9 @@ impl ExifIter {
             ifd0,
             ifds,
             visited_offsets: HashSet::new(),
+            additional_blocks: Vec::new(),
+            current_block_index: 0,
+            encountered_tags: HashSet::new(),
         }
     }
 
@@ -134,6 +160,9 @@ impl ExifIter {
             ifd0,
             ifds,
             visited_offsets: HashSet::new(),
+            additional_blocks: self.additional_blocks.clone(),
+            current_block_index: 0,
+            encountered_tags: HashSet::new(),
         }
     }
 
@@ -190,12 +219,34 @@ impl ExifIter {
     }
 
     pub(crate) fn to_owned(&self) -> ExifIter {
-        ExifIter::new(
+        let mut iter = ExifIter::new(
             self.input.to_vec(),
             self.tiff_header.clone(),
             self.tz.clone(),
             self.ifd0.clone_and_rewind(),
-        )
+        );
+        iter.additional_blocks = self.additional_blocks.clone();
+        iter
+    }
+
+    /// Add an additional TIFF data block to be iterated after the current block.
+    /// Used internally for CR3 files with multiple CMT boxes.
+    ///
+    /// # Arguments
+    /// * `block_id` - Identifier for this TIFF block (e.g., "CMT2", "CMT3")
+    /// * `data_range` - Range within the shared input buffer containing the TIFF data
+    /// * `header` - Optional TIFF header if already parsed
+    pub(crate) fn add_tiff_block(
+        &mut self,
+        block_id: String,
+        data_range: Range<usize>,
+        header: Option<TiffHeader>,
+    ) {
+        self.additional_blocks.push(TiffDataBlock {
+            block_id,
+            data_range,
+            header,
+        });
     }
 }
 
@@ -353,6 +404,69 @@ impl Debug for ParsedExifEntry {
 
 const MAX_IFD_DEPTH: usize = 8;
 
+impl ExifIter {
+    /// Attempt to load and start iterating the next additional TIFF block.
+    /// Returns true if a new block was successfully loaded, false if no more blocks.
+    fn load_next_block(&mut self) -> bool {
+        // Move to the next additional block
+        let block_index = self.current_block_index;
+        if block_index >= self.additional_blocks.len() {
+            return false;
+        }
+
+        let block = &self.additional_blocks[block_index];
+        tracing::debug!(
+            block_id = block.block_id,
+            block_index,
+            "Loading additional TIFF block"
+        );
+
+        // Get the data for this block from the shared input
+        let data_range = block.data_range.clone();
+        let header = block.header.clone();
+
+        // Create a PartialVec for the block data
+        let block_data = PartialVec::new(self.input.data.clone(), data_range);
+
+        // Try to create an ExifIter for this block
+        match input_into_iter(block_data, header) {
+            Ok(iter) => {
+                // Update our state with the new block's data
+                self.ifd0 = iter.ifd0;
+                self.ifds = vec![self.ifd0.clone()];
+                self.visited_offsets.clear();
+                self.current_block_index += 1;
+
+                tracing::debug!(block_index, "Successfully loaded additional TIFF block");
+                true
+            }
+            Err(e) => {
+                tracing::warn!(
+                    block_index,
+                    error = %e,
+                    "Failed to load additional TIFF block, skipping"
+                );
+                // Move to next block and try again
+                self.current_block_index += 1;
+                self.load_next_block()
+            }
+        }
+    }
+
+    /// Check if a tag should be included based on duplicate filtering.
+    /// Returns true if the tag should be included, false if it's a duplicate.
+    fn should_include_tag(&mut self, ifd_index: usize, tag_code: u16) -> bool {
+        let tag_key = (ifd_index, tag_code);
+        if self.encountered_tags.contains(&tag_key) {
+            tracing::debug!(ifd_index, tag_code, "Skipping duplicate tag");
+            false
+        } else {
+            self.encountered_tags.insert(tag_key);
+            true
+        }
+    }
+}
+
 impl Iterator for ExifIter {
     type Item = ParsedExifEntry;
 
@@ -360,8 +474,13 @@ impl Iterator for ExifIter {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             if self.ifds.is_empty() {
-                tracing::debug!(?self, "all IFDs has been parsed");
-                return None;
+                // Current block exhausted, try to load next additional block
+                if !self.load_next_block() {
+                    tracing::debug!(?self, "all IFDs and blocks have been parsed");
+                    return None;
+                }
+                // Continue with the newly loaded block
+                continue;
             }
 
             if self.ifds.len() > MAX_IFD_DEPTH {
@@ -381,16 +500,6 @@ impl Iterator for ExifIter {
 
                     match entry {
                         IfdEntry::IfdNew(new_ifd) => {
-                            // NOTE: new_ifd.offset may smaller than current ifd.offset
-                            // if new_ifd.offset <= ifd.offset {
-                            //     tracing::error!(
-                            //         ?tag_code,
-                            //         ?new_ifd,
-                            //         "bad new SUB-IFD: offset is smaller than current IFD"
-                            //     );
-                            //     continue;
-                            // }
-
                             if new_ifd.offset > 0 {
                                 if self.visited_offsets.contains(&new_ifd.offset) {
                                     // Ignore repeated ifd parsing to avoid dead looping
@@ -417,25 +526,32 @@ impl Iterator for ExifIter {
                             self.ifds.push(new_ifd);
 
                             if is_subifd {
+                                // Check for duplicates before returning sub-ifd entry
+                                let tc = tag_code.unwrap();
+                                if !self.should_include_tag(ifd_idx, tc.code()) {
+                                    continue;
+                                }
                                 // Return sub-ifd as an entry
                                 return Some(ParsedExifEntry::make_ok(
                                     ifd_idx,
-                                    tag_code.unwrap(),
+                                    tc,
                                     EntryValue::U32(offset as u32),
                                 ));
                             }
                         }
                         IfdEntry::Entry(v) => {
-                            let res =
-                                Some(ParsedExifEntry::make_ok(ifd.ifd_idx, tag_code.unwrap(), v));
+                            let tc = tag_code.unwrap();
+                            // Check for duplicates before returning entry
+                            if !self.should_include_tag(ifd.ifd_idx, tc.code()) {
+                                self.ifds.push(ifd);
+                                continue;
+                            }
+                            let res = Some(ParsedExifEntry::make_ok(ifd.ifd_idx, tc, v));
                             self.ifds.push(ifd);
                             return res;
                         }
                         IfdEntry::Err(e) => {
                             tracing::warn!(?tag_code, ?e, "parse ifd entry error");
-                            // let res =
-                            //     Some(ParsedExifEntry::make_err(ifd.ifd_idx, tag_code.unwrap(), e));
-                            // return res;
                             self.ifds.push(ifd);
                             continue;
                         }
