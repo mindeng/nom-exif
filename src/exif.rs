@@ -12,7 +12,6 @@ use exif_exif::TIFF_HEADER_LEN;
 use exif_iter::input_into_iter;
 pub use exif_iter::{ExifIter, ParsedExifEntry};
 pub use gps::{GPSInfo, LatLng};
-pub use multi_exif::{DuplicateStrategy, MultiExifIter};
 pub use tags::ExifTag;
 
 use std::io::Read;
@@ -25,7 +24,6 @@ pub(crate) use travel::IfdHeaderTravel;
 mod exif_exif;
 mod exif_iter;
 mod gps;
-mod multi_exif;
 mod tags;
 mod travel;
 
@@ -74,6 +72,11 @@ pub(crate) fn parse_exif_iter<R: Read, S: Skip<R>>(
     mime_img: MimeImage,
     reader: &mut R,
 ) -> Result<ExifIter, crate::Error> {
+    // For CR3 files, we need special handling to get all CMT blocks
+    if mime_img == MimeImage::Cr3 {
+        return parse_cr3_exif_iter::<R, S>(parser, reader);
+    }
+
     let out = parser.load_and_parse::<R, S, _, _>(reader, |buf, state| {
         extract_exif_range(mime_img, buf, state)
     })?;
@@ -81,37 +84,69 @@ pub(crate) fn parse_exif_iter<R: Read, S: Skip<R>>(
     range_to_iter(parser, out)
 }
 
+/// Special parser for CR3 files that extracts all CMT blocks (CMT1, CMT2, CMT3)
+/// and adds them as additional TIFF blocks to the ExifIter.
 #[tracing::instrument(skip(reader))]
-pub(crate) fn parse_multi_exif_iter<R: Read, S: Skip<R>>(
+fn parse_cr3_exif_iter<R: Read, S: Skip<R>>(
     parser: &mut MediaParser,
-    mime_img: MimeImage,
     reader: &mut R,
-) -> Result<MultiExifIter, crate::Error> {
-    if mime_img != MimeImage::Cr3 {
-        return Err(format!("MultiExifIter is not supported for {mime_img:?}").into());
+) -> Result<ExifIter, crate::Error> {
+    use crate::parser::Buf;
+
+    // First, parse to get all CMT ranges
+    let cmt_ranges = parser
+        .load_and_parse::<R, S, _, _>(reader, |buf, _state| cr3::extract_all_cmt_ranges(buf))?;
+
+    let Some(cmt_ranges) = cmt_ranges else {
+        return Err("CR3: No CMT data found".into());
+    };
+
+    if cmt_ranges.ranges.is_empty() {
+        return Err("CR3: No CMT ranges available".into());
     }
 
-    let mut iter = MultiExifIter::new(DuplicateStrategy::IgnoreDuplicates);
+    tracing::debug!(
+        cmt_count = cmt_ranges.ranges.len(),
+        "Found CMT ranges in CR3 file"
+    );
 
-    // TODO: The following is only demonstration code.
-    // Please make further modifications based on the CR3 file structure.
-    // For example, the `parse` callback of `load_and_parse` should be reimplemented
-    // to correctly parse the next CMT* box.
+    // Get the parser position offset - share_buf will add this to ranges
+    let position_offset = parser.position();
 
-    loop {
-        let out = parser.load_and_parse::<R, S, _, _>(reader, |buf, state| {
-            extract_exif_range(mime_img, buf, state)
-        })?;
-        if out.is_none() {
-            break;
+    // Get the first CMT range (CMT1) to create the primary ExifIter
+    let (first_block_id, first_range) = &cmt_ranges.ranges[0];
+    tracing::debug!(
+        block_id = first_block_id,
+        range = ?first_range,
+        position_offset,
+        "Creating primary ExifIter from first CMT block"
+    );
+
+    // Share the buffer and create the primary ExifIter
+    // Note: share_buf adds position_offset to the range internally
+    let input: PartialVec = parser.share_buf(first_range.clone());
+    let mut iter = input_into_iter(input, None)?;
+
+    // Add remaining CMT blocks as additional TIFF blocks
+    // We need to adjust the ranges by position_offset since the PartialVec.data
+    // contains the full buffer and ranges need to be absolute
+    // Note: We skip CMT3 (MakerNotes) as it has a proprietary format that requires
+    // special handling and would produce garbage data if parsed as standard EXIF
+    for (block_id, range) in cmt_ranges.ranges.iter().skip(1) {
+        // Skip CMT3 (MakerNotes) - it has a proprietary Canon format
+        if *block_id == "CMT3" {
+            tracing::debug!(block_id, "Skipping CMT3 (MakerNotes) - proprietary format");
+            continue;
         }
 
-        // TODO: The current `block_id` should be returned via the `load_and_parse` call.
-        let block_id = "CMT1";
-        let data = out
-            .map(|(range, _)| parser.share_buf(range))
-            .ok_or_else(|| format!("Exif not found in block {block_id}"))?;
-        iter.add_tiff_data(block_id.to_owned(), data, None);
+        let adjusted_range = (range.start + position_offset)..(range.end + position_offset);
+        tracing::debug!(
+            block_id,
+            original_range = ?range,
+            adjusted_range = ?adjusted_range,
+            "Adding additional CMT block"
+        );
+        iter.add_tiff_block(block_id.to_string(), adjusted_range, None);
     }
 
     Ok(iter)

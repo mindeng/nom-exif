@@ -142,4 +142,24 @@ impl Cr3MoovBox {
         // For CR3, we primarily use CMT1 which contains the main EXIF IFD0 data
         self.uuid_canon_box.as_ref()?.exif_data_offset().cloned()
     }
+
+    /// Returns offset ranges for all CMT boxes (CMT1, CMT2, CMT3).
+    /// CMT1 is the primary EXIF data, CMT2 is ExifIFD data, CMT3 is MakerNotes.
+    pub fn all_cmt_data_offsets(&self) -> Vec<(&'static str, Range<usize>)> {
+        let Some(uuid_box) = self.uuid_canon_box.as_ref() else {
+            return Vec::new();
+        };
+
+        let mut offsets = Vec::with_capacity(3);
+        if let Some(range) = uuid_box.exif_data_offset() {
+            offsets.push(("CMT1", range.clone()));
+        }
+        if let Some(range) = uuid_box.cmt2_data_offset() {
+            offsets.push(("CMT2", range.clone()));
+        }
+        if let Some(range) = uuid_box.cmt3_data_offset() {
+            offsets.push(("CMT3", range.clone()));
+        }
+        offsets
+    }
 }
