@@ -929,14 +929,14 @@ mod tests {
 
     #[test]
     fn test_parse_time() {
-        let tz = Local::now().format("%:z").to_string();
+        let s = "2023:07:09 20:36:33";
+        let t1 = NaiveDateTime::parse_from_str(s, "%Y:%m:%d %H:%M:%S").unwrap();
+        let t1 = Local.from_local_datetime(&t1).unwrap();
+
+        let tz = t1.format("%:z").to_string();
 
         let s = format!("2023:07:09 20:36:33 {tz}");
-        let t1 = DateTime::parse_from_str(&s, "%Y:%m:%d %H:%M:%S %z").unwrap();
-
-        let s = "2023:07:09 20:36:33";
-        let t2 = NaiveDateTime::parse_from_str(s, "%Y:%m:%d %H:%M:%S").unwrap();
-        let t2 = Local.from_local_datetime(&t2).unwrap();
+        let t2 = DateTime::parse_from_str(&s, "%Y:%m:%d %H:%M:%S %z").unwrap();
 
         let t3 = t2.with_timezone(t2.offset());
 
