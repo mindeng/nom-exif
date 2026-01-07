@@ -377,7 +377,7 @@ pub(crate) fn extract_moov_body_from_buf(input: &[u8]) -> Result<Range<usize>, P
 type EntriesResult<'a> = IResult<&'a [u8], Option<Vec<(String, EntryValue)>>>;
 
 #[tracing::instrument(skip(input))]
-fn parse_moov_body(input: &[u8]) -> EntriesResult {
+fn parse_moov_body(input: &[u8]) -> EntriesResult<'_> {
     tracing::debug!("parse_moov_body");
 
     let mut entries = parse_meta(input).unwrap_or_default();

@@ -25,7 +25,7 @@ impl RafInfo<'_> {
         Ok(())
     }
 
-    pub(crate) fn parse(input: &[u8]) -> IResult<&[u8], RafInfo> {
+    pub(crate) fn parse(input: &[u8]) -> IResult<&[u8], RafInfo<'_>> {
         // magic
         let (remain, _) = tag(MAGIC)(input)?;
         let (remain, version) = take(4usize)(remain)?;
