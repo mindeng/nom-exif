@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 
 use nom::{
     bytes::streaming,
@@ -22,23 +22,6 @@ pub use mvhd::MvhdBox;
 pub use tkhd::parse_video_tkhd_in_moov;
 
 const MAX_BODY_LEN: usize = 2000 * 1024 * 1024;
-
-#[derive(Debug, PartialEq)]
-pub enum Error {
-    UnsupportedConstructionMethod(u8),
-}
-
-impl std::error::Error for Error {}
-
-impl Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Error::UnsupportedConstructionMethod(x) => {
-                Debug::fmt(&format!("unsupported construction method ({x})"), f)
-            }
-        }
-    }
-}
 
 /// Representing an ISO base media file format box header.
 #[derive(Debug, Clone, PartialEq, Eq)]

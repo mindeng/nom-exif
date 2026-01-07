@@ -10,7 +10,7 @@ use nom::{
 
 use crate::bbox::FullBoxHeader;
 
-use super::{Error, ParseBody};
+use super::ParseBody;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IlocBox {
@@ -48,10 +48,12 @@ impl ParseBody<IlocBox> for IlocBox {
                 be_u32(remain)?
             };
 
-            let (remain, construction_method) = cond(
+            let (remain, construction_method_raw) = cond(
                 version >= 1,
                 map_res(be_u16, |res| Ok::<u8, ()>((res & 0xF) as u8)),
             )(remain)?;
+            let construction_method =
+                ConstructionMethod::from(construction_method_raw.unwrap_or(0));
 
             let (remain, data_ref_index) = be_u16(remain)?;
 
@@ -110,19 +112,15 @@ impl ParseBody<IlocBox> for IlocBox {
 }
 
 impl IlocBox {
-    pub fn item_offset_len(&self, id: u32) -> Option<(u8, u64, u64)> {
-        self.items
-            .get(&id)
-            .map(|item| (item, item.extents.first()))
-            .and_then(|(item, extent)| {
-                extent.map(|extent| {
-                    (
-                        item.construction_method.unwrap_or(0),
-                        item.base_offset + extent.offset,
-                        extent.length,
-                    )
-                })
-            })
+    pub fn item_offset_len(&self, id: u32) -> Option<(ConstructionMethod, u64, u64)> {
+        self.items.get(&id).and_then(|item| {
+            let extent = item.extents.first()?;
+            Some((
+                item.construction_method,
+                item.base_offset + extent.offset,
+                extent.length,
+            ))
+        })
     }
 }
 
@@ -148,28 +146,30 @@ fn parse_base_offset<'a>(size: u8, remain: &'a [u8], msg: &'static str) -> IResu
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ItemLocation {
     id: u32,
-    /// 0: file offset, 1: idat offset, 2: item offset (currently not supported)
-    construction_method: Option<u8>,
+    construction_method: ConstructionMethod,
     data_ref_index: u16,
     base_offset: u64,
     extents: Vec<ItemLocationExtent>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(clippy::enum_variant_names)]
-enum ConstructionMethod {
+pub enum ConstructionMethod {
     FileOffset = 0,
     IdatOffset = 1,
     ItemOffset = 2,
 }
 
-impl TryFrom<u8> for ConstructionMethod {
-    type Error = Error;
-    fn try_from(value: u8) -> std::result::Result<Self, Self::Error> {
+impl From<u8> for ConstructionMethod {
+    fn from(value: u8) -> Self {
         match value {
-            0 => Ok(Self::FileOffset),
-            1 => Ok(Self::IdatOffset),
-            2 => Ok(Self::ItemOffset),
-            other => Err(Error::UnsupportedConstructionMethod(other)),
+            0 => Self::FileOffset,
+            1 => Self::IdatOffset,
+            2 => Self::ItemOffset,
+            other => {
+                tracing::warn!(other, "Unknown construction method, defaulting to FileOffset");
+                Self::FileOffset
+            }
         }
     }
 }
