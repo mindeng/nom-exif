@@ -293,7 +293,7 @@ fn check_bmff(input: &[u8]) -> crate::Result<FileFormat> {
 
     if QT_BRAND_NAMES
         .iter()
-        .any(|v| compatible_brands.iter().any(|x| v.as_bytes() == *x))
+        .any(|v| compatible_brands.contains(&v.as_bytes()))
     {
         return Ok(FileFormat::QuickTime);
     }
@@ -307,7 +307,7 @@ fn check_bmff(input: &[u8]) -> crate::Result<FileFormat> {
 
     if MP4_BRAND_NAMES
         .iter()
-        .any(|v| compatible_brands.iter().any(|x| v.as_bytes() == *x))
+        .any(|v| compatible_brands.contains(&v.as_bytes()))
     {
         return Ok(FileFormat::MP4);
     }
