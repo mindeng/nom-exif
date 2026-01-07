@@ -138,23 +138,6 @@ impl MetaBox {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ItemLocationExtent {
-    index: u64,
-    offset: u64,
-    length: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ItemLocation {
-    id: u32,
-    /// 0: file offset, 1: idat offset, 2: item offset (currently not supported)
-    construction_method: Option<u8>,
-    data_ref_index: u16,
-    base_offset: u64,
-    extents: Vec<ItemLocationExtent>,
-}
-
 #[cfg(test)]
 mod tests {
     use crate::{bbox::travel_while, testkit::read_sample};
