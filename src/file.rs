@@ -325,7 +325,7 @@ fn check_bmff(input: &[u8]) -> crate::Result<FileFormat> {
     Err(crate::Error::UnrecognizedFileFormat)
 }
 
-fn get_ftyp_and_major_brand(input: &[u8]) -> crate::Result<(BoxHolder, Option<&[u8]>)> {
+fn get_ftyp_and_major_brand(input: &[u8]) -> crate::Result<(BoxHolder<'_>, Option<&[u8]>)> {
     let (_, bbox) = BoxHolder::parse(input).map_err(|e| format!("parse ftyp failed: {e}"))?;
 
     if bbox.box_type() == "ftyp" {
