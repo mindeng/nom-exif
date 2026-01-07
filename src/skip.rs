@@ -1,6 +1,6 @@
 use std::{
     fmt::Debug,
-    io::{self, BufRead, Read, Seek},
+    io::{self, Read, Seek},
 };
 
 #[cfg(feature = "async")]
@@ -21,8 +21,6 @@ pub struct Seekable(());
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Copy)]
 pub struct Unseekable(());
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Copy)]
-pub struct SkipBufRead(());
 
 /// Abstracts the operation of skipping some bytes.
 ///
@@ -135,28 +133,6 @@ impl<R: AsyncSeek + Unpin + Send> AsyncSkip<R> for Seekable {
     }
 }
 
-impl<R: BufRead> Skip<R> for SkipBufRead {
-    fn skip(reader: &mut R, mut skip: u64) -> io::Result<()> {
-        while skip > 0 {
-            let buffer = reader.fill_buf()?;
-            if buffer.is_empty() {
-                return Err(io::ErrorKind::UnexpectedEof.into());
-            }
-            let consume = u64::try_from(buffer.len()).expect("should fit").min(skip);
-            reader.consume(usize::try_from(consume).expect("must fit"));
-            skip -= consume;
-        }
-        Ok(())
-    }
-
-    fn skip_by_seek(_: &mut R, _: u64) -> io::Result<bool> {
-        Ok(false)
-    }
-
-    fn debug() -> impl Debug {
-        "unseekable(BufRead)"
-    }
-}
 
 #[cfg(test)]
 mod tests {
