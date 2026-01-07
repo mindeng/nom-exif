@@ -4,7 +4,11 @@ use nom::{combinator::fail, multi::many0, IResult, Needed};
 
 use crate::bbox::FullBoxHeader;
 
-use super::{iinf::IinfBox, iloc::IlocBox, BoxHolder, ParseBody, ParseBox};
+use super::{
+    iinf::IinfBox,
+    iloc::{ConstructionMethod, IlocBox},
+    BoxHolder, ParseBody, ParseBox,
+};
 
 /// Representing the `meta` box in a HEIF/HEIC file.
 #[derive(Clone, PartialEq, Eq)]
@@ -91,20 +95,22 @@ impl MetaBox {
             .map(|(construction_method, offset, length)| {
                 let start = offset as usize;
                 let end = (offset + length) as usize;
-                if construction_method == 0 {
-                    // file offset
-                    if end > input.len() {
-                        Err(nom::Err::Incomplete(Needed::new(end - input.len())))
-                    } else {
-                        Ok((&input[end..], Some(&input[start..end]))) // Safe-slice
+                match construction_method {
+                    ConstructionMethod::FileOffset => {
+                        if end > input.len() {
+                            Err(nom::Err::Incomplete(Needed::new(end - input.len())))
+                        } else {
+                            Ok((&input[end..], Some(&input[start..end]))) // Safe-slice
+                        }
                     }
-                } else if construction_method == 1 {
-                    // idat offset
-                    tracing::debug!("idat offset construction method is not supported yet");
-                    fail(input)
-                } else {
-                    tracing::debug!("item offset construction method is not supported yet");
-                    fail(input)
+                    ConstructionMethod::IdatOffset => {
+                        tracing::debug!("idat offset construction method is not supported yet");
+                        fail(input)
+                    }
+                    ConstructionMethod::ItemOffset => {
+                        tracing::debug!("item offset construction method is not supported yet");
+                        fail(input)
+                    }
                 }
             })
             .unwrap_or(Ok((input, None)))
@@ -123,16 +129,16 @@ impl MetaBox {
             .and_then(|(construction_method, offset, length)| {
                 let start = offset as usize;
                 let end = (offset + length) as usize;
-                if construction_method == 0 {
-                    // file offset
-                    Some(start..end)
-                } else if construction_method == 1 {
-                    // idat offset
-                    tracing::debug!("idat offset construction method is not supported yet");
-                    None
-                } else {
-                    tracing::debug!("item offset construction method is not supported yet");
-                    None
+                match construction_method {
+                    ConstructionMethod::FileOffset => Some(start..end),
+                    ConstructionMethod::IdatOffset => {
+                        tracing::debug!("idat offset construction method is not supported yet");
+                        None
+                    }
+                    ConstructionMethod::ItemOffset => {
+                        tracing::debug!("item offset construction method is not supported yet");
+                        None
+                    }
                 }
             })
     }
