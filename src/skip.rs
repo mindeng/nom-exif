@@ -21,7 +21,6 @@ pub struct Seekable(());
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Copy)]
 pub struct Unseekable(());
 
-
 /// Abstracts the operation of skipping some bytes.
 ///
 /// The user specifies the parser's `Skip` behavior using [`SkipSeek`] or
@@ -132,7 +131,6 @@ impl<R: AsyncSeek + Unpin + Send> AsyncSkip<R> for Seekable {
         "async seekable"
     }
 }
-
 
 #[cfg(test)]
 mod tests {
