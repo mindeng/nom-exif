@@ -349,7 +349,7 @@ impl AsyncMediaParser {
     /// - For [`ExifIter`] as parse output, Please avoid holding the `ExifIter`
     ///   object all the time and drop it immediately after use. Otherwise, the
     ///   parsing buffer referenced by the `ExifIter` object will not be reused
-    ///   by [`MediaParser`], resulting in repeated memory allocation in the
+    ///   by [`crate::MediaParser`], resulting in repeated memory allocation in the
     ///   subsequent parsing process.
     ///
     ///   If you really need to retain some data, please take out the required

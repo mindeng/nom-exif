@@ -68,7 +68,7 @@ pub(crate) fn input_into_iter(
 ///
 /// The new cloned `ExifIter`'s iteration index will be reset to the first one.
 ///
-/// If you want to convert an `ExifIter` `into` an [`Exif`], you probably want
+/// If you want to convert an `ExifIter` `into` an [`Exif`](crate::Exif), you probably want
 /// to clone the `ExifIter` and use the new cloned one to do the converting.
 /// Since the original's iteration index may have been modified by
 /// `Iterator::next()` calls.
@@ -288,9 +288,10 @@ impl ParsedExifEntry {
     /// Returns:
     ///
     /// - If any error occurred while parsing this entry, an
-    ///   Err(&[`EntryError`]) is returned.
+    ///   `Err(&EntryError)` is returned.
     ///
-    /// - Otherwise, an Ok(&[`EntryValue`]) is returned.
+    /// - Otherwise, an `Ok(&EntryValue)` is returned.
+    #[allow(rustdoc::private_intra_doc_links)]
     pub fn get_result(&self) -> Result<&EntryValue, &EntryError> {
         match self.res {
             Some(ref v) => v.as_ref(),
@@ -306,9 +307,9 @@ impl ParsedExifEntry {
     /// Returns:
     ///
     /// - If any error occurred while parsing this entry, an
-    ///   Err([`InvalidEntry`](crate::Error::InvalidEntry)) is returned.
+    ///   `Err(EntryError)` is returned.
     ///
-    /// - Otherwise, an Ok([`EntryValue`]) is returned.
+    /// - Otherwise, an `Ok(EntryValue)` is returned.
     ///
     /// **Note**: This method can ONLY be called once! If you call it twice, it
     /// will **panic** directly!

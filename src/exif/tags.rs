@@ -1,5 +1,5 @@
 //! Define exif tags and related enums, see
-//! https://exiftool.org/TagNames/EXIF.html
+//! <https://exiftool.org/TagNames/EXIF.html>
 
 use std::fmt::{Debug, Display};
 
@@ -70,7 +70,7 @@ impl Display for ExifTagCode {
 ///
 /// You can always get the entry value by raw tag code which is an `u16` value.
 /// See [`ParsedExifEntry::tag_code`](crate::ParsedExifEntry::tag_code) and
-/// [`Exif::get_by_tag_code`](crate::Exif::get_by_tag_code).
+/// [`Exif::get_by_ifd_tag_code`](crate::Exif::get_by_ifd_tag_code).
 #[allow(unused)]
 #[cfg_attr(feature = "json_dump", derive(Serialize, Deserialize))]
 #[derive(Debug, Eq, PartialEq, Hash, Clone, Copy)]

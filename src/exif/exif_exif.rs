@@ -37,7 +37,7 @@ impl Exif {
     ///
     /// - If you have any custom defined tag which does not exist in
     ///   [`ExifTag`], you can always get the entry value by a raw tag code,
-    ///   see [`Self::get_by_tag_code`].
+    ///   see [`Self::get_by_ifd_tag_code`].
     ///
     ///   ## Example
     ///
