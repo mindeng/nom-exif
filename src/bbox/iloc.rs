@@ -167,7 +167,10 @@ impl From<u8> for ConstructionMethod {
             1 => Self::IdatOffset,
             2 => Self::ItemOffset,
             other => {
-                tracing::warn!(other, "Unknown construction method, defaulting to FileOffset");
+                tracing::warn!(
+                    other,
+                    "Unknown construction method, defaulting to FileOffset"
+                );
                 Self::FileOffset
             }
         }
