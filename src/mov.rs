@@ -21,7 +21,7 @@ use crate::{
     EntryValue, FileFormat,
 };
 
-/// *Deprecated*: Please use [`MediaParser`] instead.
+/// *Deprecated*: Please use [`crate::MediaParser`] instead.
 ///
 /// Analyze the byte stream in the `reader` as a MOV/MP4 file, attempting to
 /// extract any possible metadata it may contain, and return it in the form of
