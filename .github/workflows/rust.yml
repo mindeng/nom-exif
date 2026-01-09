@@ -26,3 +26,9 @@ jobs:
       run: cargo test --verbose -- --nocapture
     - name: Run tests for all features
       run: cargo test --all-features --verbose -- --nocapture
+    - name: Check formatting
+      run: cargo fmt --check
+    - name: Clippy
+      run: cargo clippy -- -D warnings
+    - name: Build documentation
+      run: cargo doc --all-features
