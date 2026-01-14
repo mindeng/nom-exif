@@ -1,5 +1,11 @@
 # Changelog
 
+## nom-exif v2.6.0
+
+### Added
+
+- Added support for Canon CR3 raw file format #44
+
 ## nom-exif v2.5.4
 
 ### Fixed

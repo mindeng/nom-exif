@@ -15,6 +15,7 @@
   - .jpg, .jpeg
   - .tiff, .tif, .iiq (Phase One IIQ images), etc.
   - .RAF (Fujifilm RAW)
+  - .CR3 (Canon RAW)
 - Video/Audio
   - ISO base media file format (ISOBMFF): .mp4, .mov, .3gp, etc.
   - Matroska based file format: .webm, .mkv, .mka, etc.
