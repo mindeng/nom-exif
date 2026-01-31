@@ -1,5 +1,11 @@
 # Changelog
 
+## nom-exif v2.6.1
+
+### Fixed
+
+- Bug in extracting creation date in iPhone MOV files [#46](https://github.com/mindeng/nom-exif/issues/46)
+
 ## nom-exif v2.6.0
 
 ### Added
