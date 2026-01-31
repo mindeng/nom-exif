@@ -603,6 +603,7 @@ mod tests {
     #[test_case("meta.mov", Make, "Apple".into())]
     #[test_case("meta.mov", Model, "iPhone X".into())]
     #[test_case("meta.mov", GpsIso6709, "+27.1281+100.2508+000.000/".into())]
+    #[test_case("meta.mov", CreateDate, DateTime::parse_from_str("2019-02-12T15:27:12+08:00", "%+").unwrap().into())]
     #[test_case("meta.mp4", ImageWidth, 1920_u32.into())]
     #[test_case("meta.mp4", ImageHeight, 1080_u32.into())]
     #[test_case("meta.mp4", DurationMs, 1063_u64.into())]

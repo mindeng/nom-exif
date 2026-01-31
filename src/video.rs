@@ -9,7 +9,7 @@ use crate::{
     ebml::webm::parse_webm,
     error::ParsingError,
     file::MimeVideo,
-    mov::{extract_moov_body_from_buf, parse_mp4, parse_qt},
+    mov::{extract_moov_body_from_buf, parse_isobmff},
     EntryValue, GPSInfo,
 };
 
@@ -152,14 +152,7 @@ pub(crate) fn parse_track_info(
         | crate::file::MimeVideo::Mp4 => {
             let range = extract_moov_body_from_buf(input)?;
             let moov_body = &input[range];
-
-            match mime_video {
-                MimeVideo::QuickTime => parse_qt(moov_body)?.into(),
-
-                MimeVideo::Mp4 | MimeVideo::_3gpp => parse_mp4(moov_body)?.into(),
-
-                _ => unreachable!(),
-            }
+            parse_isobmff(moov_body)?.into()
         }
         crate::file::MimeVideo::Webm | crate::file::MimeVideo::Matroska => {
             parse_webm(input)?.into()

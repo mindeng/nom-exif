@@ -130,7 +130,7 @@ pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, E
 }
 
 #[tracing::instrument(skip_all)]
-pub(crate) fn parse_qt(
+pub(crate) fn parse_isobmff(
     moov_body: &[u8],
 ) -> Result<BTreeMap<TrackInfoTag, EntryValue>, ParsingError> {
     let (_, entries) = match parse_moov_body(moov_body) {
@@ -142,29 +142,10 @@ pub(crate) fn parse_qt(
     };
 
     let mut entries: BTreeMap<TrackInfoTag, EntryValue> = convert_video_tags(entries);
-    let extras = parse_mvhd_tkhd(moov_body);
+    let mut extras = parse_mvhd_tkhd(moov_body);
     if entries.contains_key(&TrackInfoTag::CreateDate) {
-        entries.remove(&TrackInfoTag::CreateDate);
+        extras.remove(&TrackInfoTag::CreateDate);
     }
-    entries.extend(extras);
-
-    Ok(entries)
-}
-
-#[tracing::instrument(skip_all)]
-pub(crate) fn parse_mp4(
-    moov_body: &[u8],
-) -> Result<BTreeMap<TrackInfoTag, EntryValue>, ParsingError> {
-    let (_, entries) = match parse_moov_body(moov_body) {
-        Ok((remain, Some(entries))) => (remain, entries),
-        Ok((remain, None)) => (remain, Vec::new()),
-        Err(_) => {
-            return Err("invalid moov body".into());
-        }
-    };
-
-    let mut entries: BTreeMap<TrackInfoTag, EntryValue> = convert_video_tags(entries);
-    let extras = parse_mvhd_tkhd(moov_body);
     entries.extend(extras);
 
     Ok(entries)
