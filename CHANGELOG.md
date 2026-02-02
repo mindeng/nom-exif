@@ -1,5 +1,15 @@
 # Changelog
 
+## nom-exif v2.7.0
+
+### Added
+
+- `EntryValue::as_time_components`
+
+### Fixed
+
+- Conversion function as_time(&self) fails with Naive DateTime [#47](https://github.com/mindeng/nom-exif/issues/47)
+
 ## nom-exif v2.6.1
 
 ### Fixed

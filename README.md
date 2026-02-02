@@ -186,7 +186,7 @@ Enable `async` feature flag for `nom-exif` in your `Cargo.toml`:
 
 ```toml
 [dependencies]
-nom-exif = { version = "1", features = ["async"] }
+nom-exif = { version = "2", features = ["async"] }
 ```
 
 See [`AsyncMediaSource`] & [`AsyncMediaParser`] for more information.
