@@ -266,9 +266,53 @@ impl EntryValue {
         }
     }
 
+    /// *Deprecated*: use [`EntryValue::as_time_components`] instead.
+    #[deprecated(since = "2.7.0")]
     pub fn as_time(&self) -> Option<DateTime<FixedOffset>> {
         match self {
             EntryValue::Time(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    /// Return `Some((NaiveDateTime, Some(FixedOffset)))` if it's a DateTime.
+    /// Return `Some((NaiveDateTime, None))` if it's a NaiveDateTime.
+    /// Else return None.
+    ///
+    /// E.g.: if an `EntryValue` is parsed from "2023-07-09T20:36:33+08:00", then
+    /// `Some(NaiveDateTime::parse_from_str("2023-07-09T20:36:33", "%Y-%m-%dT%H:%M:%S").unwrap(),
+    /// FixedOffset::east_opt(8 * 3600).unwrap())` is returned.
+    ///
+    /// Usage:
+    ///
+    /// ```rust
+    /// use nom_exif::*;
+    /// use chrono::{DateTime, NaiveDateTime, FixedOffset};
+    ///
+    /// let dt = DateTime::parse_from_str("2023-07-09T20:36:33+08:00", "%+").unwrap();
+    /// let ndt =
+    ///     NaiveDateTime::parse_from_str("2023-07-09T20:36:33", "%Y-%m-%dT%H:%M:%S").unwrap();
+    /// let offset = FixedOffset::east_opt(8 * 3600).unwrap();
+    ///
+    /// let ev = EntryValue::Time(dt);
+    /// assert_eq!(ev.as_time_components().unwrap(), (ndt, Some(offset)));
+    ///
+    /// let (got_ndt, got_offset) = ev.as_time_components().unwrap();
+    /// if let Some(offset) = got_offset {
+    ///     // It's a DateTime, use got_ndt.and_local_timezone(offset) to get it
+    ///     assert_eq!(got_ndt.and_local_timezone(offset).unwrap(), dt);
+    /// } else {
+    ///     // It's a NaiveDateTime
+    ///     assert_eq!(got_ndt, ndt);
+    /// }
+    ///
+    /// let ev = EntryValue::NaiveDateTime(ndt);
+    /// assert_eq!(ev.as_time_components().unwrap(), (ndt, None));
+    /// ```
+    pub fn as_time_components(&self) -> Option<(NaiveDateTime, Option<FixedOffset>)> {
+        match self {
+            EntryValue::Time(v) => Some((v.naive_local(), Some(v.offset().fix()))),
+            EntryValue::NaiveDateTime(v) => Some((*v, None)),
             _ => None,
         }
     }
@@ -369,6 +413,18 @@ impl EntryValue {
         }
     }
 }
+
+// Convert time components to EntryValue
+impl From<(NaiveDateTime, Option<FixedOffset>)> for EntryValue {
+    fn from(value: (NaiveDateTime, Option<FixedOffset>)) -> Self {
+        if let Some(offset) = value.1 {
+            EntryValue::Time(value.0.and_local_timezone(offset).unwrap())
+        } else {
+            EntryValue::NaiveDateTime(value.0)
+        }
+    }
+}
+
 fn parse_naive_time(s: String) -> Result<NaiveDateTime, ParseEntryError> {
     let t = NaiveDateTime::parse_from_str(&s, "%Y:%m:%d %H:%M:%S")?;
     Ok(t)
@@ -957,5 +1013,24 @@ mod tests {
 
         assert_eq!(t1, t2);
         assert!(t3 > t2);
+    }
+
+    #[test]
+    fn test_date_time_components() {
+        let dt = DateTime::parse_from_str("2023-07-09T20:36:33+08:00", "%+").unwrap();
+        let ndt =
+            NaiveDateTime::parse_from_str("2023-07-09T20:36:33", "%Y-%m-%dT%H:%M:%S").unwrap();
+        let offset = FixedOffset::east_opt(8 * 3600).unwrap();
+
+        let ev = EntryValue::Time(dt);
+        assert_eq!(ev.as_time_components().unwrap(), (ndt, Some(offset)));
+
+        let recovered_dt = ndt.and_local_timezone(offset).unwrap();
+        assert_eq!(recovered_dt, dt);
+        let recovered_dt = offset.from_local_datetime(&ndt).unwrap();
+        assert_eq!(recovered_dt, dt);
+
+        let ev = EntryValue::NaiveDateTime(ndt);
+        assert_eq!(ev.as_time_components().unwrap(), (ndt, None));
     }
 }

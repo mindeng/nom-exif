@@ -136,8 +136,17 @@ fn main() -> Result<()> {
     let exif: Exif = iter.into();
     assert_eq!(exif.get(ExifTag::Make).unwrap().as_str().unwrap(), "Apple");
     assert_eq!(exif.get(ExifTag::Model).unwrap().as_str().unwrap(), "iPhone 12 Pro");
-    let date = exif.get(ExifTag::DateTimeOriginal).unwrap();
-    assert_eq!(date, &DateTime::parse_from_str("2022-07-22T21:26:32+08:00", "%+").unwrap().into());
+
+    let dto_value = exif.get(ExifTag::DateTimeOriginal).unwrap();
+    let (ndt, offset) = dto_value.as_time_components().unwrap();
+    if let Some(offset) = offset {
+        // The DateTimeOriginal value has an offset, so we can convert it to
+        // a DateTime like this:
+        let dt = ndt.and_local_timezone(offset).unwrap();
+        assert_eq!(dt, DateTime::parse_from_str("2022-07-22T21:26:32+08:00", "%+").unwrap());
+    } else {
+        // The DateTimeOriginal value has no offset, use `ndt` directly
+    }
 
     let ms = MediaSource::file_path("./testdata/meta.mov")?;
     assert!(ms.has_track());
@@ -319,7 +328,7 @@ Flash                           => 16
 LightSource                     => 21
 MeteringMode                    => 1
 SceneCaptureType                => 0
-UserComment                     => filter: 0; fileterIntensity: 0.0; filterMask: 0; algolist: 0;
+UserComment                     => filter: 0; fileterIntensity: 0.0; ...
 ...
 ```
 

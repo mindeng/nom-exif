@@ -601,11 +601,16 @@ mod tests {
 
     use crate::testkit::open_sample;
     use crate::{EntryValue, Exif, ExifTag, TrackInfoTag};
-    use chrono::DateTime;
+    use chrono::{DateTime, FixedOffset, NaiveDateTime};
     use test_case::test_case;
 
     #[test_case("exif.jpg", ExifTag::DateTimeOriginal, DateTime::parse_from_str("2023-07-09T20:36:33+08:00", "%+").unwrap().into())]
     #[test_case("exif.heic", ExifTag::DateTimeOriginal, DateTime::parse_from_str("2022-07-22T21:26:32+08:00", "%+").unwrap().into())]
+    #[test_case("exif.jpg", ExifTag::DateTimeOriginal, 
+        (NaiveDateTime::parse_from_str("2023-07-09T20:36:33", "%Y-%m-%dT%H:%M:%S").unwrap(), 
+            Some(FixedOffset::east_opt(8*3600).unwrap())).into())]
+    #[test_case("exif-no-tz.jpg", ExifTag::DateTimeOriginal, 
+        (NaiveDateTime::parse_from_str("2023-07-09T20:36:33", "%Y-%m-%dT%H:%M:%S").unwrap(), None).into())]
     fn parse_exif(path: &str, tag: ExifTag, v: EntryValue) {
         let mut parser = parser();
 
