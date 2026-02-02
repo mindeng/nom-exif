@@ -23,19 +23,20 @@ use crate::{
 /// `MediaSource` represents a media data source that can be parsed by
 /// [`MediaParser`].
 ///
-/// - Use `MediaSource::file_path(path)` or `MediaSource::file(file)` to create
+/// - Use [`MediaSource::file_path`] or [`MediaSource::file`] to create
 ///   a MediaSource from a file
 ///
-/// - Use `MediaSource::tcp_stream(stream)` to create a MediaSource from a `TcpStream`
+/// - Use [`MediaSource::tcp_stream`] to create a MediaSource from a `TcpStream`
+///
 /// - In other cases:
 ///
-///   - Use `MediaSource::seekable(reader)` to create a MediaSource from a `Read + Seek`
+///   - Use [`MediaSource::seekable`] to create a MediaSource from a `Read + Seek`
 ///   
-///   - Use `MediaSource::unseekable(reader)` to create a MediaSource from a
+///   - Use [`MediaSource::unseekable`] to create a MediaSource from a
 ///     reader that only impl `Read`
 ///   
-/// `seekable` is preferred to `unseekable`, since the former is more efficient
-/// when the parser needs to skip a large number of bytes.
+/// *Note*: Please use [`MediaSource::seekable`] in preference to [`MediaSource::unseekable`],
+/// since the former is more efficient when the parser needs to skip a large number of bytes.
 ///
 /// Passing in a `BufRead` should be avoided because [`MediaParser`] comes with
 /// its own buffer management and the buffers can be shared between multiple
@@ -95,12 +96,21 @@ impl<R: Read, S: Skip<R>> MediaSource<R, S> {
 }
 
 impl<R: Read + Seek> MediaSource<R, Seekable> {
+    /// Use [`MediaSource::seekable`] to create a MediaSource from a `Read + Seek`
+    ///
+    /// *Note*: Please use [`MediaSource::seekable`] in preference to [`MediaSource::unseekable`],
+    /// since the former is more efficient when the parser needs to skip a large number of bytes.
     pub fn seekable(reader: R) -> crate::Result<Self> {
         Self::build(reader)
     }
 }
 
 impl<R: Read> MediaSource<R, Unseekable> {
+    /// Use [`MediaSource::unseekable`] to create a MediaSource from a
+    /// reader that only impl `Read`
+    ///
+    /// *Note*: Please use [`MediaSource::seekable`] in preference to [`MediaSource::unseekable`],
+    /// since the former is more efficient when the parser needs to skip a large number of bytes.
     pub fn unseekable(reader: R) -> crate::Result<Self> {
         Self::build(reader)
     }
@@ -590,9 +600,27 @@ mod tests {
     }
 
     use crate::testkit::open_sample;
-    use crate::{EntryValue, ExifTag, TrackInfoTag};
+    use crate::{EntryValue, Exif, ExifTag, TrackInfoTag};
     use chrono::DateTime;
     use test_case::test_case;
+
+    #[test_case("exif.jpg", ExifTag::DateTimeOriginal, DateTime::parse_from_str("2023-07-09T20:36:33+08:00", "%+").unwrap().into())]
+    #[test_case("exif.heic", ExifTag::DateTimeOriginal, DateTime::parse_from_str("2022-07-22T21:26:32+08:00", "%+").unwrap().into())]
+    fn parse_exif(path: &str, tag: ExifTag, v: EntryValue) {
+        let mut parser = parser();
+
+        let mf = MediaSource::seekable(open_sample(path).unwrap()).unwrap();
+        assert!(mf.has_exif());
+        let iter: ExifIter = parser.parse(mf).unwrap();
+        let exif: Exif = iter.into();
+        assert_eq!(exif.get(tag).unwrap(), &v);
+
+        let mf = MediaSource::unseekable(open_sample(path).unwrap()).unwrap();
+        assert!(mf.has_exif());
+        let iter: ExifIter = parser.parse(mf).unwrap();
+        let exif: Exif = iter.into();
+        assert_eq!(exif.get(tag).unwrap(), &v);
+    }
 
     use crate::video::TrackInfoTag::*;
 
@@ -614,7 +642,7 @@ mod tests {
     fn parse_track_info(path: &str, tag: TrackInfoTag, v: EntryValue) {
         let mut parser = parser();
 
-        let mf = MediaSource::file(open_sample(path).unwrap()).unwrap();
+        let mf = MediaSource::seekable(open_sample(path).unwrap()).unwrap();
         let info: TrackInfo = parser.parse(mf).unwrap();
         assert_eq!(info.get(tag).unwrap(), &v);
 

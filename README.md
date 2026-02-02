@@ -48,6 +48,9 @@
     large file (such as a QuickTime file does), `Seek` rather than `Read`
     to quickly locate the location of the metadata (if the reader supports
     `Seek`).
+
+  - Supports both *seekable* and *unseekable* data sources, see [`MediaSource::seekable`]
+    for more information.
   
   - Share I/O and parsing buffer between multiple parse calls: This can
     improve performance and avoid the overhead and memory fragmentation
@@ -121,6 +124,7 @@ Example:
 
 ```rust
 use nom_exif::*;
+use chrono::DateTime;
 
 fn main() -> Result<()> {
     let mut parser = MediaParser::new();
@@ -131,6 +135,9 @@ fn main() -> Result<()> {
     let mut iter: ExifIter = parser.parse(ms)?;
     let exif: Exif = iter.into();
     assert_eq!(exif.get(ExifTag::Make).unwrap().as_str().unwrap(), "Apple");
+    assert_eq!(exif.get(ExifTag::Model).unwrap().as_str().unwrap(), "iPhone 12 Pro");
+    let date = exif.get(ExifTag::DateTimeOriginal).unwrap();
+    assert_eq!(date, &DateTime::parse_from_str("2022-07-22T21:26:32+08:00", "%+").unwrap().into());
 
     let ms = MediaSource::file_path("./testdata/meta.mov")?;
     assert!(ms.has_track());
