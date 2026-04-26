@@ -644,8 +644,8 @@ mod tests {
     #[test_case("meta.mp4", CreateDate, DateTime::parse_from_str("2024-02-03T07:05:38Z", "%+").unwrap().into())]
     #[test_case("udta.auth.mp4", Author, "ReplayKitRecording".into(); "udta author")]
     #[test_case("auth.mov", Author, "ReplayKitRecording".into(); "mov author")]
-    #[test_case("sony-a7-xavc.MP4", ImageWidth, 1920_u32.into())]
-    #[test_case("sony-a7-xavc.MP4", ImageHeight, 1080_u32.into())]
+    #[test_case("sony-a7-xavc.MP4", ImageWidth, 1200_u32.into())]
+    #[test_case("sony-a7-xavc.MP4", ImageHeight, 676_u32.into())]
     #[test_case("sony-a7-xavc.MP4", DurationMs, 1440_u64.into())]
     #[test_case("sony-a7-xavc.MP4", CreateDate, DateTime::parse_from_str("2026-04-26T09:25:15+00:00", "%+").unwrap().into())]
     fn parse_track_info(path: &str, tag: TrackInfoTag, v: EntryValue) {
