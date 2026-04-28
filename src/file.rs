@@ -32,7 +32,7 @@ const HEIC_BRAND_NAMES: &[&[u8]] = &[b"heic", b"heix", b"heim", b"heis"];
 // other less common MP4 brands.
 const MP4_BRAND_NAMES: &[&str] = &[
     "3g2a", "3g2b", "3g2c", "3ge6", "3ge7", "3gg6", "3gp4", "3gp5", "3gp6", "3gs7", "avc1", "mp41",
-    "mp42", "iso2", "isom", "vfj1",
+    "mp42", "iso2", "isom", "vfj1", "XAVC",
 ];
 
 const QT_BRAND_NAMES: &[&str] = &["qt  ", "mqt "];
@@ -387,6 +387,7 @@ mod tests {
     #[test_case("mkv_640x360.mkv", Video(Matroska))]
     #[test_case("mka.mka", Video(Matroska))]
     #[test_case("3gp_640x360.3gp", Video(_3gpp))]
+    #[test_case("sony-a7-xavc.MP4", Video(Mp4))]
     fn mime(path: &str, mime: Mime) {
         let data = read_sample(path).unwrap();
         let m: Mime = data.deref().try_into().unwrap();
