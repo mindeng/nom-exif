@@ -2,6 +2,7 @@ use std::{
     collections::BTreeMap,
     io::{Read, Seek},
     ops::Range,
+    sync::LazyLock,
 };
 
 use chrono::DateTime;
@@ -409,13 +410,14 @@ fn parse_meta(input: &[u8]) -> Option<Vec<(String, EntryValue)>> {
 ///
 /// - `2023-11-02T19:58:34+08` -> `2023-11-02T19:58:34+08:00`
 /// - `2023-11-02T19:58:34+0800` -> `2023-11-02T19:58:34+08:00`
+static TZ_REGEX: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"([+-][0-9][0-9])([0-9][0-9])?$").unwrap()
+});
+
 #[allow(dead_code)]
 fn tz_iso_8601_to_rfc3339(s: String) -> String {
-    use regex::Regex;
-
     let ss = s.trim();
-    // Safe unwrap
-    let re = Regex::new(r"([+-][0-9][0-9])([0-9][0-9])?$").unwrap();
+    let re = &*TZ_REGEX;
 
     if let Some((offset, tz)) = re.captures(ss).map(|caps| {
         (
