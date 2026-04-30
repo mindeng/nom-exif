@@ -782,185 +782,46 @@ pub(crate) trait TryFromBytes: Sized {
     fn try_from_bytes(bs: &[u8], endian: Endianness) -> Result<Self, Error>;
 }
 
-impl TryFromBytes for u32 {
-    fn try_from_bytes(bs: &[u8], endian: Endianness) -> Result<Self, Error> {
-        fn make_err<T>() -> Error {
-            Error::InvalidData(format!(
-                "data is too small to convert to {}",
-                std::any::type_name::<T>(),
-            ))
-        }
-        match endian {
-            Endianness::Big => {
-                let (int_bytes, _) = bs
-                    .split_at_checked(std::mem::size_of::<Self>())
-                    .ok_or_else(make_err::<Self>)?;
-                Ok(Self::from_be_bytes(
-                    int_bytes.try_into().map_err(|_| make_err::<Self>())?,
-                ))
+macro_rules! impl_try_from_bytes {
+    ($type:ty) => {
+        impl TryFromBytes for $type {
+            fn try_from_bytes(bs: &[u8], endian: Endianness) -> Result<Self, Error> {
+                fn make_err<T>() -> Error {
+                    Error::InvalidData(format!(
+                        "data is too small to convert to {}",
+                        std::any::type_name::<T>(),
+                    ))
+                }
+                match endian {
+                    Endianness::Big => {
+                        let (int_bytes, _) = bs
+                            .split_at_checked(std::mem::size_of::<Self>())
+                            .ok_or_else(make_err::<Self>)?;
+                        Ok(Self::from_be_bytes(
+                            int_bytes.try_into().map_err(|_| make_err::<Self>())?,
+                        ))
+                    }
+                    Endianness::Little => {
+                        let (int_bytes, _) = bs
+                            .split_at_checked(std::mem::size_of::<Self>())
+                            .ok_or_else(make_err::<Self>)?;
+                        Ok(Self::from_le_bytes(
+                            int_bytes.try_into().map_err(|_| make_err::<Self>())?,
+                        ))
+                    }
+                    Endianness::Native => unimplemented!(),
+                }
             }
-            Endianness::Little => {
-                let (int_bytes, _) = bs
-                    .split_at_checked(std::mem::size_of::<Self>())
-                    .ok_or_else(make_err::<Self>)?;
-                Ok(Self::from_le_bytes(
-                    int_bytes.try_into().map_err(|_| make_err::<Self>())?,
-                ))
-            }
-            Endianness::Native => unimplemented!(),
         }
-    }
+    };
 }
 
-impl TryFromBytes for i32 {
-    fn try_from_bytes(bs: &[u8], endian: Endianness) -> Result<Self, Error> {
-        fn make_err<T>() -> Error {
-            Error::InvalidData(format!(
-                "data is too small to convert to {}",
-                std::any::type_name::<T>(),
-            ))
-        }
-        match endian {
-            Endianness::Big => {
-                let (int_bytes, _) = bs
-                    .split_at_checked(std::mem::size_of::<Self>())
-                    .ok_or_else(make_err::<Self>)?;
-                Ok(Self::from_be_bytes(
-                    int_bytes.try_into().map_err(|_| make_err::<Self>())?,
-                ))
-            }
-            Endianness::Little => {
-                let (int_bytes, _) = bs
-                    .split_at_checked(std::mem::size_of::<Self>())
-                    .ok_or_else(make_err::<Self>)?;
-                Ok(Self::from_le_bytes(
-                    int_bytes.try_into().map_err(|_| make_err::<Self>())?,
-                ))
-            }
-            Endianness::Native => unimplemented!(),
-        }
-    }
-}
-
-impl TryFromBytes for u16 {
-    fn try_from_bytes(bs: &[u8], endian: Endianness) -> Result<Self, Error> {
-        fn make_err<T>() -> Error {
-            Error::InvalidData(format!(
-                "data is too small to convert to {}",
-                std::any::type_name::<T>(),
-            ))
-        }
-        match endian {
-            Endianness::Big => {
-                let (int_bytes, _) = bs
-                    .split_at_checked(std::mem::size_of::<Self>())
-                    .ok_or_else(make_err::<Self>)?;
-                Ok(Self::from_be_bytes(
-                    int_bytes.try_into().map_err(|_| make_err::<Self>())?,
-                ))
-            }
-            Endianness::Little => {
-                let (int_bytes, _) = bs
-                    .split_at_checked(std::mem::size_of::<Self>())
-                    .ok_or_else(make_err::<Self>)?;
-                Ok(Self::from_le_bytes(
-                    int_bytes.try_into().map_err(|_| make_err::<Self>())?,
-                ))
-            }
-            Endianness::Native => unimplemented!(),
-        }
-    }
-}
-
-impl TryFromBytes for i16 {
-    fn try_from_bytes(bs: &[u8], endian: Endianness) -> Result<Self, Error> {
-        fn make_err<T>() -> Error {
-            Error::InvalidData(format!(
-                "data is too small to convert to {}",
-                std::any::type_name::<T>(),
-            ))
-        }
-        match endian {
-            Endianness::Big => {
-                let (int_bytes, _) = bs
-                    .split_at_checked(std::mem::size_of::<Self>())
-                    .ok_or_else(make_err::<Self>)?;
-                Ok(Self::from_be_bytes(
-                    int_bytes.try_into().map_err(|_| make_err::<Self>())?,
-                ))
-            }
-            Endianness::Little => {
-                let (int_bytes, _) = bs
-                    .split_at_checked(std::mem::size_of::<Self>())
-                    .ok_or_else(make_err::<Self>)?;
-                Ok(Self::from_le_bytes(
-                    int_bytes.try_into().map_err(|_| make_err::<Self>())?,
-                ))
-            }
-            Endianness::Native => unimplemented!(),
-        }
-    }
-}
-
-impl TryFromBytes for f32 {
-    fn try_from_bytes(bs: &[u8], endian: Endianness) -> Result<Self, Error> {
-        fn make_err<T>() -> Error {
-            Error::InvalidData(format!(
-                "data is too small to convert to {}",
-                std::any::type_name::<T>(),
-            ))
-        }
-        match endian {
-            Endianness::Big => {
-                let (int_bytes, _) = bs
-                    .split_at_checked(std::mem::size_of::<Self>())
-                    .ok_or_else(make_err::<Self>)?;
-                Ok(Self::from_be_bytes(
-                    int_bytes.try_into().map_err(|_| make_err::<Self>())?,
-                ))
-            }
-            Endianness::Little => {
-                let (int_bytes, _) = bs
-                    .split_at_checked(std::mem::size_of::<Self>())
-                    .ok_or_else(make_err::<Self>)?;
-                Ok(Self::from_le_bytes(
-                    int_bytes.try_into().map_err(|_| make_err::<Self>())?,
-                ))
-            }
-            Endianness::Native => unimplemented!(),
-        }
-    }
-}
-
-impl TryFromBytes for f64 {
-    fn try_from_bytes(bs: &[u8], endian: Endianness) -> Result<Self, Error> {
-        fn make_err<T>() -> Error {
-            Error::InvalidData(format!(
-                "data is too small to convert to {}",
-                std::any::type_name::<T>(),
-            ))
-        }
-        match endian {
-            Endianness::Big => {
-                let (int_bytes, _) = bs
-                    .split_at_checked(std::mem::size_of::<Self>())
-                    .ok_or_else(make_err::<Self>)?;
-                Ok(Self::from_be_bytes(
-                    int_bytes.try_into().map_err(|_| make_err::<Self>())?,
-                ))
-            }
-            Endianness::Little => {
-                let (int_bytes, _) = bs
-                    .split_at_checked(std::mem::size_of::<Self>())
-                    .ok_or_else(make_err::<Self>)?;
-                Ok(Self::from_le_bytes(
-                    int_bytes.try_into().map_err(|_| make_err::<Self>())?,
-                ))
-            }
-            Endianness::Native => unimplemented!(),
-        }
-    }
-}
+impl_try_from_bytes!(u32);
+impl_try_from_bytes!(i32);
+impl_try_from_bytes!(u16);
+impl_try_from_bytes!(i16);
+impl_try_from_bytes!(f32);
+impl_try_from_bytes!(f64);
 
 pub(crate) fn decode_rational<T: TryFromBytes>(
     data: &[u8],
