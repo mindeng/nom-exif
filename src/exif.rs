@@ -228,7 +228,12 @@ pub(crate) fn extract_exif_with_mime(
                     }
                     header
                 }
-                _ => unreachable!(),
+                _ => {
+                    return Err(ParsingErrorState::new(
+                        ParsingError::Failed("unexpected parsing state for tiff".into()),
+                        None,
+                    ))
+                }
             };
 
             // full fill TIFF data

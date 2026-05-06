@@ -58,18 +58,6 @@ impl PartialVec {
     }
 }
 
-// impl<'a> From<&'a [u8]> for Input<'a> {
-//     fn from(data: &'a [u8]) -> Self {
-//         Input {
-//             data: Cow::Borrowed(data),
-//             range: Range {
-//                 start: 0,
-//                 end: data.len(),
-//             },
-//         }
-//     }
-// }
-
 impl From<Vec<u8>> for PartialVec {
     fn from(value: Vec<u8>) -> Self {
         PartialVec::from_vec(value)
@@ -115,40 +103,3 @@ impl Borrow<[u8]> for PartialVec {
 }
 
 pub(crate) type AssociatedInput = PartialVec;
-
-// #[derive(Clone, Debug, PartialEq, Eq)]
-// pub struct AssociatedInput {
-//     data: Arc<Vec<u8>>,
-//     range: Range<usize>,
-//     // pub(crate) ptr: *const u8,
-//     // pub(crate) len: usize,
-// }
-
-// // Since we only use `AssociatedInput` in Exif, it's safe to impl `Send` &
-// // `Sync` here.
-// unsafe impl Send for AssociatedInput {}
-// unsafe impl Sync for AssociatedInput {}
-
-// impl AssociatedInput {
-//     pub(crate) fn make_associated(&self, subslice: &[u8]) -> AssociatedInput {
-//         let _ = self
-//             .subslice_in_range(subslice)
-//             .expect("subslice should be a sub slice of self");
-
-//         AssociatedInput::new(subslice)
-//     }
-// }
-
-// impl Deref for AssociatedInput {
-//     type Target = [u8];
-
-//     fn deref(&self) -> &Self::Target {
-//         &self.data[self.range.clone()]
-//     }
-// }
-
-// impl AsRef<[u8]> for AssociatedInput {
-//     fn as_ref(&self) -> &[u8] {
-//         self
-//     }
-// }

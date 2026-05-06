@@ -166,6 +166,8 @@ impl Display for ParsingState {
     }
 }
 
+// Modern replacement for the `Load` trait in loader.rs. Adds offset-aware
+// parsing and `ParsingState` threading for format-specific state machines.
 pub(crate) trait BufParser: Buf + Debug {
     fn fill_buf<R: Read>(&mut self, reader: &mut R, size: usize) -> io::Result<usize>;
     fn load_and_parse<R: Read, S: Skip<R>, P, O>(

@@ -29,6 +29,9 @@ pub(crate) trait BufLoad {
     }
 }
 
+// Legacy incremental-load abstraction. Superseded by `BufParser` in parser.rs,
+// which adds offset-aware parsing and state machine support. New code should use
+// `BufParser`; `Load` exists only to support older call sites pending migration.
 pub(crate) trait Load: BufLoad {
     fn read_buf(&mut self, n: usize) -> std::io::Result<usize>;
     fn skip(&mut self, n: usize) -> std::io::Result<()>;

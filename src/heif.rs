@@ -77,7 +77,12 @@ pub(crate) fn extract_exif_data(
                 (None, None)
             }
         }
-        _ => unreachable!(),
+        _ => {
+            return Err(ParsingErrorState::new(
+                ParsingError::Failed("unexpected parsing state for heif".into()),
+                None,
+            ))
+        }
     };
 
     let data = data.and_then(|x| check_exif_header2(x).map(|x| x.0).ok());

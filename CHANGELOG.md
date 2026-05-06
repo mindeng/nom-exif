@@ -1,5 +1,18 @@
 # Changelog
 
+## nom-exif v2.8.0
+
+### Added
+
+- Add Sony XAVC mp4 support [#48](https://github.com/mindeng/nom-exif/pull/48)
+
+### Changed
+
+- Replace `unreachable!()` panics in HEIF/TIFF state machines with proper error returns
+- Remove commented-out dead code in `partial_vec.rs`
+- Clarify `Load` vs `BufParser` migration path in source comments
+- Use macro to generate `TryFromBytes` implementations, reducing repetitive boilerplate
+
 ## nom-exif v2.7.0
 
 ### Added
