@@ -2,7 +2,6 @@ use std::{
     collections::BTreeMap,
     io::{Read, Seek},
     ops::Range,
-    sync::LazyLock,
 };
 
 use chrono::DateTime;
@@ -406,38 +405,6 @@ fn parse_meta(input: &[u8]) -> Option<Vec<(String, EntryValue)>> {
     Some(entries)
 }
 
-/// Change timezone format from iso 8601 to rfc3339, e.g.:
-///
-/// - `2023-11-02T19:58:34+08` -> `2023-11-02T19:58:34+08:00`
-/// - `2023-11-02T19:58:34+0800` -> `2023-11-02T19:58:34+08:00`
-static TZ_REGEX: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r"([+-][0-9][0-9])([0-9][0-9])?$").unwrap()
-});
-
-#[allow(dead_code)]
-fn tz_iso_8601_to_rfc3339(s: String) -> String {
-    let ss = s.trim();
-    let re = &*TZ_REGEX;
-
-    if let Some((offset, tz)) = re.captures(ss).map(|caps| {
-        (
-            // Safe unwrap
-            caps.get(1).unwrap().start(),
-            format!(
-                "{}:{}",
-                caps.get(1).map_or("00", |m| m.as_str()),
-                caps.get(2).map_or("00", |m| m.as_str())
-            ),
-        )
-    }) {
-        let s1 = &ss.as_bytes()[..offset]; // Safe-slice
-        let s2 = tz.as_bytes();
-        s1.iter().chain(s2.iter()).map(|x| *x as char).collect()
-    } else {
-        s
-    }
-}
-
 #[cfg(test)]
 #[allow(deprecated)]
 mod tests {
@@ -533,25 +500,5 @@ mod tests {
 (\"width\", U32(1920))
 (\"height\", U32(1440))"
         );
-    }
-
-    #[test]
-    fn test_iso_8601_tz_to_rfc3339() {
-        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
-
-        let s = "2023-11-02T19:58:34+08".to_string();
-        assert_eq!(tz_iso_8601_to_rfc3339(s), "2023-11-02T19:58:34+08:00");
-
-        let s = "2023-11-02T19:58:34+0800".to_string();
-        assert_eq!(tz_iso_8601_to_rfc3339(s), "2023-11-02T19:58:34+08:00");
-
-        let s = "2023-11-02T19:58:34+08:00".to_string();
-        assert_eq!(tz_iso_8601_to_rfc3339(s), "2023-11-02T19:58:34+08:00");
-
-        let s = "2023-11-02T19:58:34Z".to_string();
-        assert_eq!(tz_iso_8601_to_rfc3339(s), "2023-11-02T19:58:34Z");
-
-        let s = "2023-11-02T19:58:34".to_string();
-        assert_eq!(tz_iso_8601_to_rfc3339(s), "2023-11-02T19:58:34");
     }
 }
