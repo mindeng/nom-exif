@@ -13,11 +13,13 @@ use tokio::{
 };
 
 use crate::{
-    buffer::Buffers,
     error::{ParsedError, ParsingError, ParsingErrorState},
     exif::parse_exif_iter_async,
     file::Mime,
-    parser::{Buf, ParsingState, ShareBuf, INIT_BUF_SIZE, MAX_ALLOC_SIZE, MIN_GROW_SIZE},
+    parser::{
+        Buf, BufferedParserState, ParsingState, ShareBuf, INIT_BUF_SIZE, MAX_ALLOC_SIZE,
+        MIN_GROW_SIZE,
+    },
     partial_vec::PartialVec,
     skip::AsyncSkip,
     video::parse_track_info,
@@ -289,17 +291,13 @@ impl<R: AsyncRead + Unpin + Send, S: AsyncSkip<R> + Send> AsyncParseOutput<R, S>
 /// }
 /// ```
 pub struct AsyncMediaParser {
-    bb: Buffers,
-    buf: Option<Vec<u8>>,
-    position: usize,
+    state: BufferedParserState,
 }
 
 impl Debug for AsyncMediaParser {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MediaParser")
-            .field("buffers", &self.bb)
-            .field("buf len", &self.buf.as_ref().map(|x| x.len()))
-            .field("position", &self.position)
+        f.debug_struct("AsyncMediaParser")
+            .field("state", &self.state)
             .finish_non_exhaustive()
     }
 }
@@ -317,20 +315,14 @@ impl<R, S: AsyncSkip<R>> Debug for AsyncMediaSource<R, S> {
 impl Default for AsyncMediaParser {
     fn default() -> Self {
         Self {
-            bb: Buffers::new(),
-            buf: None,
-            position: 0,
+            state: BufferedParserState::new(),
         }
     }
 }
 
 impl ShareBuf for AsyncMediaParser {
-    fn share_buf(&mut self, mut range: Range<usize>) -> PartialVec {
-        let buf = self.buf.take().unwrap();
-        let vec = self.bb.release_to_share(buf);
-        range.start += self.position;
-        range.end += self.position;
-        PartialVec::new(vec, range)
+    fn share_buf(&mut self, range: Range<usize>) -> PartialVec {
+        self.state.share_buf(range)
     }
 }
 
@@ -382,26 +374,19 @@ impl AsyncMediaParser {
     }
 
     fn reset(&mut self) {
-        // Ensure buf has been released
-        if let Some(buf) = self.buf.take() {
-            self.bb.release(buf);
-        }
-
-        // Reset position
-        self.set_position(0);
+        self.state.reset();
     }
 
     fn buf(&self) -> &Vec<u8> {
-        self.buf.as_ref().unwrap()
+        self.state.buf()
     }
 
     fn acquire_buf(&mut self) {
-        assert!(self.buf.is_none());
-        self.buf = Some(self.bb.acquire());
+        self.state.acquire_buf();
     }
 
     fn buf_mut(&mut self) -> &mut Vec<u8> {
-        self.buf.as_mut().unwrap()
+        self.state.buf_mut()
     }
 }
 
@@ -418,15 +403,10 @@ impl AsyncBufParser for AsyncMediaParser {
         }
 
         // Same rationale as the sync version: do not pre-allocate `size` bytes.
-        let n = reader.take(size as u64).read_to_end(self.buf_mut()).await?;
+        let n = reader.take(size as u64).read_to_end(self.state.buf_mut()).await?;
         if n == 0 {
             return Err(std::io::ErrorKind::UnexpectedEof.into());
         }
-
-        // let n = reader.read_buf(&mut self.buf).await?;
-        // if n == 0 {
-        //     return Err(std::io::ErrorKind::UnexpectedEof.into());
-        // }
 
         Ok(n)
     }
@@ -434,19 +414,19 @@ impl AsyncBufParser for AsyncMediaParser {
 
 impl Buf for AsyncMediaParser {
     fn buffer(&self) -> &[u8] {
-        &self.buf()[self.position()..]
+        self.state.buffer()
     }
 
     fn clear(&mut self) {
-        self.buf_mut().clear();
+        self.state.clear();
     }
 
     fn set_position(&mut self, pos: usize) {
-        self.position = pos;
+        self.state.set_position(pos);
     }
 
     fn position(&self) -> usize {
-        self.position
+        self.state.position()
     }
 }
 

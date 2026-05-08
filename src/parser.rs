@@ -149,6 +149,65 @@ pub(crate) trait Buf {
     fn position(&self) -> usize;
 }
 
+/// Buffer-management state shared between `MediaParser` and `AsyncMediaParser`.
+#[derive(Debug, Default)]
+pub(crate) struct BufferedParserState {
+    bb: Buffers,
+    buf: Option<Vec<u8>>,
+    position: usize,
+}
+
+impl BufferedParserState {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    pub(crate) fn reset(&mut self) {
+        if let Some(buf) = self.buf.take() {
+            self.bb.release(buf);
+        }
+        self.position = 0;
+    }
+
+    pub(crate) fn acquire_buf(&mut self) {
+        debug_assert!(self.buf.is_none());
+        self.buf = Some(self.bb.acquire());
+    }
+
+    pub(crate) fn buf(&self) -> &Vec<u8> {
+        self.buf.as_ref().expect("no buf here")
+    }
+
+    pub(crate) fn buf_mut(&mut self) -> &mut Vec<u8> {
+        self.buf.as_mut().expect("no buf here")
+    }
+}
+
+impl Buf for BufferedParserState {
+    fn buffer(&self) -> &[u8] {
+        &self.buf()[self.position..]
+    }
+    fn clear(&mut self) {
+        self.buf_mut().clear();
+    }
+    fn set_position(&mut self, pos: usize) {
+        self.position = pos;
+    }
+    fn position(&self) -> usize {
+        self.position
+    }
+}
+
+impl ShareBuf for BufferedParserState {
+    fn share_buf(&mut self, mut range: Range<usize>) -> PartialVec {
+        let buf = self.buf.take().expect("no buf to share");
+        let vec = self.bb.release_to_share(buf);
+        range.start += self.position;
+        range.end += self.position;
+        PartialVec::new(vec, range)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) enum ParsingState {
     TiffHeader(TiffHeader),
@@ -281,9 +340,9 @@ pub(crate) trait BufParser: Buf + Debug {
 }
 
 impl BufParser for MediaParser {
-    #[tracing::instrument(skip(self, reader), fields(buf_len=self.buf().len()))]
+    #[tracing::instrument(skip(self, reader), fields(buf_len=self.state.buf().len()))]
     fn fill_buf<R: Read>(&mut self, reader: &mut R, size: usize) -> io::Result<usize> {
-        if size.saturating_add(self.buf().len()) > MAX_ALLOC_SIZE {
+        if size.saturating_add(self.state.buf().len()) > MAX_ALLOC_SIZE {
             tracing::error!(?size, "the requested buffer size is too big");
             return Err(io::ErrorKind::Unsupported.into());
         }
@@ -293,16 +352,16 @@ impl BufParser for MediaParser {
         // stream length. reserve_exact would allocate that memory immediately
         // even when the reader has only a few bytes left. read_to_end grows the
         // buffer from the reader's actual size hint instead.
-        let n = reader.take(size as u64).read_to_end(self.buf_mut())?;
+        let n = reader.take(size as u64).read_to_end(self.state.buf_mut())?;
         if n == 0 {
-            tracing::error!(buf_len = self.buf().len(), "fill_buf: EOF");
+            tracing::error!(buf_len = self.state.buf().len(), "fill_buf: EOF");
             return Err(std::io::ErrorKind::UnexpectedEof.into());
         }
 
         tracing::debug!(
             ?size,
             ?n,
-            buf_len = self.buf().len(),
+            buf_len = self.state.buf().len(),
             "fill_buf: read bytes"
         );
 
@@ -312,19 +371,19 @@ impl BufParser for MediaParser {
 
 impl Buf for MediaParser {
     fn buffer(&self) -> &[u8] {
-        &self.buf()[self.position..]
+        self.state.buffer()
     }
 
     fn clear(&mut self) {
-        self.buf_mut().clear();
+        self.state.clear();
     }
 
     fn set_position(&mut self, pos: usize) {
-        self.position = pos;
+        self.state.set_position(pos);
     }
 
     fn position(&self) -> usize {
-        self.position
+        self.state.position()
     }
 }
 
@@ -405,17 +464,13 @@ impl<R: Read, S: Skip<R>> ParseOutput<R, S> for TrackInfo {
 /// );
 /// ```
 pub struct MediaParser {
-    bb: Buffers,
-    buf: Option<Vec<u8>>,
-    position: usize,
+    state: BufferedParserState,
 }
 
 impl Debug for MediaParser {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MediaParser")
-            .field("buffers", &self.bb)
-            .field("buf len", &self.buf.as_ref().map(|x| x.len()))
-            .field("position", &self.position)
+            .field("state", &self.state)
             .finish_non_exhaustive()
     }
 }
@@ -423,9 +478,7 @@ impl Debug for MediaParser {
 impl Default for MediaParser {
     fn default() -> Self {
         Self {
-            bb: Buffers::new(),
-            buf: None,
-            position: 0,
+            state: BufferedParserState::new(),
         }
     }
 }
@@ -435,12 +488,8 @@ pub(crate) trait ShareBuf {
 }
 
 impl ShareBuf for MediaParser {
-    fn share_buf(&mut self, mut range: Range<usize>) -> PartialVec {
-        let buf = self.buf.take().unwrap();
-        let vec = self.bb.release_to_share(buf);
-        range.start += self.position;
-        range.end += self.position;
-        PartialVec::new(vec, range)
+    fn share_buf(&mut self, range: Range<usize>) -> PartialVec {
+        self.state.share_buf(range)
     }
 }
 
@@ -492,32 +541,19 @@ impl MediaParser {
     }
 
     fn reset(&mut self) {
-        // Ensure buf has been released
-        if let Some(buf) = self.buf.take() {
-            self.bb.release(buf);
-        }
-
-        // Reset position
-        self.set_position(0);
+        self.state.reset();
     }
 
     pub(crate) fn buf(&self) -> &Vec<u8> {
-        match self.buf.as_ref() {
-            Some(b) => b,
-            None => panic!("no buf here"),
-        }
+        self.state.buf()
     }
 
     fn buf_mut(&mut self) -> &mut Vec<u8> {
-        match self.buf.as_mut() {
-            Some(b) => b,
-            None => panic!("no buf here"),
-        }
+        self.state.buf_mut()
     }
 
     fn acquire_buf(&mut self) {
-        assert!(self.buf.is_none());
-        self.buf = Some(self.bb.acquire());
+        self.state.acquire_buf();
     }
 }
 
