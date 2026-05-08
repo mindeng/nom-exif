@@ -607,6 +607,18 @@ impl MediaParser {
         res
     }
 
+    /// Parse Exif metadata from an image source. Returns `Error::ExifNotFound`
+    /// if the source is a `Track` (use [`Self::parse_track`] instead).
+    pub fn parse_exif<R: Read>(&mut self, ms: MediaSource<R>) -> crate::Result<ExifIter> {
+        self.parse(ms)
+    }
+
+    /// Parse track info from a video/audio source. Returns `Error::TrackNotFound`
+    /// if the source is an `Image` (use [`Self::parse_exif`] instead).
+    pub fn parse_track<R: Read>(&mut self, ms: MediaSource<R>) -> crate::Result<TrackInfo> {
+        self.parse(ms)
+    }
+
     fn do_parse<R: Read, O: ParseOutput<R>>(
         &mut self,
         mut ms: MediaSource<R>,
@@ -826,5 +838,35 @@ mod tests {
         let f = File::open("testdata/exif.jpg").unwrap();
         let ms = MediaSource::from_file(f).unwrap();
         assert_eq!(ms.kind(), MediaKind::Image);
+    }
+
+    #[test]
+    fn parse_exif_returns_exif_iter() {
+        let mut parser = parser();
+        let ms = MediaSource::open("testdata/exif.jpg").unwrap();
+        let _: ExifIter = parser.parse_exif(ms).unwrap();
+    }
+
+    #[test]
+    fn parse_track_returns_track_info() {
+        let mut parser = parser();
+        let ms = MediaSource::open("testdata/meta.mov").unwrap();
+        let _: TrackInfo = parser.parse_track(ms).unwrap();
+    }
+
+    #[test]
+    fn parse_exif_on_track_returns_exif_not_found_v3() {
+        let mut parser = parser();
+        let ms = MediaSource::open("testdata/meta.mov").unwrap();
+        let res = parser.parse_exif(ms);
+        assert!(matches!(res, Err(crate::Error::ExifNotFound)));
+    }
+
+    #[test]
+    fn parse_track_on_image_returns_track_not_found_v3() {
+        let mut parser = parser();
+        let ms = MediaSource::open("testdata/exif.jpg").unwrap();
+        let res = parser.parse_track(ms);
+        assert!(matches!(res, Err(crate::Error::TrackNotFound)));
     }
 }
