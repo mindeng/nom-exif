@@ -65,7 +65,10 @@ pub fn check_jpeg(input: &[u8]) -> crate::Result<()> {
 
     // SOI has no payload
     if code != MarkerCode::Soi.code() {
-        return Err("invalid JPEG file; SOI marker not found".into());
+        return Err(crate::Error::Malformed {
+            kind: crate::error::MalformedKind::JpegSegment,
+            message: "SOI marker not found".into(),
+        });
     }
 
     // check next marker [0xff, *]

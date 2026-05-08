@@ -106,7 +106,10 @@ impl TryFrom<Vec<URational>> for LatLng {
 
     fn try_from(value: Vec<URational>) -> Result<Self, Self::Error> {
         if value.len() < 3 {
-            Err("convert to LatLng failed; need at least 3 (u32, u32)".into())
+            Err(crate::Error::Malformed {
+                kind: crate::error::MalformedKind::IfdEntry,
+                message: "need at least 3 URational components for LatLng".into(),
+            })
         } else {
             Ok(Self(value[0], value[1], value[2]))
         }
@@ -128,7 +131,10 @@ impl TryFrom<&Vec<URational>> for LatLng {
     type Error = crate::Error;
     fn try_from(value: &Vec<URational>) -> Result<Self, Self::Error> {
         if value.len() < 3 {
-            Err(crate::Error::ParseFailed("invalid URational data".into()))
+            Err(crate::Error::Malformed {
+                kind: crate::error::MalformedKind::IfdEntry,
+                message: "invalid URational data".into(),
+            })
         } else {
             Ok(Self(value[0], value[1], value[2]))
         }
@@ -138,7 +144,10 @@ impl TryFrom<&Vec<IRational>> for LatLng {
     type Error = crate::Error;
     fn try_from(value: &Vec<IRational>) -> Result<Self, Self::Error> {
         if value.len() < 3 {
-            Err(crate::Error::ParseFailed("invalid URational data".into()))
+            Err(crate::Error::Malformed {
+                kind: crate::error::MalformedKind::IfdEntry,
+                message: "invalid URational data".into(),
+            })
         } else {
             Ok(Self(value[0].into(), value[1].into(), value[2].into()))
         }

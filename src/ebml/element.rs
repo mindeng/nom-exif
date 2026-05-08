@@ -28,8 +28,14 @@ impl From<ParseEBMLFailed> for crate::Error {
             ParseEBMLFailed::Need(_) => Self::UnexpectedEof {
                 context: "ebml element",
             },
-            ParseEBMLFailed::NotEBMLFile => Self::ParseFailed(e.into()),
-            ParseEBMLFailed::InvalidEBMLFile(e) => Self::ParseFailed(e),
+            ParseEBMLFailed::NotEBMLFile => Self::Malformed {
+                kind: crate::error::MalformedKind::EbmlElement,
+                message: e.to_string(),
+            },
+            ParseEBMLFailed::InvalidEBMLFile(e) => Self::Malformed {
+                kind: crate::error::MalformedKind::EbmlElement,
+                message: e.to_string(),
+            },
         }
     }
 }

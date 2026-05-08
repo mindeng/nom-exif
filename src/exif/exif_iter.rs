@@ -199,9 +199,10 @@ impl ExifIter {
             Err(e) => return Err(e.clone().into()),
         };
         if offset as usize >= iter.input.len() {
-            return Err(crate::Error::ParseFailed(
-                "GPSInfo offset is out of range".into(),
-            ));
+            return Err(crate::Error::Malformed {
+                kind: crate::error::MalformedKind::IfdEntry,
+                message: "GPSInfo offset out of range".into(),
+            });
         }
 
         let mut gps_subifd = match IfdIter::try_new(
@@ -615,9 +616,10 @@ impl IfdIter {
         tz: Option<String>,
     ) -> crate::Result<Self> {
         if input.len() < 2 {
-            return Err(crate::Error::ParseFailed(
-                "ifd data is too small to decode entry num".into(),
-            ));
+            return Err(crate::Error::Malformed {
+                kind: crate::error::MalformedKind::TiffHeader,
+                message: "ifd data too small to decode entry num".into(),
+            });
         }
         // should use the complete header data to parse ifd entry num
         assert!(offset <= input.len());
