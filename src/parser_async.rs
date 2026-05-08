@@ -13,7 +13,7 @@ use tokio::{
 };
 
 use crate::{
-    error::{ParsedError, ParsingError, ParsingErrorState},
+    error::{ParsedError, ParsingErrorState},
     exif::parse_exif_iter_async,
     file::Mime,
     parser::{
