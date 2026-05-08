@@ -1,21 +1,53 @@
 use std::{
     fmt::{Debug, Display},
-    io::{self},
     string::FromUtf8Error,
 };
 use thiserror::Error;
 
 type FallbackError = Box<dyn std::error::Error + Send + Sync>;
 
+/// Top-level error returned by `read_exif`, `MediaParser::parse_*`,
+/// `MediaSource::open`, and any other public function that touches a file.
+///
+/// `#[non_exhaustive]` — downstream code MUST use a `_ =>` fallback in `match`
+/// to remain compatible with future variants.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum Error {
+    #[error("io error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("unsupported media format")]
+    UnsupportedFormat,
+
+    #[error("no exif data found in this file")]
+    ExifNotFound,
+
+    #[error("no track info found in this file")]
+    TrackNotFound,
+
+    /// Data was recognized as the target format but its inner structure is broken.
+    #[error("malformed {kind}: {message}")]
+    Malformed {
+        kind: MalformedKind,
+        message: String,
+    },
+
+    /// Parsing needed more bytes but the stream ended.
+    #[error("unexpected end of input while parsing {context}")]
+    UnexpectedEof { context: &'static str },
+
+    // ----- v2 compatibility, removed in Task 9. Do NOT reference these
+    // outside of the migration window.
+    #[doc(hidden)]
     #[error("parse failed: {0}")]
     ParseFailed(FallbackError),
 
+    #[doc(hidden)]
     #[error("io error: {0}")]
     IOError(std::io::Error),
 
-    /// If you encounter this error, please consider filing a bug on github
+    #[doc(hidden)]
     #[error("unrecognized file format")]
     UnrecognizedFileFormat,
 }
@@ -134,12 +166,6 @@ impl From<ParsedError> for crate::Error {
 use Error::*;
 
 use crate::parser::ParsingState;
-
-impl From<io::Error> for Error {
-    fn from(value: io::Error) -> Self {
-        ParseFailed(value.into())
-    }
-}
 
 impl From<String> for Error {
     fn from(src: String) -> Error {
@@ -339,6 +365,43 @@ mod tests {
         // This is asserted documentally — there is no `impl From<ConvertError> for Error`.
         // We just verify both types compile here.
         let _ = ConvertError::NegativeRational;
-        let _ = Error::UnrecognizedFileFormat; // legacy variant; replaced in Task 3+5
+        let _ = Error::UnsupportedFormat;
+    }
+
+    #[test]
+    fn error_io_from_io_error() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "x");
+        let err: Error = io_err.into();
+        assert!(matches!(err, Error::Io(_)));
+    }
+
+    #[test]
+    fn error_unsupported_format_displays() {
+        assert_eq!(Error::UnsupportedFormat.to_string(), "unsupported media format");
+    }
+
+    #[test]
+    fn error_exif_not_found_displays() {
+        assert_eq!(Error::ExifNotFound.to_string(), "no exif data found in this file");
+    }
+
+    #[test]
+    fn error_track_not_found_displays() {
+        assert_eq!(Error::TrackNotFound.to_string(), "no track info found in this file");
+    }
+
+    #[test]
+    fn error_malformed_displays() {
+        let e = Error::Malformed {
+            kind: MalformedKind::JpegSegment,
+            message: "bad SOI".into(),
+        };
+        assert_eq!(e.to_string(), "malformed jpeg segment: bad SOI");
+    }
+
+    #[test]
+    fn error_unexpected_eof_displays() {
+        let e = Error::UnexpectedEof { context: "tiff header" };
+        assert_eq!(e.to_string(), "unexpected end of input while parsing tiff header");
     }
 }
