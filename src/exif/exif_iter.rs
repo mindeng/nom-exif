@@ -840,7 +840,9 @@ impl IfdIter {
                     if let Some(v) = entry.as_urational() {
                         gps.altitude = *v;
                     } else if let Some(v) = entry.as_irational() {
-                        gps.altitude = (*v).into();
+                        if let Ok(u) = URational::try_from(*v) {
+                            gps.altitude = u;
+                        }
                     }
                 }
                 ExifTag::GPSSpeedRef => {
@@ -852,7 +854,9 @@ impl IfdIter {
                     if let Some(v) = entry.as_urational() {
                         gps.speed = Some(*v);
                     } else if let Some(v) = entry.as_irational() {
-                        gps.speed = Some((*v).into());
+                        if let Ok(u) = URational::try_from(*v) {
+                            gps.speed = Some(u);
+                        }
                     }
                 }
                 _ => (),

@@ -759,9 +759,16 @@ impl<T: Copy> From<Rational<T>> for (T, T) {
     }
 }
 
-impl From<IRational> for URational {
-    fn from(value: IRational) -> Self {
-        Self::new(value.numerator() as u32, value.denominator() as u32)
+impl TryFrom<IRational> for URational {
+    type Error = crate::ConvertError;
+    fn try_from(value: IRational) -> Result<Self, Self::Error> {
+        let n = value.numerator();
+        let d = value.denominator();
+        if n < 0 || d < 0 {
+            Err(crate::ConvertError::NegativeRational)
+        } else {
+            Ok(URational::new(n as u32, d as u32))
+        }
     }
 }
 
@@ -927,5 +934,26 @@ mod tests {
         let r = URational::default();
         assert_eq!(r.numerator(), 0);
         assert_eq!(r.denominator(), 0);
+    }
+
+    #[test]
+    fn irational_to_urational_positive() {
+        let i = IRational::new(3, 4);
+        let u: URational = i.try_into().unwrap();
+        assert_eq!(u, URational::new(3, 4));
+    }
+
+    #[test]
+    fn irational_to_urational_negative_numerator() {
+        let i = IRational::new(-3, 4);
+        let err = URational::try_from(i).unwrap_err();
+        assert!(matches!(err, crate::ConvertError::NegativeRational));
+    }
+
+    #[test]
+    fn irational_to_urational_negative_denominator() {
+        let i = IRational::new(3, -4);
+        let err = URational::try_from(i).unwrap_err();
+        assert!(matches!(err, crate::ConvertError::NegativeRational));
     }
 }

@@ -144,13 +144,20 @@ impl TryFrom<&Vec<IRational>> for LatLng {
     type Error = crate::Error;
     fn try_from(value: &Vec<IRational>) -> Result<Self, Self::Error> {
         if value.len() < 3 {
-            Err(crate::Error::Malformed {
+            return Err(crate::Error::Malformed {
                 kind: crate::error::MalformedKind::IfdEntry,
                 message: "invalid URational data".into(),
-            })
-        } else {
-            Ok(Self(value[0].into(), value[1].into(), value[2].into()))
+            });
         }
+        let map_negative = |_| crate::Error::Malformed {
+            kind: crate::error::MalformedKind::IfdEntry,
+            message: "negative LatLng component".into(),
+        };
+        Ok(Self(
+            URational::try_from(value[0]).map_err(map_negative)?,
+            URational::try_from(value[1]).map_err(map_negative)?,
+            URational::try_from(value[2]).map_err(map_negative)?,
+        ))
     }
 }
 pub struct InvalidISO6709Coord;
