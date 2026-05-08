@@ -136,12 +136,27 @@ impl<R: Read> MediaSource<R, Unseekable> {
 }
 
 impl MediaSource<File, Seekable> {
-    pub fn file_path<P: AsRef<Path>>(path: P) -> crate::Result<Self> {
+    /// Open a file at `path` and parse its header to detect the media format.
+    ///
+    /// This is the v3-preferred entry point for the common case of "I have a
+    /// path on disk". For an already-open file handle use [`Self::from_file`];
+    /// for a generic `Read + Seek` source use [`Self::seekable`].
+    pub fn open<P: AsRef<Path>>(path: P) -> crate::Result<Self> {
         Self::seekable(File::open(path)?)
     }
 
-    pub fn file(file: File) -> crate::Result<Self> {
+    /// Wrap an already-open `File` and parse its header.
+    pub fn from_file(file: File) -> crate::Result<Self> {
         Self::seekable(file)
+    }
+
+    // v2-shape constructors (deleted at end of P3; tests still use them).
+    pub fn file_path<P: AsRef<Path>>(path: P) -> crate::Result<Self> {
+        Self::open(path)
+    }
+
+    pub fn file(file: File) -> crate::Result<Self> {
+        Self::from_file(file)
     }
 }
 
@@ -794,5 +809,19 @@ mod tests {
 
         let trk = MediaSource::file_path("testdata/meta.mov").unwrap();
         assert_eq!(trk.kind(), MediaKind::Track);
+    }
+
+    #[test]
+    fn media_source_open_and_from_file() {
+        use std::fs::File;
+
+        // open(path) opens the file internally
+        let ms = MediaSource::open("testdata/exif.jpg").unwrap();
+        assert_eq!(ms.kind(), MediaKind::Image);
+
+        // from_file(file) takes an already-open File
+        let f = File::open("testdata/exif.jpg").unwrap();
+        let ms = MediaSource::from_file(f).unwrap();
+        assert_eq!(ms.kind(), MediaKind::Image);
     }
 }
