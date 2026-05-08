@@ -63,10 +63,9 @@
 
 - Robustness and stability
 
-  Through long-term [Fuzz testing](https://github.com/rust-fuzz/afl.rs), and
-  tons of crash issues discovered during testing have been fixed. Thanks to
-  [@sigaloid](https://github.com/sigaloid) for [pointing this
-  out](https://github.com/mindeng/nom-exif/pull/5)!
+  Through long-term fuzz testing, tons of crash issues discovered during
+  testing have been fixed. Thanks to [@sigaloid](https://github.com/sigaloid)
+  for [pointing this out](https://github.com/mindeng/nom-exif/pull/5)!
 
 - Supports both *sync* and *async* APIs
 
@@ -330,6 +329,30 @@ MeteringMode                    => 1
 SceneCaptureType                => 0
 UserComment                     => filter: 0; fileterIntensity: 0.0; ...
 ...
+```
+
+## Fuzz Testing
+
+The project uses [cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz)
+(libFuzzer) for fuzz testing. Requires nightly Rust.
+
+**Run the fuzzer:**
+
+```sh
+# Use testdata/ as seed corpus, write new corpus to fuzz/corpus/media_parser/
+cargo +nightly fuzz run media_parser fuzz/corpus/media_parser/ testdata/
+```
+
+**Reproduce a crash:**
+
+```sh
+cargo +nightly fuzz run media_parser fuzz/artifacts/media_parser/<crash-file>
+```
+
+**Minimize a crash input:**
+
+```sh
+cargo +nightly fuzz tmin media_parser fuzz/artifacts/media_parser/<crash-file>
 ```
 
 ## Changelog
