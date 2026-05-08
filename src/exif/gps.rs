@@ -40,18 +40,18 @@ impl GPSInfo {
     /// Returns an ISO 6709 geographic point location string such as
     /// `+48.8577+002.295/`.
     pub fn format_iso6709(&self) -> String {
-        let latitude = self.latitude.0.as_float()
-            + self.latitude.1.as_float() / 60.0
-            + self.latitude.2.as_float() / 3600.0;
-        let longitude = self.longitude.0.as_float()
-            + self.longitude.1.as_float() / 60.0
-            + self.longitude.2.as_float() / 3600.0;
-        let altitude = self.altitude.as_float();
+        let latitude = self.latitude.0.to_f64().unwrap_or(0.0)
+            + self.latitude.1.to_f64().unwrap_or(0.0) / 60.0
+            + self.latitude.2.to_f64().unwrap_or(0.0) / 3600.0;
+        let longitude = self.longitude.0.to_f64().unwrap_or(0.0)
+            + self.longitude.1.to_f64().unwrap_or(0.0) / 60.0
+            + self.longitude.2.to_f64().unwrap_or(0.0) / 3600.0;
+        let altitude = self.altitude.to_f64().unwrap_or(0.0);
         format!(
             "{}{latitude:08.5}{}{longitude:09.5}{}/",
             if self.latitude_ref == 'N' { '+' } else { '-' },
             if self.longitude_ref == 'E' { '+' } else { '-' },
-            if self.altitude.0 == 0 {
+            if self.altitude.numerator() == 0 {
                 "".to_string()
             } else {
                 format!(
@@ -227,18 +227,18 @@ mod tests {
         let palace = GPSInfo {
             latitude_ref: 'N',
             latitude: LatLng(
-                Rational::<u32>(39, 1),
-                Rational::<u32>(55, 1),
-                Rational::<u32>(0, 1),
+                Rational::<u32>::new(39, 1),
+                Rational::<u32>::new(55, 1),
+                Rational::<u32>::new(0, 1),
             ),
             longitude_ref: 'E',
             longitude: LatLng(
-                Rational::<u32>(116, 1),
-                Rational::<u32>(23, 1),
-                Rational::<u32>(27, 1),
+                Rational::<u32>::new(116, 1),
+                Rational::<u32>::new(23, 1),
+                Rational::<u32>::new(27, 1),
             ),
             altitude_ref: 0,
-            altitude: Rational::<u32>(0, 1),
+            altitude: Rational::<u32>::new(0, 1),
             ..Default::default()
         };
         assert_eq!(palace.format_iso6709(), "+39.91667+116.39083/");
@@ -246,18 +246,18 @@ mod tests {
         let liberty = GPSInfo {
             latitude_ref: 'N',
             latitude: LatLng(
-                Rational::<u32>(40, 1),
-                Rational::<u32>(41, 1),
-                Rational::<u32>(21, 1),
+                Rational::<u32>::new(40, 1),
+                Rational::<u32>::new(41, 1),
+                Rational::<u32>::new(21, 1),
             ),
             longitude_ref: 'W',
             longitude: LatLng(
-                Rational::<u32>(74, 1),
-                Rational::<u32>(2, 1),
-                Rational::<u32>(40, 1),
+                Rational::<u32>::new(74, 1),
+                Rational::<u32>::new(2, 1),
+                Rational::<u32>::new(40, 1),
             ),
             altitude_ref: 0,
-            altitude: Rational::<u32>(0, 1),
+            altitude: Rational::<u32>::new(0, 1),
             ..Default::default()
         };
         assert_eq!(liberty.format_iso6709(), "+40.68917-074.04444/");
@@ -265,18 +265,18 @@ mod tests {
         let above = GPSInfo {
             latitude_ref: 'N',
             latitude: LatLng(
-                Rational::<u32>(40, 1),
-                Rational::<u32>(41, 1),
-                Rational::<u32>(21, 1),
+                Rational::<u32>::new(40, 1),
+                Rational::<u32>::new(41, 1),
+                Rational::<u32>::new(21, 1),
             ),
             longitude_ref: 'W',
             longitude: LatLng(
-                Rational::<u32>(74, 1),
-                Rational::<u32>(2, 1),
-                Rational::<u32>(40, 1),
+                Rational::<u32>::new(74, 1),
+                Rational::<u32>::new(2, 1),
+                Rational::<u32>::new(40, 1),
             ),
             altitude_ref: 0,
-            altitude: Rational::<u32>(123, 1),
+            altitude: Rational::<u32>::new(123, 1),
             ..Default::default()
         };
         assert_eq!(above.format_iso6709(), "+40.68917-074.04444+123CRSWGS_84/");
@@ -284,18 +284,18 @@ mod tests {
         let below = GPSInfo {
             latitude_ref: 'N',
             latitude: LatLng(
-                Rational::<u32>(40, 1),
-                Rational::<u32>(41, 1),
-                Rational::<u32>(21, 1),
+                Rational::<u32>::new(40, 1),
+                Rational::<u32>::new(41, 1),
+                Rational::<u32>::new(21, 1),
             ),
             longitude_ref: 'W',
             longitude: LatLng(
-                Rational::<u32>(74, 1),
-                Rational::<u32>(2, 1),
-                Rational::<u32>(40, 1),
+                Rational::<u32>::new(74, 1),
+                Rational::<u32>::new(2, 1),
+                Rational::<u32>::new(40, 1),
             ),
             altitude_ref: 1,
-            altitude: Rational::<u32>(123, 1),
+            altitude: Rational::<u32>::new(123, 1),
             ..Default::default()
         };
         assert_eq!(below.format_iso6709(), "+40.68917-074.04444-123CRSWGS_84/");
@@ -303,18 +303,18 @@ mod tests {
         let below = GPSInfo {
             latitude_ref: 'N',
             latitude: LatLng(
-                Rational::<u32>(40, 1),
-                Rational::<u32>(41, 1),
-                Rational::<u32>(21, 1),
+                Rational::<u32>::new(40, 1),
+                Rational::<u32>::new(41, 1),
+                Rational::<u32>::new(21, 1),
             ),
             longitude_ref: 'W',
             longitude: LatLng(
-                Rational::<u32>(74, 1),
-                Rational::<u32>(2, 1),
-                Rational::<u32>(40, 1),
+                Rational::<u32>::new(74, 1),
+                Rational::<u32>::new(2, 1),
+                Rational::<u32>::new(40, 1),
             ),
             altitude_ref: 1,
-            altitude: Rational::<u32>(100, 3),
+            altitude: Rational::<u32>::new(100, 3),
             ..Default::default()
         };
         assert_eq!(
@@ -337,9 +337,9 @@ mod tests {
         assert_eq!(
             iso.latitude,
             LatLng(
-                Rational::<u32>(26, 1),
-                Rational::<u32>(31, 1),
-                Rational::<u32>(93, 100),
+                Rational::<u32>::new(26, 1),
+                Rational::<u32>::new(31, 1),
+                Rational::<u32>::new(93, 100),
             )
         );
 
@@ -347,18 +347,13 @@ mod tests {
         assert_eq!(
             iso.longitude,
             LatLng(
-                Rational::<u32>(78, 1),
-                Rational::<u32>(11, 1),
-                Rational::<u32>(81, 100),
+                Rational::<u32>::new(78, 1),
+                Rational::<u32>::new(11, 1),
+                Rational::<u32>::new(81, 100),
             )
         );
 
         assert_eq!(iso.altitude_ref, 0);
-        assert_eq!(
-            iso.altitude,
-            URational {
-                ..Default::default()
-            }
-        );
+        assert_eq!(iso.altitude, URational::default());
     }
 }

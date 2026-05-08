@@ -61,7 +61,7 @@ impl From<chrono::ParseError> for EntryError {
 
 impl EntryData<'_> {
     // Ensure that the returned Vec is not empty.
-    fn try_as_rationals<T: TryFromBytes>(&self) -> Result<Vec<Rational<T>>, EntryError> {
+    fn try_as_rationals<T: TryFromBytes + Copy>(&self) -> Result<Vec<Rational<T>>, EntryError> {
         if self.components_num == 0 {
             return Err(EntryError::InvalidShape {
                 format: self.data_format as u16,
@@ -505,12 +505,20 @@ impl Display for EntryValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             EntryValue::Text(v) => v.fmt(f),
-            EntryValue::URational(v) => {
-                format!("{}/{} ({:.04})", v.0, v.1, v.0 as f64 / v.1 as f64).fmt(f)
-            }
-            EntryValue::IRational(v) => {
-                format!("{}/{} ({:.04})", v.0, v.1, v.0 as f64 / v.1 as f64).fmt(f)
-            }
+            EntryValue::URational(v) => format!(
+                "{}/{} ({:.04})",
+                v.numerator(),
+                v.denominator(),
+                v.numerator() as f64 / v.denominator() as f64
+            )
+            .fmt(f),
+            EntryValue::IRational(v) => format!(
+                "{}/{} ({:.04})",
+                v.numerator(),
+                v.denominator(),
+                v.numerator() as f64 / v.denominator() as f64
+            )
+            .fmt(f),
             EntryValue::U32(v) => Display::fmt(&v, f),
             EntryValue::U16(v) => Display::fmt(&v, f),
             EntryValue::U64(v) => Display::fmt(&v, f),
@@ -582,7 +590,14 @@ where
     const MAX_DISPLAY_NUM: usize = 3;
     rationals
         .iter()
-        .map(|x| format!("{}/{} ({:.04})", x.0, x.1, x.0.into() / x.1.into()))
+        .map(|x| {
+            format!(
+                "{}/{} ({:.04})",
+                x.numerator(),
+                x.denominator(),
+                x.numerator().into() / x.denominator().into()
+            )
+        })
         .take(MAX_DISPLAY_NUM + 1)
         .enumerate()
         .map(|(i, x)| {
@@ -701,38 +716,52 @@ pub type IRational = Rational<i32>;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
-pub struct Rational<T>(pub T, pub T);
+pub struct Rational<T> {
+    numerator: T,
+    denominator: T,
+}
 
-impl<T> Rational<T>
-where
-    T: Copy + Into<f64>,
-{
-    pub fn as_float(&self) -> f64 {
-        std::convert::Into::<f64>::into(self.0) / std::convert::Into::<f64>::into(self.1)
+impl<T: Copy> Rational<T> {
+    pub const fn new(numerator: T, denominator: T) -> Self {
+        Self { numerator, denominator }
+    }
+
+    pub const fn numerator(&self) -> T {
+        self.numerator
+    }
+
+    pub const fn denominator(&self) -> T {
+        self.denominator
     }
 }
 
-impl<T> From<(T, T)> for Rational<T>
-where
-    T: Copy,
-{
+impl<T: Copy + Into<f64> + PartialEq + Default> Rational<T> {
+    /// Returns `None` if the denominator is zero.
+    #[allow(clippy::wrong_self_convention)]
+    pub fn to_f64(&self) -> Option<f64> {
+        if self.denominator == T::default() {
+            None
+        } else {
+            Some(self.numerator.into() / self.denominator.into())
+        }
+    }
+}
+
+impl<T: Copy> From<(T, T)> for Rational<T> {
     fn from(value: (T, T)) -> Self {
-        Self(value.0, value.1)
+        Self::new(value.0, value.1)
     }
 }
 
-impl<T> From<Rational<T>> for (T, T)
-where
-    T: Copy,
-{
+impl<T: Copy> From<Rational<T>> for (T, T) {
     fn from(value: Rational<T>) -> Self {
-        (value.0, value.1)
+        (value.numerator, value.denominator)
     }
 }
 
 impl From<IRational> for URational {
     fn from(value: IRational) -> Self {
-        Self(value.0 as u32, value.1 as u32)
+        Self::new(value.numerator() as u32, value.denominator() as u32)
     }
 }
 
@@ -803,7 +832,7 @@ impl_try_from_bytes!(i16);
 impl_try_from_bytes!(f32);
 impl_try_from_bytes!(f64);
 
-pub(crate) fn decode_rational<T: TryFromBytes>(
+pub(crate) fn decode_rational<T: TryFromBytes + Copy>(
     data: &[u8],
     endian: Endianness,
 ) -> Result<Rational<T>, EntryError> {
@@ -816,7 +845,7 @@ pub(crate) fn decode_rational<T: TryFromBytes>(
 
     let numerator = T::try_from_bytes(data, endian)?;
     let denominator = T::try_from_bytes(&data[4..], endian)?; // Safe-slice
-    Ok(Rational::<T>(numerator, denominator))
+    Ok(Rational::<T>::new(numerator, denominator))
 }
 
 #[cfg(test)]
@@ -874,5 +903,29 @@ mod tests {
 
         let ev = EntryValue::NaiveDateTime(ndt);
         assert_eq!(ev.as_time_components().unwrap(), (ndt, None));
+    }
+
+    #[test]
+    fn rational_to_f64_normal() {
+        let r = URational::new(1, 2);
+        assert_eq!(r.numerator(), 1);
+        assert_eq!(r.denominator(), 2);
+        assert_eq!(r.to_f64(), Some(0.5));
+    }
+
+    #[test]
+    fn rational_to_f64_zero_denominator() {
+        let r = URational::new(1, 0);
+        assert_eq!(r.to_f64(), None);
+
+        let r = IRational::new(-1, 0);
+        assert_eq!(r.to_f64(), None);
+    }
+
+    #[test]
+    fn rational_default() {
+        let r = URational::default();
+        assert_eq!(r.numerator(), 0);
+        assert_eq!(r.denominator(), 0);
     }
 }
