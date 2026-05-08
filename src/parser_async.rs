@@ -17,8 +17,8 @@ use crate::{
     exif::parse_exif_iter_async,
     file::Mime,
     parser::{
-        parse_loop_step, Buf, BufferedParserState, LoopAction, ParsingState, ShareBuf,
-        INIT_BUF_SIZE, MAX_ALLOC_SIZE, MIN_GROW_SIZE,
+        clear_and_skip_decide, parse_loop_step, Buf, BufferedParserState, LoopAction, ParsingState,
+        ShareBuf, SkipPlan, INIT_BUF_SIZE, MAX_ALLOC_SIZE, MIN_GROW_SIZE,
     },
     partial_vec::PartialVec,
     skip::AsyncSkip,
@@ -153,42 +153,42 @@ pub(crate) trait AsyncBufParser: Buf + Debug {
         reader: &mut R,
         n: usize,
     ) -> Result<(), ParsedError> {
-        tracing::debug!("ClearAndSkip");
-        if n <= self.buffer().len() {
-            tracing::debug!(n, "skip by set_position");
-            self.set_position(n);
-            return Ok(());
-        }
-
-        let skip_n = n - self.buffer().len();
-        tracing::debug!(skip_n, "clear and skip bytes");
-        self.clear();
-
-        let done = S::skip_by_seek(reader, skip_n.try_into().unwrap()).await?;
-        if !done {
-            tracing::debug!(skip_n, "skip by using our buffer");
-            let mut skipped = 0;
-            while skipped < skip_n {
-                let mut to_skip = skip_n - skipped;
-                to_skip = min(to_skip, MAX_ALLOC_SIZE);
-                let n = self.fill_buf(reader, to_skip).await?;
-                skipped += n;
-                if skipped <= skip_n {
-                    self.clear();
-                } else {
-                    let remain = skipped - skip_n;
-                    self.set_position(self.buffer().len() - remain);
-                    break;
-                }
+        match clear_and_skip_decide(self.buffer().len(), n) {
+            SkipPlan::AdvanceOnly => {
+                self.set_position(n);
+                return Ok(());
             }
-        } else {
-            tracing::debug!(skip_n, "skip with seek");
-        }
+            SkipPlan::ClearAndSkip { extra: skip_n } => {
+                self.clear();
+                let done = S::skip_by_seek(
+                    reader,
+                    skip_n.try_into()
+                        .map_err(|_| ParsedError::Failed("skip too many bytes".into()))?,
+                )
+                .await?;
+                if !done {
+                    let mut skipped = 0;
+                    while skipped < skip_n {
+                        let mut to_skip = skip_n - skipped;
+                        to_skip = min(to_skip, MAX_ALLOC_SIZE);
+                        let n = self.fill_buf(reader, to_skip).await?;
+                        skipped += n;
+                        if skipped <= skip_n {
+                            self.clear();
+                        } else {
+                            let remain = skipped - skip_n;
+                            self.set_position(self.buffer().len() - remain);
+                            break;
+                        }
+                    }
+                }
 
-        if self.buffer().is_empty() {
-            self.fill_buf(reader, MIN_GROW_SIZE).await?;
+                if self.buffer().is_empty() {
+                    self.fill_buf(reader, MIN_GROW_SIZE).await?;
+                }
+                Ok(())
+            }
         }
-        Ok(())
     }
 }
 
