@@ -245,7 +245,6 @@ impl<R: Read> MediaSource<R> {
 
 impl MediaSource<File> {
     pub fn open(path: impl AsRef<Path>) -> Result<Self>;
-    pub fn from_file(file: File) -> Result<Self>;
 }
 
 impl<R> MediaSource<R> {
@@ -278,6 +277,7 @@ pub enum MediaKind {
 
 **变化点：**
 - 删除 `MediaSource::tcp_stream`——它只是 `unseekable` 的别名，无独特行为。
+- 同理删除 `MediaSource::from_file`——它只是 `seekable` 的别名（`File: Read+Seek`），无 `File` 特有逻辑。已经有了路径参数的 `open(path)` 提供独有的"打开+解析"语义；想从已打开的 `File` 构造的用户写 `MediaSource::seekable(file)` 即可。这条与 `tcp_stream` 的删除同源（§8.2）：API 表面只保留有独立行为的入口。
 - 删除 `has_exif()` / `has_track()`，统一为 `kind()`，避免"两个 bool 互斥"的隐含约定。
 - `MediaSource::open(path)` 取代 v2 的 `file_path`——名字更短更地道。
 - `SkipStrategy` 是私有的（不出现在 `pub use` 中），构造时由 `seekable` /

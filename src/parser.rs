@@ -29,12 +29,12 @@ pub(crate) type SkipBySeekFn<R> = fn(&mut R, u64) -> io::Result<bool>;
 /// `MediaSource` represents a media data source that can be parsed by
 /// [`MediaParser`].
 ///
-/// - Use [`MediaSource::open`] or [`MediaSource::from_file`] to create
-///   a MediaSource from a file
+/// - Use [`MediaSource::open`] to create a MediaSource from a file path.
 ///
 /// - In other cases:
 ///
 ///   - Use [`MediaSource::seekable`] to create a MediaSource from a `Read + Seek`
+///     (an already-open `File` goes here).
 ///
 ///   - Use [`MediaSource::unseekable`] to create a MediaSource from a
 ///     reader that only impl `Read`
@@ -128,15 +128,9 @@ impl MediaSource<File> {
     /// Open a file at `path` and parse its header to detect the media format.
     ///
     /// This is the v3-preferred entry point for the common case of "I have a
-    /// path on disk". For an already-open file handle use [`Self::from_file`];
-    /// for a generic `Read + Seek` source use [`Self::seekable`].
+    /// path on disk". For an already-open `File` use [`Self::seekable`].
     pub fn open<P: AsRef<Path>>(path: P) -> crate::Result<Self> {
         Self::seekable(File::open(path)?)
-    }
-
-    /// Wrap an already-open `File` and parse its header.
-    pub fn from_file(file: File) -> crate::Result<Self> {
-        Self::seekable(file)
     }
 }
 
@@ -815,7 +809,7 @@ mod tests {
     fn parse_track_crash(path: &str) {
         let mut parser = parser();
 
-        let mf = MediaSource::from_file(open_sample(path).unwrap()).unwrap();
+        let mf = MediaSource::seekable(open_sample(path).unwrap()).unwrap();
         let _: TrackInfo = parser.parse_track(mf).unwrap_or_default();
 
         let mf = MediaSource::unseekable(open_sample(path).unwrap()).unwrap();
@@ -832,16 +826,8 @@ mod tests {
     }
 
     #[test]
-    fn media_source_open_and_from_file() {
-        use std::fs::File;
-
-        // open(path) opens the file internally
+    fn media_source_open() {
         let ms = MediaSource::open("testdata/exif.jpg").unwrap();
-        assert_eq!(ms.kind(), MediaKind::Image);
-
-        // from_file(file) takes an already-open File
-        let f = File::open("testdata/exif.jpg").unwrap();
-        let ms = MediaSource::from_file(f).unwrap();
         assert_eq!(ms.kind(), MediaKind::Image);
     }
 

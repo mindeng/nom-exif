@@ -101,13 +101,9 @@ impl<R: AsyncRead + Unpin + Send> AsyncMediaSource<R> {
 
 impl AsyncMediaSource<File> {
     /// Open a file at `path` (via `tokio::fs::File`) and parse its header.
+    /// For an already-open async `File` use [`Self::seekable`].
     pub async fn open<P: AsRef<Path>>(path: P) -> crate::Result<Self> {
         Self::seekable(File::open(path).await?).await
-    }
-
-    /// Wrap an already-open async `File` and parse its header.
-    pub async fn from_file(file: File) -> crate::Result<Self> {
-        Self::seekable(file).await
     }
 }
 
@@ -335,7 +331,7 @@ mod tests {
         let mut parser = MediaParser::new();
 
         let f = File::open(Path::new("testdata").join(path)).await.unwrap();
-        let ms = AsyncMediaSource::from_file(f).await.unwrap();
+        let ms = AsyncMediaSource::seekable(f).await.unwrap();
         let info: TrackInfo = parser.parse_track_async(ms).await.unwrap();
         assert_eq!(info.get(tag).unwrap(), &v);
 
@@ -355,12 +351,8 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn async_media_source_open_and_from_file() {
+    async fn async_media_source_open() {
         let ms = AsyncMediaSource::open("testdata/exif.jpg").await.unwrap();
-        assert_eq!(ms.kind(), crate::MediaKind::Image);
-
-        let f = tokio::fs::File::open("testdata/exif.jpg").await.unwrap();
-        let ms = AsyncMediaSource::from_file(f).await.unwrap();
         assert_eq!(ms.kind(), crate::MediaKind::Image);
     }
 }
