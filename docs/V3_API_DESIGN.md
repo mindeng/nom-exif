@@ -482,8 +482,14 @@ impl ExifIterEntry {
 - `parse_gps_info` 简化为 `parse_gps`。
 - `From<ExifIter> for Exif` 不丢弃 per-entry 错误：成功的 entry 进入主存储，
   失败的进入 `Exif::errors()`，eager/lazy 两条路径访问同一份信息。
-- `ExifEntry` 与 `ExifIterEntry` 都使用 plain pub fields（不加
-  `#[non_exhaustive]`）：字段集稳定，未来若真要加字段就升 v4。
+- `ExifEntry`（eager 视图）使用 plain pub fields：三个字段彼此独立、无
+  内部不变量，pub 字段是符合 Rust 惯例的最简形式（参见 `std::ops::Range`
+  这类纯数据类型）。`ExifIterEntry`（lazy yield）则使用私有字段 + getters：
+  类型本身带有 *value xor error* 不变量，pub 字段会让外部代码构造出
+  `value=Some, error=Some` 这类无意义状态；用 getters 把 `result()` /
+  `into_result()` 暴露为主 API 既保持不变量又给出最自然的使用方式。一句话：
+  **是否有字段间不变量决定该用 pub fields 还是 getters**——这是 v3 整篇文档
+  里的统一原则。
 
 ---
 
