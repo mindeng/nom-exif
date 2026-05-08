@@ -641,6 +641,95 @@ impl MediaParser {
     }
 }
 
+#[cfg(feature = "tokio")]
+mod tokio_impl {
+    use super::*;
+    use crate::error::ParsingErrorState;
+    use crate::parser_async::{AsyncBufParser, AsyncMediaSource};
+    use tokio::io::{AsyncRead, AsyncReadExt};
+
+    impl AsyncBufParser for MediaParser {
+        async fn fill_buf<R: AsyncRead + Unpin>(
+            &mut self,
+            reader: &mut R,
+            size: usize,
+        ) -> std::io::Result<usize> {
+            check_fill_size(self.state.buf().len(), size)?;
+            // Same rationale as the sync version: do not pre-allocate `size` bytes.
+            let n = reader
+                .take(size as u64)
+                .read_to_end(self.state.buf_mut())
+                .await?;
+            if n == 0 {
+                return Err(std::io::ErrorKind::UnexpectedEof.into());
+            }
+            Ok(n)
+        }
+    }
+
+    impl MediaParser {
+        /// Parse Exif metadata from an async image source. Returns
+        /// `Error::ExifNotFound` if the source is a `Track`.
+        pub async fn parse_exif_async<R: AsyncRead + Unpin + Send>(
+            &mut self,
+            mut ms: AsyncMediaSource<R>,
+        ) -> crate::Result<ExifIter> {
+            self.reset();
+            self.acquire_buf();
+            self.buf_mut().append(&mut ms.buf);
+            let res: crate::Result<ExifIter> = async {
+                <Self as AsyncBufParser>::fill_buf(self, &mut ms.reader, INIT_BUF_SIZE).await?;
+                if !matches!(ms.mime, crate::file::MediaMime::Image(_)) {
+                    return Err(crate::Error::ExifNotFound);
+                }
+                crate::exif::parse_exif_iter_async(
+                    self,
+                    ms.mime.unwrap_image(),
+                    &mut ms.reader,
+                    ms.skip_by_seek,
+                )
+                .await
+            }
+            .await;
+            self.reset();
+            res
+        }
+
+        /// Parse track info from an async video/audio source. Returns
+        /// `Error::TrackNotFound` if the source is an `Image`.
+        pub async fn parse_track_async<R: AsyncRead + Unpin + Send>(
+            &mut self,
+            mut ms: AsyncMediaSource<R>,
+        ) -> crate::Result<TrackInfo> {
+            self.reset();
+            self.acquire_buf();
+            self.buf_mut().append(&mut ms.buf);
+            let res: crate::Result<TrackInfo> = async {
+                <Self as AsyncBufParser>::fill_buf(self, &mut ms.reader, INIT_BUF_SIZE).await?;
+                let mime_track = match ms.mime {
+                    crate::file::MediaMime::Image(_) => return Err(crate::Error::TrackNotFound),
+                    crate::file::MediaMime::Track(t) => t,
+                };
+                let skip = ms.skip_by_seek;
+                let out = <Self as AsyncBufParser>::load_and_parse(
+                    self,
+                    &mut ms.reader,
+                    skip,
+                    |data, _| {
+                        crate::video::parse_track_info(data, mime_track)
+                            .map_err(|e| ParsingErrorState::new(e, None))
+                    },
+                )
+                .await?;
+                Ok(out)
+            }
+            .await;
+            self.reset();
+            res
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::{LazyLock, Mutex, MutexGuard};
@@ -868,5 +957,23 @@ mod tests {
         let ms = MediaSource::open("testdata/exif.jpg").unwrap();
         let res = parser.parse_track(ms);
         assert!(matches!(res, Err(crate::Error::TrackNotFound)));
+    }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn media_parser_parse_exif_async() {
+        use crate::parser_async::AsyncMediaSource;
+        let mut parser = MediaParser::new();
+        let ms = AsyncMediaSource::open("testdata/exif.jpg").await.unwrap();
+        let _: ExifIter = parser.parse_exif_async(ms).await.unwrap();
+    }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn media_parser_parse_track_async() {
+        use crate::parser_async::AsyncMediaSource;
+        let mut parser = MediaParser::new();
+        let ms = AsyncMediaSource::open("testdata/meta.mov").await.unwrap();
+        let _: TrackInfo = parser.parse_track_async(ms).await.unwrap();
     }
 }
