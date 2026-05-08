@@ -88,12 +88,23 @@ impl<R: AsyncRead + Unpin + Send> AsyncMediaSource<R, Unseekable> {
 }
 
 impl AsyncMediaSource<File, Seekable> {
-    pub async fn file(reader: File) -> crate::Result<Self> {
-        Self::build(reader).await
+    /// Open a file at `path` (via `tokio::fs::File`) and parse its header.
+    pub async fn open<P: AsRef<Path>>(path: P) -> crate::Result<Self> {
+        Self::build(File::open(path).await?).await
     }
 
+    /// Wrap an already-open async `File` and parse its header.
+    pub async fn from_file(file: File) -> crate::Result<Self> {
+        Self::build(file).await
+    }
+
+    // v2-shape constructors (deleted at end of P3).
     pub async fn file_path<P: AsRef<Path>>(path: P) -> crate::Result<Self> {
-        Self::build(File::open(path).await?).await
+        Self::open(path).await
+    }
+
+    pub async fn file(file: File) -> crate::Result<Self> {
+        Self::from_file(file).await
     }
 }
 
@@ -554,5 +565,15 @@ mod tests {
 
         let trk = AsyncMediaSource::file_path("testdata/meta.mov").await.unwrap();
         assert_eq!(trk.kind(), crate::MediaKind::Track);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn async_media_source_open_and_from_file() {
+        let ms = AsyncMediaSource::open("testdata/exif.jpg").await.unwrap();
+        assert_eq!(ms.kind(), crate::MediaKind::Image);
+
+        let f = tokio::fs::File::open("testdata/exif.jpg").await.unwrap();
+        let ms = AsyncMediaSource::from_file(f).await.unwrap();
+        assert_eq!(ms.kind(), crate::MediaKind::Image);
     }
 }
