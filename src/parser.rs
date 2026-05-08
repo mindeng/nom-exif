@@ -244,12 +244,16 @@ pub(crate) enum LoopAction<O> {
     Failed(String),
 }
 
+/// Closure type passed to [`parse_loop_step`].
+pub(crate) type ParseFn<'a, O> =
+    dyn FnMut(&[u8], usize, Option<ParsingState>) -> Result<O, ParsingErrorState> + 'a;
+
 /// Drives one iteration of the parse-loop algorithm. Pure (no I/O).
 pub(crate) fn parse_loop_step<O>(
     buffer: &[u8],
     offset: usize,
     parsing_state: &mut Option<ParsingState>,
-    parse: &mut dyn FnMut(&[u8], usize, Option<ParsingState>) -> Result<O, ParsingErrorState>,
+    parse: &mut ParseFn<'_, O>,
 ) -> LoopAction<O> {
     match parse(buffer, offset, parsing_state.take()) {
         Ok(o) => LoopAction::Done(o),
@@ -341,8 +345,8 @@ pub(crate) trait BufParser: Buf + Debug {
     ) -> Result<(), ParsedError> {
         match clear_and_skip_decide(self.buffer().len(), n) {
             SkipPlan::AdvanceOnly => {
-                self.set_position(n);
-                return Ok(());
+                self.set_position(self.position() + n);
+                Ok(())
             }
             SkipPlan::ClearAndSkip { extra: skip_n } => {
                 self.clear();

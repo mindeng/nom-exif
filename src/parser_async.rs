@@ -155,7 +155,7 @@ pub(crate) trait AsyncBufParser: Buf + Debug {
     ) -> Result<(), ParsedError> {
         match clear_and_skip_decide(self.buffer().len(), n) {
             SkipPlan::AdvanceOnly => {
-                self.set_position(n);
+                self.set_position(self.position() + n);
                 return Ok(());
             }
             SkipPlan::ClearAndSkip { extra: skip_n } => {
