@@ -2,7 +2,6 @@ use crate::error::{nom_error_to_parsing_error_with_state, ParsingError, ParsingE
 use crate::file::MediaMimeImage;
 use crate::parser::{BufParser, ParsingState, ShareBuf};
 use crate::raf::RafInfo;
-use crate::skip::Skip;
 use crate::slice::SubsliceRange;
 use crate::{cr3, heif, jpeg, MediaParser};
 use crate::partial_vec::PartialVec;
@@ -26,18 +25,19 @@ mod gps;
 mod tags;
 mod travel;
 
-#[tracing::instrument(skip(reader))]
-pub(crate) fn parse_exif_iter<R: Read, S: Skip<R>>(
+#[tracing::instrument(skip(reader, skip_by_seek))]
+pub(crate) fn parse_exif_iter<R: Read>(
     parser: &mut MediaParser,
     mime_img: MediaMimeImage,
     reader: &mut R,
+    skip_by_seek: crate::parser::SkipBySeekFn<R>,
 ) -> Result<ExifIter, crate::Error> {
     // For CR3 files, we need special handling to get all CMT blocks
     if mime_img == MediaMimeImage::Cr3 {
-        return parse_cr3_exif_iter::<R, S>(parser, reader);
+        return parse_cr3_exif_iter(parser, reader, skip_by_seek);
     }
 
-    let out = parser.load_and_parse::<R, S, _, _>(reader, |buf, state| {
+    let out = parser.load_and_parse(reader, skip_by_seek, |buf, state| {
         extract_exif_range(mime_img, buf, state)
     })?;
 
@@ -46,16 +46,17 @@ pub(crate) fn parse_exif_iter<R: Read, S: Skip<R>>(
 
 /// Special parser for CR3 files that extracts all CMT blocks (CMT1, CMT2, CMT3)
 /// and adds them as additional TIFF blocks to the ExifIter.
-#[tracing::instrument(skip(reader))]
-fn parse_cr3_exif_iter<R: Read, S: Skip<R>>(
+#[tracing::instrument(skip(reader, skip_by_seek))]
+fn parse_cr3_exif_iter<R: Read>(
     parser: &mut MediaParser,
     reader: &mut R,
+    skip_by_seek: crate::parser::SkipBySeekFn<R>,
 ) -> Result<ExifIter, crate::Error> {
     use crate::parser::Buf;
 
     // First, parse to get all CMT ranges
     let cmt_ranges = parser
-        .load_and_parse::<R, S, _, _>(reader, |buf, _state| cr3::extract_all_cmt_ranges(buf))?;
+        .load_and_parse(reader, skip_by_seek, |buf, _state| cr3::extract_all_cmt_ranges(buf))?;
 
     let Some(cmt_ranges) = cmt_ranges else {
         return Err(crate::Error::Malformed {

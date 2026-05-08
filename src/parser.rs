@@ -3,7 +3,6 @@ use std::{
     fmt::{Debug, Display},
     fs::File,
     io::{self, Read, Seek},
-    marker::PhantomData,
     net::TcpStream,
     ops::Range,
     path::Path,
@@ -15,10 +14,19 @@ use crate::{
     exif::{parse_exif_iter, TiffHeader},
     file::MediaMime,
     partial_vec::PartialVec,
-    skip::Skip,
     video::parse_track_info,
-    ExifIter, Seekable, TrackInfo, Unseekable,
+    ExifIter, TrackInfo,
 };
+
+/// A function that tries to skip `n` bytes of `reader` by seeking. Returns
+/// `Ok(true)` on success, `Ok(false)` if the reader does not support seek
+/// (so the caller should fall back to reading-and-discarding), or
+/// `Err(io::Error)` if seek itself failed (e.g. truncated file handle).
+///
+/// This is captured at construction time by `MediaSource::seekable` /
+/// `unseekable`, replacing the v2 `S: Skip<R>` phantom parameter with a
+/// runtime fn pointer.
+pub(crate) type SkipBySeekFn<R> = fn(&mut R, u64) -> io::Result<bool>;
 
 /// `MediaSource` represents a media data source that can be parsed by
 /// [`MediaParser`].
@@ -31,21 +39,21 @@ use crate::{
 /// - In other cases:
 ///
 ///   - Use [`MediaSource::seekable`] to create a MediaSource from a `Read + Seek`
-///   
+///
 ///   - Use [`MediaSource::unseekable`] to create a MediaSource from a
 ///     reader that only impl `Read`
-///   
+///
 /// *Note*: Please use [`MediaSource::seekable`] in preference to [`MediaSource::unseekable`],
 /// since the former is more efficient when the parser needs to skip a large number of bytes.
 ///
 /// Passing in a `BufRead` should be avoided because [`MediaParser`] comes with
 /// its own buffer management and the buffers can be shared between multiple
 /// parsing tasks, thus avoiding frequent memory allocations.
-pub struct MediaSource<R, S = Seekable> {
+pub struct MediaSource<R> {
     pub(crate) reader: R,
     pub(crate) buf: Vec<u8>,
     pub(crate) mime: MediaMime,
-    phantom: PhantomData<S>,
+    pub(crate) skip_by_seek: SkipBySeekFn<R>,
 }
 
 /// Top-level classification of a media source.
@@ -60,12 +68,10 @@ pub enum MediaKind {
     Track,
 }
 
-impl<R, S: Skip<R>> Debug for MediaSource<R, S> {
+impl<R> Debug for MediaSource<R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MediaSource")
-            // .field("reader", &self.reader)
             .field("mime", &self.mime)
-            .field("seekable", &S::debug())
             .finish_non_exhaustive()
     }
 }
@@ -73,37 +79,20 @@ impl<R, S: Skip<R>> Debug for MediaSource<R, S> {
 // Should be enough for parsing header
 const HEADER_PARSE_BUF_SIZE: usize = 128;
 
-impl<R: Read, S: Skip<R>> MediaSource<R, S> {
-    #[tracing::instrument(skip(reader))]
-    fn build(mut reader: R) -> crate::Result<Self> {
-        // TODO: reuse MediaParser to parse header
+impl<R: Read> MediaSource<R> {
+    fn build(mut reader: R, skip_by_seek: SkipBySeekFn<R>) -> crate::Result<Self> {
         let mut buf = Vec::with_capacity(HEADER_PARSE_BUF_SIZE);
         reader
             .by_ref()
             .take(HEADER_PARSE_BUF_SIZE as u64)
             .read_to_end(&mut buf)?;
         let mime: MediaMime = buf.as_slice().try_into()?;
-        tracing::debug!(?mime);
         Ok(Self {
             reader,
             buf,
             mime,
-            phantom: PhantomData,
+            skip_by_seek,
         })
-    }
-
-    pub fn has_track(&self) -> bool {
-        match self.mime {
-            MediaMime::Image(_) => false,
-            MediaMime::Track(_) => true,
-        }
-    }
-
-    pub fn has_exif(&self) -> bool {
-        match self.mime {
-            MediaMime::Image(_) => true,
-            MediaMime::Track(_) => false,
-        }
     }
 
     pub fn kind(&self) -> MediaKind {
@@ -112,30 +101,43 @@ impl<R: Read, S: Skip<R>> MediaSource<R, S> {
             MediaMime::Track(_) => MediaKind::Track,
         }
     }
-}
 
-impl<R: Read + Seek> MediaSource<R, Seekable> {
-    /// Use [`MediaSource::seekable`] to create a MediaSource from a `Read + Seek`
-    ///
-    /// *Note*: Please use [`MediaSource::seekable`] in preference to [`MediaSource::unseekable`],
-    /// since the former is more efficient when the parser needs to skip a large number of bytes.
-    pub fn seekable(reader: R) -> crate::Result<Self> {
-        Self::build(reader)
+    // Legacy alongside; deleted in Task 13.
+    pub fn has_track(&self) -> bool {
+        matches!(self.mime, MediaMime::Track(_))
     }
-}
 
-impl<R: Read> MediaSource<R, Unseekable> {
+    pub fn has_exif(&self) -> bool {
+        matches!(self.mime, MediaMime::Image(_))
+    }
+
     /// Use [`MediaSource::unseekable`] to create a MediaSource from a
     /// reader that only impl `Read`
     ///
     /// *Note*: Please use [`MediaSource::seekable`] in preference to [`MediaSource::unseekable`],
     /// since the former is more efficient when the parser needs to skip a large number of bytes.
     pub fn unseekable(reader: R) -> crate::Result<Self> {
-        Self::build(reader)
+        Self::build(reader, |_, _| Ok(false))
     }
 }
 
-impl MediaSource<File, Seekable> {
+impl<R: Read + Seek> MediaSource<R> {
+    /// Use [`MediaSource::seekable`] to create a MediaSource from a `Read + Seek`
+    ///
+    /// *Note*: Please use [`MediaSource::seekable`] in preference to [`MediaSource::unseekable`],
+    /// since the former is more efficient when the parser needs to skip a large number of bytes.
+    pub fn seekable(reader: R) -> crate::Result<Self> {
+        Self::build(reader, |r, n| {
+            let signed: i64 = n
+                .try_into()
+                .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
+            r.seek_relative(signed)?;
+            Ok(true)
+        })
+    }
+}
+
+impl MediaSource<File> {
     /// Open a file at `path` and parse its header to detect the media format.
     ///
     /// This is the v3-preferred entry point for the common case of "I have a
@@ -160,7 +162,7 @@ impl MediaSource<File, Seekable> {
     }
 }
 
-impl MediaSource<TcpStream, Unseekable> {
+impl MediaSource<TcpStream> {
     pub fn tcp_stream(stream: TcpStream) -> crate::Result<Self> {
         Self::unseekable(stream)
     }
@@ -323,25 +325,24 @@ impl Display for ParsingState {
 // parsing and `ParsingState` threading for format-specific state machines.
 pub(crate) trait BufParser: Buf + Debug {
     fn fill_buf<R: Read>(&mut self, reader: &mut R, size: usize) -> io::Result<usize>;
-    fn load_and_parse<R: Read, S: Skip<R>, P, O>(
+
+    fn load_and_parse<R: Read, P, O>(
         &mut self,
         reader: &mut R,
+        skip_by_seek: SkipBySeekFn<R>,
         mut parse: P,
     ) -> Result<O, ParsedError>
     where
         P: FnMut(&[u8], Option<ParsingState>) -> Result<O, ParsingErrorState>,
     {
-        self.load_and_parse_with_offset::<R, S, _, _>(
-            reader,
-            |data, _, state| parse(data, state),
-            0,
-        )
+        self.load_and_parse_with_offset(reader, skip_by_seek, |data, _, state| parse(data, state), 0)
     }
 
     #[tracing::instrument(skip_all)]
-    fn load_and_parse_with_offset<R: Read, S: Skip<R>, P, O>(
+    fn load_and_parse_with_offset<R: Read, P, O>(
         &mut self,
         reader: &mut R,
+        skip_by_seek: SkipBySeekFn<R>,
         mut parse: P,
         offset: usize,
     ) -> Result<O, ParsedError>
@@ -351,7 +352,6 @@ pub(crate) trait BufParser: Buf + Debug {
         if offset >= self.buffer().len() {
             self.fill_buf(reader, MIN_GROW_SIZE)?;
         }
-
         let mut parsing_state: Option<ParsingState> = None;
         loop {
             match parse_loop_step(self.buffer(), offset, &mut parsing_state, &mut parse) {
@@ -364,17 +364,18 @@ pub(crate) trait BufParser: Buf + Debug {
                     }
                 }
                 LoopAction::Skip(n) => {
-                    self.clear_and_skip::<R, S>(reader, n)?;
+                    self.clear_and_skip(reader, skip_by_seek, n)?;
                 }
                 LoopAction::Failed(s) => return Err(ParsedError::Failed(s)),
             }
         }
     }
 
-    #[tracing::instrument(skip(reader))]
-    fn clear_and_skip<R: Read, S: Skip<R>>(
+    #[tracing::instrument(skip(reader, skip_by_seek))]
+    fn clear_and_skip<R: Read>(
         &mut self,
         reader: &mut R,
+        skip_by_seek: SkipBySeekFn<R>,
         n: usize,
     ) -> Result<(), ParsedError> {
         match clear_and_skip_decide(self.buffer().len(), n) {
@@ -384,9 +385,10 @@ pub(crate) trait BufParser: Buf + Debug {
             }
             SkipPlan::ClearAndSkip { extra: skip_n } => {
                 self.clear();
-                let done = S::skip_by_seek(
+                let done = (skip_by_seek)(
                     reader,
-                    skip_n.try_into()
+                    skip_n
+                        .try_into()
                         .map_err(|_| ParsedError::Failed("skip too many bytes".into()))?,
                 )?;
                 if !done {
@@ -460,27 +462,28 @@ impl Buf for MediaParser {
     }
 }
 
-pub trait ParseOutput<R, S>: Sized {
-    fn parse(parser: &mut MediaParser, ms: MediaSource<R, S>) -> crate::Result<Self>;
+pub trait ParseOutput<R>: Sized {
+    fn parse(parser: &mut MediaParser, ms: MediaSource<R>) -> crate::Result<Self>;
 }
 
-impl<R: Read, S: Skip<R>> ParseOutput<R, S> for ExifIter {
-    fn parse(parser: &mut MediaParser, mut ms: MediaSource<R, S>) -> crate::Result<Self> {
+impl<R: Read> ParseOutput<R> for ExifIter {
+    fn parse(parser: &mut MediaParser, mut ms: MediaSource<R>) -> crate::Result<Self> {
         if !ms.has_exif() {
             return Err(crate::Error::ExifNotFound);
         }
-        parse_exif_iter::<R, S>(parser, ms.mime.unwrap_image(), &mut ms.reader)
+        parse_exif_iter(parser, ms.mime.unwrap_image(), &mut ms.reader, ms.skip_by_seek)
     }
 }
 
-impl<R: Read, S: Skip<R>> ParseOutput<R, S> for TrackInfo {
-    fn parse(parser: &mut MediaParser, mut ms: MediaSource<R, S>) -> crate::Result<Self> {
+impl<R: Read> ParseOutput<R> for TrackInfo {
+    fn parse(parser: &mut MediaParser, mut ms: MediaSource<R>) -> crate::Result<Self> {
         if !ms.has_track() {
             return Err(crate::Error::TrackNotFound);
         }
-        let out = parser.load_and_parse::<R, S, _, _>(ms.reader.by_ref(), |data, _| {
-            parse_track_info(data, ms.mime.unwrap_track())
-                .map_err(|e| ParsingErrorState::new(e, None))
+        let mime_track = ms.mime.unwrap_track();
+        let skip_by_seek = ms.skip_by_seek;
+        let out = parser.load_and_parse(ms.reader.by_ref(), skip_by_seek, |data, _| {
+            parse_track_info(data, mime_track).map_err(|e| ParsingErrorState::new(e, None))
         })?;
         Ok(out)
     }
@@ -590,9 +593,9 @@ impl MediaParser {
     ///
     /// - For [`TrackInfo`] as parse output, you don't need to worry about
     ///   this, because `TrackInfo` dosn't reference the parsing buffer.
-    pub fn parse<R: Read, S, O: ParseOutput<R, S>>(
+    pub fn parse<R: Read, O: ParseOutput<R>>(
         &mut self,
-        mut ms: MediaSource<R, S>,
+        mut ms: MediaSource<R>,
     ) -> crate::Result<O> {
         self.reset();
         self.acquire_buf();
@@ -604,9 +607,9 @@ impl MediaParser {
         res
     }
 
-    fn do_parse<R: Read, S, O: ParseOutput<R, S>>(
+    fn do_parse<R: Read, O: ParseOutput<R>>(
         &mut self,
-        mut ms: MediaSource<R, S>,
+        mut ms: MediaSource<R>,
     ) -> Result<O, crate::Error> {
         self.fill_buf(&mut ms.reader, INIT_BUF_SIZE)?;
         let res = ParseOutput::parse(self, ms)?;
