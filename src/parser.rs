@@ -335,7 +335,7 @@ pub trait ParseOutput<R, S>: Sized {
 impl<R: Read, S: Skip<R>> ParseOutput<R, S> for ExifIter {
     fn parse(parser: &mut MediaParser, mut ms: MediaSource<R, S>) -> crate::Result<Self> {
         if !ms.has_exif() {
-            return Err(crate::Error::ParseFailed("no Exif data here".into()));
+            return Err(crate::Error::ExifNotFound);
         }
         parse_exif_iter::<R, S>(parser, ms.mime.unwrap_image(), &mut ms.reader)
     }
@@ -344,7 +344,7 @@ impl<R: Read, S: Skip<R>> ParseOutput<R, S> for ExifIter {
 impl<R: Read, S: Skip<R>> ParseOutput<R, S> for TrackInfo {
     fn parse(parser: &mut MediaParser, mut ms: MediaSource<R, S>) -> crate::Result<Self> {
         if !ms.has_track() {
-            return Err(crate::Error::ParseFailed("no track info here".into()));
+            return Err(crate::Error::TrackNotFound);
         }
         let out = parser.load_and_parse::<R, S, _, _>(ms.reader.by_ref(), |data, _| {
             parse_track_info(data, ms.mime.unwrap_video())
@@ -677,5 +677,23 @@ mod tests {
 
         let mf = MediaSource::unseekable(open_sample(path).unwrap()).unwrap();
         let _: TrackInfo = parser.parse(mf).unwrap_or_default();
+    }
+
+    #[test]
+    fn parse_exif_on_track_returns_exif_not_found() {
+        let mut parser = parser();
+        let ms = MediaSource::file_path("testdata/meta.mov").unwrap();
+        assert!(ms.has_track());
+        let res: Result<ExifIter, _> = parser.parse(ms);
+        assert!(matches!(res, Err(crate::Error::ExifNotFound)));
+    }
+
+    #[test]
+    fn parse_track_on_image_returns_track_not_found() {
+        let mut parser = parser();
+        let ms = MediaSource::file_path("testdata/exif.jpg").unwrap();
+        assert!(ms.has_exif());
+        let res: Result<TrackInfo, _> = parser.parse(ms);
+        assert!(matches!(res, Err(crate::Error::TrackNotFound)));
     }
 }

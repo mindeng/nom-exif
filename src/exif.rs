@@ -138,7 +138,7 @@ fn range_to_iter(
         Ok(iter)
     } else {
         tracing::debug!("Exif not found");
-        Err("Exif not found".into())
+        Err(crate::Error::ExifNotFound)
     }
 }
 

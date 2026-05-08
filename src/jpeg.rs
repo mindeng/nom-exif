@@ -121,7 +121,7 @@ fn read_image_data<T: Read + Seek>(mut reader: T) -> crate::Result<Vec<u8>> {
             continue;
         }
         if marker == MarkerCode::Eoi.code() {
-            return Err("exif not found".into());
+            return Err(crate::Error::ExifNotFound);
         }
 
         if marker == MarkerCode::Sos.code() {

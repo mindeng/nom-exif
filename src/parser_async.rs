@@ -214,7 +214,7 @@ impl<R: AsyncRead + Unpin + Send, S: AsyncSkip<R> + Send> AsyncParseOutput<R, S>
         mut ms: AsyncMediaSource<R, S>,
     ) -> crate::Result<Self> {
         if !ms.has_exif() {
-            return Err(crate::Error::ParseFailed("no Exif data here".into()));
+            return Err(crate::Error::ExifNotFound);
         }
         parse_exif_iter_async::<R, S>(parser, ms.mime.unwrap_image(), &mut ms.reader).await
     }
@@ -227,7 +227,7 @@ impl<R: AsyncRead + Unpin + Send, S: AsyncSkip<R> + Send> AsyncParseOutput<R, S>
     ) -> crate::Result<Self> {
         let mut ms = ms;
         let out = match ms.mime {
-            Mime::Image(_) => return Err("not a track".into()),
+            Mime::Image(_) => return Err(crate::Error::TrackNotFound),
             Mime::Video(v) => {
                 parser
                     .load_and_parse::<R, S, _, _>(&mut ms.reader, |data, _| {
