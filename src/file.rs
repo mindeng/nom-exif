@@ -92,7 +92,7 @@ impl TryFrom<&[u8]> for Mime {
         } else if RafInfo::check(input).is_ok() {
             Mime::Image(MimeImage::Raf)
         } else {
-            return Err(crate::Error::UnrecognizedFileFormat);
+            return Err(crate::Error::UnsupportedFormat);
         };
 
         Ok(mime)
@@ -108,14 +108,14 @@ fn get_ebml_doc_type(input: &[u8]) -> crate::Result<String> {
 #[tracing::instrument(skip_all)]
 fn parse_bmff_mime(input: &[u8]) -> crate::Result<Mime> {
     let (ftyp, Some(major_brand)) =
-        get_ftyp_and_major_brand(input).map_err(|_| crate::Error::UnrecognizedFileFormat)?
+        get_ftyp_and_major_brand(input).map_err(|_| crate::Error::UnsupportedFormat)?
     else {
         if travel_header(input, |header, _| header.box_type != "mdat").is_ok() {
             // ftyp is None, mdat box is found, assume it's a MOV file extracted from HEIC
             return Ok(Mime::Video(MimeVideo::QuickTime));
         }
 
-        return Err(crate::Error::UnrecognizedFileFormat);
+        return Err(crate::Error::UnsupportedFormat);
     };
 
     tracing::debug!(?ftyp);
@@ -186,7 +186,7 @@ fn parse_bmff_mime(input: &[u8]) -> crate::Result<Mime> {
         return Ok(Mime::Video(MimeVideo::Mp4));
     }
 
-    Err(crate::Error::UnrecognizedFileFormat)
+    Err(crate::Error::UnsupportedFormat)
 }
 
 fn get_ftyp_and_major_brand(input: &[u8]) -> crate::Result<(BoxHolder<'_>, Option<&[u8]>)> {
@@ -238,5 +238,18 @@ mod tests {
         let data = read_sample(path).unwrap();
         let m: Mime = data.deref().try_into().unwrap();
         assert_eq!(m, mime);
+    }
+}
+
+#[cfg(test)]
+mod v3_tests {
+    use super::*;
+    use crate::error::Error;
+
+    #[test]
+    fn unrecognized_returns_unsupported_format() {
+        let bogus = b"\x00\x00\x00\x00not a real file";
+        let res: Result<Mime, Error> = bogus.as_slice().try_into();
+        assert!(matches!(res, Err(Error::UnsupportedFormat)));
     }
 }
