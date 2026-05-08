@@ -287,8 +287,12 @@ impl BufParser for MediaParser {
             tracing::error!(?size, "the requested buffer size is too big");
             return Err(io::ErrorKind::Unsupported.into());
         }
-        self.buf_mut().reserve_exact(size);
 
+        // Do not pre-allocate `size` bytes: a crafted box header can declare a
+        // huge extended size (up to MAX_ALLOC_SIZE) that far exceeds the actual
+        // stream length. reserve_exact would allocate that memory immediately
+        // even when the reader has only a few bytes left. read_to_end grows the
+        // buffer from the reader's actual size hint instead.
         let n = reader.take(size as u64).read_to_end(self.buf_mut())?;
         if n == 0 {
             tracing::error!(buf_len = self.buf().len(), "fill_buf: EOF");

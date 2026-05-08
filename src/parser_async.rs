@@ -416,8 +416,8 @@ impl AsyncBufParser for AsyncMediaParser {
             tracing::error!(?size, "the requested buffer size is too big");
             return Err(io::ErrorKind::Unsupported.into());
         }
-        self.buf_mut().reserve_exact(size);
 
+        // Same rationale as the sync version: do not pre-allocate `size` bytes.
         let n = reader.take(size as u64).read_to_end(self.buf_mut()).await?;
         if n == 0 {
             return Err(std::io::ErrorKind::UnexpectedEof.into());
