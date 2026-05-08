@@ -71,13 +71,6 @@ impl GPSInfo {
         }
     }
 
-    /// Returns an ISO 6709 geographic point location string such as
-    /// `+48.8577+002.295/`.
-    #[deprecated(since = "1.2.3", note = "please use `format_iso6709` instead")]
-    #[allow(clippy::wrong_self_convention)]
-    pub fn to_iso6709(&self) -> String {
-        self.format_iso6709()
-    }
 }
 
 impl From<[(u32, u32); 3]> for LatLng {

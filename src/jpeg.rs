@@ -1,53 +1,8 @@
-use crate::{ExifIter, MediaParser, MediaSource};
 use std::io::{Read, Seek};
 
 use nom::{bytes::streaming, combinator::fail, number, sequence::tuple, IResult};
 
-use crate::exif::{check_exif_header, Exif};
-
-/// *Deprecated*: Please use [`MediaParser`] + [`MediaSource`] instead.
-///
-/// Analyze the byte stream in the `reader` as a JPEG file, attempting to
-/// extract Exif data it may contain.
-///
-/// Please note that the parsing routine itself provides a buffer, so the
-/// `reader` may not need to be wrapped with `BufRead`.
-///
-/// # Usage
-///
-/// ```rust
-/// use nom_exif::*;
-/// use nom_exif::ExifTag::*;
-///
-/// use std::fs::File;
-/// use std::path::Path;
-///
-/// let f = File::open(Path::new("./testdata/exif.jpg")).unwrap();
-/// let exif = parse_jpeg_exif(f).unwrap().unwrap();
-///
-/// assert_eq!(exif.get_value(&Make).unwrap().unwrap().to_string(), "vivo");
-///
-/// assert_eq!(
-///     exif.get_values(&[DateTimeOriginal, CreateDate, ModifyDate])
-///         .into_iter()
-///         .map(|x| (x.0.to_string(), x.1.to_string()))
-///         .collect::<Vec<_>>(),
-///     [
-///         ("DateTimeOriginal", "2023-07-09T20:36:33+08:00"),
-///         ("CreateDate", "2023-07-09T20:36:33+08:00"),
-///         ("ModifyDate", "2023-07-09T20:36:33+08:00")
-///     ]
-///     .into_iter()
-///     .map(|x| (x.0.to_string(), x.1.to_string()))
-///     .collect::<Vec<_>>()
-/// );
-/// ```
-#[deprecated(since = "2.0.0")]
-pub fn parse_jpeg_exif<R: Read + Seek>(reader: R) -> crate::Result<Option<Exif>> {
-    let mut parser = MediaParser::new();
-    let iter: ExifIter = parser.parse(MediaSource::unseekable(reader)?)?;
-    Ok(Some(iter.into()))
-}
+use crate::exif::check_exif_header;
 
 /// Extract Exif TIFF data from the bytes of a JPEG file.
 pub(crate) fn extract_exif_data(input: &[u8]) -> IResult<&[u8], Option<&[u8]>> {
@@ -223,7 +178,6 @@ impl MarkerCode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::exif::ExifTag::*;
     use crate::testkit::*;
     use test_case::test_case;
 
@@ -237,52 +191,6 @@ mod tests {
         if has_exif {
             data.unwrap();
         }
-    }
-
-    #[test_case("exif.jpg")]
-    #[allow(deprecated)]
-    fn jpeg(path: &str) {
-        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
-
-        let f = open_sample(path).unwrap();
-        let exif = parse_jpeg_exif(f).unwrap().unwrap();
-
-        // TODO
-        // assert_eq!(
-        //     sorted_exif_entries(&exif).join("\n"),
-
-        // );
-
-        assert_eq!(exif.get_value(&Make).unwrap().unwrap().to_string(), "vivo");
-
-        assert_eq!(
-            exif.get_values(&[DateTimeOriginal, CreateDate, ModifyDate])
-                .into_iter()
-                .map(|x| (x.0.to_string(), x.1.to_string()))
-                .collect::<Vec<_>>(),
-            [
-                ("DateTimeOriginal", "2023-07-09T20:36:33+08:00"),
-                ("CreateDate", "2023-07-09T20:36:33+08:00"),
-                ("ModifyDate", "2023-07-09T20:36:33+08:00")
-            ]
-            .into_iter()
-            .map(|x| (x.0.to_string(), x.1.to_string()))
-            .collect::<Vec<_>>()
-        );
-
-        let mut entries = exif
-            .get_values(&[ImageWidth, ImageHeight])
-            .into_iter()
-            .map(|x| (x.0.to_string(), x.1.to_string()))
-            .collect::<Vec<_>>();
-        entries.sort();
-        assert_eq!(
-            entries,
-            [("ImageHeight", "4096"), ("ImageWidth", "3072")]
-                .into_iter()
-                .map(|x| (x.0.to_string(), x.1.to_string()))
-                .collect::<Vec<_>>()
-        );
     }
 
     #[test_case("no-exif.jpg", 0)]
@@ -330,12 +238,4 @@ mod tests {
         );
     }
 
-    #[allow(deprecated)]
-    #[test]
-    fn broken_jpg() {
-        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
-
-        let f = open_sample("broken.jpg").unwrap();
-        parse_jpeg_exif(f).unwrap();
-    }
 }

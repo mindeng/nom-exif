@@ -266,15 +266,6 @@ impl EntryValue {
         }
     }
 
-    /// *Deprecated*: use [`EntryValue::as_time_components`] instead.
-    #[deprecated(since = "2.7.0")]
-    pub fn as_time(&self) -> Option<DateTime<FixedOffset>> {
-        match self {
-            EntryValue::Time(v) => Some(*v),
-            _ => None,
-        }
-    }
-
     /// Return `Some((NaiveDateTime, Some(FixedOffset)))` if it's a DateTime.
     /// Return `Some((NaiveDateTime, None))` if it's a NaiveDateTime.
     /// Else return None.

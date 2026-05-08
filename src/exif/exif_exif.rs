@@ -94,40 +94,6 @@ impl Exif {
         self.ifds.get(ifd).and_then(|ifd| ifd.get(tag))
     }
 
-    /// Get entry values for the specified `tags` in ifd0 (the main image).
-    ///
-    /// Please note that this method will ignore errors encountered during the
-    /// search and parsing process, such as missing tags or errors in parsing
-    /// values, and handle them silently.
-    #[deprecated(
-        since = "1.5.0",
-        note = "please use [`Self::get`] or [`ExifIter`] instead"
-    )]
-    pub fn get_values<'b>(&self, tags: &'b [ExifTag]) -> Vec<(&'b ExifTag, EntryValue)> {
-        tags.iter()
-            .zip(tags.iter())
-            .filter_map(|x| {
-                #[allow(deprecated)]
-                self.get_value(x.0)
-                    .map(|v| v.map(|v| (x.0, v)))
-                    .unwrap_or(None)
-            })
-            .collect::<Vec<_>>()
-    }
-
-    /// Get entry value for the specified `tag` in ifd0 (the main image).
-    #[deprecated(since = "1.5.0", note = "please use [`Self::get`] instead")]
-    pub fn get_value(&self, tag: &ExifTag) -> crate::Result<Option<EntryValue>> {
-        #[allow(deprecated)]
-        self.get_value_by_tag_code(tag.code())
-    }
-
-    /// Get entry value for the specified `tag` in ifd0 (the main image).
-    #[deprecated(since = "1.5.0", note = "please use [`Self::get_by_tag_code`] instead")]
-    pub fn get_value_by_tag_code(&self, tag: u16) -> crate::Result<Option<EntryValue>> {
-        Ok(self.get_by_ifd_tag_code(0, tag).map(|x| x.to_owned()))
-    }
-
     /// Get parsed GPS information.
     pub fn get_gps_info(&self) -> crate::Result<Option<GPSInfo>> {
         Ok(self.gps_info.clone())

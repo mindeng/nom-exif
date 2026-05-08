@@ -218,17 +218,6 @@ impl ExifIter {
         Ok(gps_subifd.parse_gps_info())
     }
 
-    pub(crate) fn to_owned(&self) -> ExifIter {
-        let mut iter = ExifIter::new(
-            self.input.to_vec(),
-            self.tiff_header.clone(),
-            self.tz.clone(),
-            self.ifd0.clone_and_rewind(),
-        );
-        iter.additional_blocks = self.additional_blocks.clone();
-        iter
-    }
-
     /// Add an additional TIFF data block to be iterated after the current block.
     /// Used internally for CR3 files with multiple CMT boxes.
     ///

@@ -334,26 +334,9 @@ pub use parser_async::{AsyncMediaParser, AsyncMediaSource};
 pub use exif::{Exif, ExifIter, ExifTag, GPSInfo, LatLng, ParsedExifEntry};
 pub use values::{EntryValue, IRational, URational};
 
-#[allow(deprecated)]
-pub use exif::parse_exif;
-#[cfg(feature = "async")]
-#[allow(deprecated)]
-pub use exif::parse_exif_async;
-
-#[allow(deprecated)]
-pub use heif::parse_heif_exif;
-#[allow(deprecated)]
-pub use jpeg::parse_jpeg_exif;
-
 pub use error::Error;
 pub type Result<T> = std::result::Result<T, Error>;
 pub(crate) use skip::{Seekable, Unseekable};
-
-#[allow(deprecated)]
-pub use file::FileFormat;
-
-#[allow(deprecated)]
-pub use mov::{parse_metadata, parse_mov_metadata};
 
 mod bbox;
 mod buffer;
@@ -364,7 +347,6 @@ mod exif;
 mod file;
 mod heif;
 mod jpeg;
-mod loader;
 mod mov;
 mod parser;
 #[cfg(feature = "async")]

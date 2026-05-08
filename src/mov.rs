@@ -1,133 +1,17 @@
-use std::{
-    collections::BTreeMap,
-    io::{Read, Seek},
-    ops::Range,
-};
+use std::{collections::BTreeMap, ops::Range};
 
 use chrono::DateTime;
 use nom::{bytes::streaming, IResult};
 
 use crate::{bbox::to_boxes, values::filter_zero};
-#[allow(deprecated)]
 use crate::{
     bbox::{
         find_box, parse_video_tkhd_in_moov, travel_header, IlstBox, KeysBox, MvhdBox, ParseBox,
     },
     error::ParsingError,
-    loader::{BufLoader, Load},
-    partial_vec::PartialVec,
-    skip::Seekable,
     video::TrackInfoTag,
-    EntryValue, FileFormat,
+    EntryValue,
 };
-
-/// *Deprecated*: Please use [`crate::MediaParser`] instead.
-///
-/// Analyze the byte stream in the `reader` as a MOV/MP4 file, attempting to
-/// extract any possible metadata it may contain, and return it in the form of
-/// key-value pairs.
-///
-/// Please note that the parsing routine itself provides a buffer, so the
-/// `reader` may not need to be wrapped with `BufRead`.
-///
-/// # Usage
-///
-/// ```rust
-/// use nom_exif::*;
-///
-/// use std::fs::File;
-/// use std::path::Path;
-///
-/// let f = File::open(Path::new("./testdata/meta.mov")).unwrap();
-/// let entries = parse_metadata(f).unwrap();
-///
-/// assert_eq!(
-///     entries
-///         .iter()
-///         .map(|x| format!("{x:?}"))
-///         .collect::<Vec<_>>()
-///         .join("\n"),
-///     r#"("com.apple.quicktime.make", Text("Apple"))
-/// ("com.apple.quicktime.model", Text("iPhone X"))
-/// ("com.apple.quicktime.software", Text("12.1.2"))
-/// ("com.apple.quicktime.location.ISO6709", Text("+27.1281+100.2508+000.000/"))
-/// ("com.apple.quicktime.creationdate", Time(2019-02-12T15:27:12+08:00))
-/// ("duration", U32(500))
-/// ("width", U32(720))
-/// ("height", U32(1280))"#,
-/// );
-/// ```
-#[deprecated(since = "2.0.0")]
-#[tracing::instrument(skip_all)]
-#[allow(deprecated)]
-pub fn parse_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, EntryValue)>> {
-    let mut loader = BufLoader::<Seekable, _>::new(reader);
-    let ff = FileFormat::try_from_load(&mut loader)?;
-    match ff {
-        FileFormat::Jpeg | FileFormat::Heif => {
-            return Err(crate::error::Error::ParseFailed(
-                "can not parse metadata from an image".into(),
-            ));
-        }
-        FileFormat::QuickTime | FileFormat::MP4 => (),
-        FileFormat::Ebml => {
-            return Err(crate::error::Error::ParseFailed(
-                "please use MediaParser to parse *.webm, *.mkv files".into(),
-            ))
-        }
-    };
-
-    let moov_body = extract_moov_body(loader)?;
-
-    let (_, mut entries) = match parse_moov_body(&moov_body) {
-        Ok((remain, Some(entries))) => (remain, entries),
-        Ok((remain, None)) => (remain, Vec::new()),
-        Err(_) => {
-            return Err("invalid moov body".into());
-        }
-    };
-
-    let map: BTreeMap<TrackInfoTag, EntryValue> = convert_video_tags(entries.clone());
-    let mut extras = parse_mvhd_tkhd(&moov_body);
-
-    const CREATIONDATE_KEY: &str = "com.apple.quicktime.creationdate";
-    if map.contains_key(&TrackInfoTag::CreateDate) {
-        extras.remove(&TrackInfoTag::CreateDate);
-        let date = map.get(&TrackInfoTag::CreateDate);
-        if let Some(pos) = entries.iter().position(|x| x.0 == CREATIONDATE_KEY) {
-            if let Some(date) = date {
-                entries[pos] = (CREATIONDATE_KEY.to_string(), date.clone());
-            } else {
-                entries.remove(pos);
-            }
-        }
-    }
-
-    entries.extend(extras.into_iter().map(|(k, v)| match k {
-        TrackInfoTag::ImageWidth => ("width".to_string(), v),
-        TrackInfoTag::ImageHeight => ("height".to_string(), v),
-        TrackInfoTag::DurationMs => (
-            "duration".to_string(),
-            // For compatibility with older versions, convert to u32
-            EntryValue::U32(v.as_u64().unwrap() as u32),
-        ),
-        TrackInfoTag::CreateDate => (CREATIONDATE_KEY.to_string(), v),
-        _ => unreachable!(),
-    }));
-
-    if map.contains_key(&TrackInfoTag::GpsIso6709) {
-        const LOCATION_KEY: &str = "com.apple.quicktime.location.ISO6709";
-        if let Some(idx) = entries.iter().position(|(k, _)| k == "udta.©xyz") {
-            entries.remove(idx);
-            entries.push((
-                LOCATION_KEY.to_string(),
-                map.get(&TrackInfoTag::GpsIso6709).unwrap().to_owned(),
-            ));
-        }
-    }
-
-    Ok(entries)
-}
 
 #[tracing::instrument(skip_all)]
 pub(crate) fn parse_isobmff(
@@ -250,59 +134,6 @@ fn parse_udta_auth(data: &[u8]) -> Option<String> {
     }
 }
 
-/// *Deprecated*: Please use [`crate::MediaParser`] instead.
-///
-/// Analyze the byte stream in the `reader` as a MOV file, attempting to extract
-/// any possible metadata it may contain, and return it in the form of key-value
-/// pairs.
-///
-/// Please note that the parsing routine itself provides a buffer, so the
-/// `reader` may not need to be wrapped with `BufRead`.
-///
-/// # Usage
-///
-/// ```rust
-/// use nom_exif::*;
-///
-/// use std::fs::File;
-/// use std::path::Path;
-///
-/// let f = File::open(Path::new("./testdata/meta.mov")).unwrap();
-/// let entries = parse_mov_metadata(f).unwrap();
-///
-/// assert_eq!(
-///     entries
-///         .iter()
-///         .map(|x| format!("{x:?}"))
-///         .collect::<Vec<_>>()
-///         .join("\n"),
-///     r#"("com.apple.quicktime.make", Text("Apple"))
-/// ("com.apple.quicktime.model", Text("iPhone X"))
-/// ("com.apple.quicktime.software", Text("12.1.2"))
-/// ("com.apple.quicktime.location.ISO6709", Text("+27.1281+100.2508+000.000/"))
-/// ("com.apple.quicktime.creationdate", Time(2019-02-12T15:27:12+08:00))
-/// ("duration", U32(500))
-/// ("width", U32(720))
-/// ("height", U32(1280))"#,
-/// );
-/// ```
-#[deprecated(since = "2.0.0")]
-pub fn parse_mov_metadata<R: Read + Seek>(reader: R) -> crate::Result<Vec<(String, EntryValue)>> {
-    #[allow(deprecated)]
-    parse_metadata(reader)
-}
-
-#[tracing::instrument(skip_all)]
-fn extract_moov_body<L: Load>(mut loader: L) -> Result<PartialVec, crate::Error> {
-    let moov_body_range = loader.load_and_parse(extract_moov_body_from_buf)?;
-
-    tracing::debug!(?moov_body_range);
-    Ok(PartialVec::from_vec_range(
-        loader.into_vec(),
-        moov_body_range,
-    ))
-}
-
 /// Parse the byte data of an ISOBMFF file and return the potential body data of
 /// moov atom it may contain.
 ///
@@ -406,32 +237,11 @@ fn parse_meta(input: &[u8]) -> Option<Vec<(String, EntryValue)>> {
 }
 
 #[cfg(test)]
-#[allow(deprecated)]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::testkit::*;
     use test_case::test_case;
-
-    #[test_case("meta.mov")]
-    fn mov_parse(path: &str) {
-        let reader = open_sample(path).unwrap();
-        let entries = parse_metadata(reader).unwrap();
-        assert_eq!(
-            entries
-                .iter()
-                .map(|x| format!("{x:?}"))
-                .collect::<Vec<_>>()
-                .join("\n"),
-            "(\"com.apple.quicktime.make\", Text(\"Apple\"))
-(\"com.apple.quicktime.model\", Text(\"iPhone X\"))
-(\"com.apple.quicktime.software\", Text(\"12.1.2\"))
-(\"com.apple.quicktime.location.ISO6709\", Text(\"+27.1281+100.2508+000.000/\"))
-(\"com.apple.quicktime.creationdate\", Time(2019-02-12T15:27:12+08:00))
-(\"duration\", U32(500))
-(\"width\", U32(720))
-(\"height\", U32(1280))"
-        );
-    }
 
     #[test_case("meta.mov")]
     fn mov_extract_mov(path: &str) {
@@ -456,49 +266,4 @@ mod tests {
         );
     }
 
-    #[test_case("meta.mp4")]
-    fn parse_mp4(path: &str) {
-        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
-
-        let entries = parse_metadata(open_sample(path).unwrap()).unwrap();
-        assert_eq!(
-            entries
-                .iter()
-                .map(|x| format!("{x:?}"))
-                .collect::<Vec<_>>()
-                .join("\n"),
-            "(\"com.apple.quicktime.creationdate\", Time(2024-02-03T07:05:38+00:00))
-(\"duration\", U32(1063))
-(\"width\", U32(1920))
-(\"height\", U32(1080))
-(\"com.apple.quicktime.location.ISO6709\", Text(\"+27.2939+112.6932/\"))"
-        );
-    }
-
-    #[test_case("embedded-in-heic.mov")]
-    fn parse_embedded_mov(path: &str) {
-        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
-
-        let entries = parse_mov_metadata(open_sample(path).unwrap()).unwrap();
-        assert_eq!(
-            entries
-                .iter()
-                .map(|x| format!("{x:?}"))
-                .collect::<Vec<_>>()
-                .join("\n"),
-            "(\"com.apple.quicktime.location.accuracy.horizontal\", Text(\"14.235563\"))
-(\"com.apple.quicktime.live-photo.auto\", U8(1))
-(\"com.apple.quicktime.content.identifier\", Text(\"DA1A7EE8-0925-4C9F-9266-DDA3F0BB80F0\"))
-(\"com.apple.quicktime.live-photo.vitality-score\", F32(0.93884003))
-(\"com.apple.quicktime.live-photo.vitality-scoring-version\", I64(4))
-(\"com.apple.quicktime.location.ISO6709\", Text(\"+22.5797+113.9380+028.396/\"))
-(\"com.apple.quicktime.make\", Text(\"Apple\"))
-(\"com.apple.quicktime.model\", Text(\"iPhone 15 Pro\"))
-(\"com.apple.quicktime.software\", Text(\"17.1\"))
-(\"com.apple.quicktime.creationdate\", Time(2023-11-02T19:58:34+08:00))
-(\"duration\", U32(2795))
-(\"width\", U32(1920))
-(\"height\", U32(1440))"
-        );
-    }
 }

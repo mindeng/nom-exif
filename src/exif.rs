@@ -4,9 +4,8 @@ use crate::parser::{BufParser, ParsingState, ShareBuf};
 use crate::raf::RafInfo;
 use crate::skip::Skip;
 use crate::slice::SubsliceRange;
-use crate::{cr3, heif, jpeg, MediaParser, MediaSource};
-#[allow(deprecated)]
-use crate::{partial_vec::PartialVec, FileFormat};
+use crate::{cr3, heif, jpeg, MediaParser};
+use crate::partial_vec::PartialVec;
 pub use exif_exif::Exif;
 use exif_exif::TIFF_HEADER_LEN;
 use exif_iter::input_into_iter;
@@ -26,45 +25,6 @@ mod exif_iter;
 mod gps;
 mod tags;
 mod travel;
-
-/// *Deprecated*: Please use [`crate::MediaParser`] instead.
-///
-/// Read exif data from `reader`, and build an [`ExifIter`] for it.
-///
-/// ~~If `format` is None, the parser will detect the file format automatically.~~
-/// *The `format` param will be ignored from v2.0.0.*
-///
-/// Currently supported file formats are:
-///
-/// - *.heic, *.heif, etc.
-/// - *.jpg, *.jpeg, etc.
-///
-/// *.tiff/*.tif is not supported by this function, please use `MediaParser`
-/// instead.
-///
-/// All entries are lazy-parsed. That is, only when you iterate over
-/// [`ExifIter`] will the IFD entries be parsed one by one.
-///
-/// The one exception is the time zone entries. The parser will try to find and
-/// parse the time zone data first, so we can correctly parse all time
-/// information in subsequent iterates.
-///
-/// Please note that the parsing routine itself provides a buffer, so the
-/// `reader` may not need to be wrapped with `BufRead`.
-///
-/// Returns:
-///
-/// - An `Ok<Some<ExifIter>>` if Exif data is found and parsed successfully.
-/// - An `Ok<None>` if Exif data is not found.
-/// - An `Err` if Exif data is found but parsing failed.
-#[deprecated(since = "2.0.0")]
-#[allow(deprecated)]
-pub fn parse_exif<T: Read>(reader: T, _: Option<FileFormat>) -> crate::Result<Option<ExifIter>> {
-    let mut parser = MediaParser::new();
-    let iter: ExifIter = parser.parse(MediaSource::unseekable(reader)?)?;
-    let iter = iter.to_owned();
-    Ok(Some(iter))
-}
 
 #[tracing::instrument(skip(reader))]
 pub(crate) fn parse_exif_iter<R: Read, S: Skip<R>>(
@@ -275,86 +235,16 @@ fn cr3_extract_exif(
 #[cfg(feature = "async")]
 use tokio::io::AsyncRead;
 
-/// *Deprecated*: Please use [`crate::MediaParser`] instead.
-///
-/// `async` version of [`parse_exif`].
-#[allow(deprecated)]
-#[cfg(feature = "async")]
-#[deprecated(since = "2.0.0")]
-pub async fn parse_exif_async<T: AsyncRead + Unpin + Send>(
-    reader: T,
-    _: Option<FileFormat>,
-) -> crate::Result<Option<ExifIter>> {
-    use crate::{AsyncMediaParser, AsyncMediaSource};
-
-    let mut parser = AsyncMediaParser::new();
-    let exif: ExifIter = parser
-        .parse(AsyncMediaSource::unseekable(reader).await?)
-        .await?;
-    Ok(Some(exif))
-}
-
 #[cfg(test)]
-#[allow(deprecated)]
 mod tests {
-    use std::{sync::mpsc, thread, time::Duration};
-
     use crate::{
         file::MimeImage,
-        testkit::{open_sample, read_sample},
+        testkit::read_sample,
         values::URational,
     };
     use test_case::test_case;
 
     use super::*;
-
-    #[test_case("exif.heic", "+43.29013+084.22713+1595.950CRSWGS_84/")]
-    #[test_case("exif.jpg", "+22.53113+114.02148/")]
-    #[test_case("invalid-gps", "-")]
-    fn gps(path: &str, gps_str: &str) {
-        let f = open_sample(path).unwrap();
-        let iter = parse_exif(f, None)
-            .expect("should be Ok")
-            .expect("should not be None");
-
-        if gps_str == "-" {
-            assert!(iter.parse_gps_info().expect("should be ok").is_none());
-        } else {
-            let gps_info = iter
-                .parse_gps_info()
-                .expect("should be parsed Ok")
-                .expect("should not be None");
-
-            // let gps_info = iter
-            //     .consume_parse_gps_info()
-            //     .expect("should be parsed Ok")
-            //     .expect("should not be None");
-            assert_eq!(gps_info.format_iso6709(), gps_str);
-        }
-    }
-
-    #[cfg(feature = "async")]
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    #[test_case("exif.heic", "+43.29013+084.22713+1595.950CRSWGS_84/")]
-    #[test_case("exif.jpg", "+22.53113+114.02148/")]
-    async fn gps_async(path: &str, gps_str: &str) {
-        use std::path::Path;
-        use tokio::fs::File;
-
-        let f = File::open(Path::new("testdata").join(path)).await.unwrap();
-        let iter = parse_exif_async(f, None)
-            .await
-            .expect("should be Ok")
-            .expect("should not be None");
-
-        let gps_str = gps_str.to_owned();
-        let _ = tokio::spawn(async move {
-            let exif: Exif = iter.into();
-            let gps_info = exif.get_gps_info().expect("ok").expect("some");
-            assert_eq!(gps_info.format_iso6709(), gps_str);
-        })
-        .await;
-    }
 
     #[test_case(
         "exif.jpg",
@@ -405,34 +295,4 @@ mod tests {
         )
     }
 
-    #[test_case("exif.heic")]
-    fn tag_values(path: &str) {
-        let f = open_sample(path).unwrap();
-        let iter = parse_exif(f, None).unwrap().unwrap();
-        let tags = [ExifTag::Make, ExifTag::Model];
-        let res: Vec<String> = iter
-            .clone()
-            .filter(|e| e.tag().is_some_and(|t| tags.contains(&t)))
-            .filter(|e| e.has_value())
-            .map(|e| format!("{} => {}", e.tag().unwrap(), e.get_value().unwrap()))
-            .collect();
-        assert_eq!(res.join(", "), "Make => Apple, Model => iPhone 12 Pro");
-    }
-
-    #[test]
-    fn endless_loop() {
-        let (sender, receiver) = mpsc::channel();
-
-        thread::spawn(move || {
-            let name = "endless_loop.jpg";
-            let f = open_sample(name).unwrap();
-            let iter = parse_exif(f, None).unwrap().unwrap();
-            let _: Exif = iter.into();
-            sender.send(()).unwrap();
-        });
-
-        receiver
-            .recv_timeout(Duration::from_secs(1))
-            .expect("There is an infinite loop in the parsing process!");
-    }
 }

@@ -1,48 +1,13 @@
-use std::io::{Read, Seek};
-
 use nom::combinator::fail;
 use nom::IResult;
 
 use crate::bbox::find_box;
-use crate::exif::Exif;
 use crate::{
     bbox::{BoxHolder, MetaBox, ParseBox},
     error::{nom_error_to_parsing_error_with_state, ParsingError, ParsingErrorState},
     exif::check_exif_header2,
     parser::ParsingState,
 };
-use crate::{ExifIter, MediaParser, MediaSource};
-
-/// *Deprecated*: Please use [`MediaParser`] + [`MediaSource`] instead.
-///
-/// Analyze the byte stream in the `reader` as a HEIF/HEIC file, attempting to
-/// extract Exif data it may contain.
-///
-/// Please note that the parsing routine itself provides a buffer, so the
-/// `reader` may not need to be wrapped with `BufRead`.
-///
-/// # Usage
-///
-/// ```rust
-/// use nom_exif::*;
-/// use nom_exif::ExifTag::*;
-///
-/// use std::fs::File;
-/// use std::path::Path;
-///
-/// let f = File::open(Path::new("./testdata/exif.heic")).unwrap();
-/// let exif = parse_heif_exif(f).unwrap().unwrap();
-///
-/// assert_eq!(exif.get(Make).unwrap().to_string(), "Apple");
-/// ```
-///
-/// See also: [`parse_exif`](crate::parse_exif).
-#[deprecated(since = "2.0.0")]
-pub fn parse_heif_exif<R: Read + Seek>(reader: R) -> crate::Result<Option<Exif>> {
-    let parser = &mut MediaParser::new();
-    let iter: ExifIter = parser.parse(MediaSource::seekable(reader)?)?;
-    Ok(Some(iter.into()))
-}
 
 pub(crate) fn extract_exif_data(
     state: Option<ParsingState>,
@@ -111,35 +76,11 @@ pub(crate) fn parse_meta_box(input: &[u8]) -> IResult<&[u8], Option<MetaBox>> {
     Ok((remain, Some(bbox)))
 }
 
-#[allow(deprecated)]
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::testkit::*;
     use test_case::test_case;
-
-    #[test_case("exif.heic")]
-    fn heif(path: &str) {
-        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
-
-        let reader = open_sample(path).unwrap();
-        let exif = parse_heif_exif(reader).unwrap().unwrap();
-        let mut expect = String::new();
-        open_sample(&format!("{path}.sorted.txt"))
-            .unwrap()
-            .read_to_string(&mut expect)
-            .unwrap();
-
-        assert_eq!(sorted_exif_entries(&exif).join("\n"), expect.trim());
-    }
-
-    #[test_case("ramdisk.img")]
-    fn invalid_heic(path: &str) {
-        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
-
-        let reader = open_sample(path).unwrap();
-        parse_heif_exif(reader).expect_err("should be ParseFailed error");
-    }
 
     #[test_case("exif-one-entry.heic", 0x24-10)]
     #[test_case("exif.heic", 0xa3a-10)]
