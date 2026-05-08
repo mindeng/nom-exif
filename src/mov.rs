@@ -76,11 +76,11 @@ fn convert_video_tags(entries: Vec<(String, EntryValue)>) -> BTreeMap<TrackInfoT
                 Some((TrackInfoTag::GpsIso6709, v))
             } else if k == "udta.©xyz" {
                 // For mp4 files, Android phones store GPS info in that box.
-                v.as_u8array()
+                v.as_u8_slice()
                     .and_then(parse_udta_gps)
                     .map(|v| (TrackInfoTag::GpsIso6709, EntryValue::Text(v)))
             } else if k == "udta.auth" {
-                v.as_u8array()
+                v.as_u8_slice()
                     .and_then(parse_udta_auth)
                     .map(|v| (TrackInfoTag::Author, EntryValue::Text(v)))
             } else if k.starts_with("udta.") {

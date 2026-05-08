@@ -823,16 +823,16 @@ impl IfdIter {
                     }
                 }
                 ExifTag::GPSLatitude => {
-                    if let Some(v) = entry.as_urational_array() {
+                    if let Some(v) = entry.as_urational_slice() {
                         gps.latitude = v.try_into().ok()?;
-                    } else if let Some(v) = entry.as_irational_array() {
+                    } else if let Some(v) = entry.as_irational_slice() {
                         gps.latitude = v.try_into().ok()?;
                     }
                 }
                 ExifTag::GPSLongitude => {
-                    if let Some(v) = entry.as_urational_array() {
+                    if let Some(v) = entry.as_urational_slice() {
                         gps.longitude = v.try_into().ok()?;
-                    } else if let Some(v) = entry.as_irational_array() {
+                    } else if let Some(v) = entry.as_irational_slice() {
                         gps.longitude = v.try_into().ok()?;
                     }
                 }
@@ -911,7 +911,7 @@ impl IfdEntry {
         }
     }
 
-    fn as_irational_array(&self) -> Option<&Vec<IRational>> {
+    fn as_irational_slice(&self) -> Option<&Vec<IRational>> {
         if let IfdEntry::Entry(EntryValue::IRationalArray(v)) = self {
             Some(v)
         } else {
@@ -927,7 +927,7 @@ impl IfdEntry {
         }
     }
 
-    fn as_urational_array(&self) -> Option<&Vec<URational>> {
+    fn as_urational_slice(&self) -> Option<&Vec<URational>> {
         if let IfdEntry::Entry(EntryValue::URationalArray(v)) = self {
             Some(v)
         } else {

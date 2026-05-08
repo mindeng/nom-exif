@@ -406,7 +406,7 @@ impl EntryValue {
         }
     }
 
-    pub fn as_urational_array(&self) -> Option<&[URational]> {
+    pub fn as_urational_slice(&self) -> Option<&[URational]> {
         if let EntryValue::URationalArray(v) = self {
             Some(v)
         } else {
@@ -414,7 +414,7 @@ impl EntryValue {
         }
     }
 
-    pub fn as_irational_array(&self) -> Option<&[IRational]> {
+    pub fn as_irational_slice(&self) -> Option<&[IRational]> {
         if let EntryValue::IRationalArray(v) = self {
             Some(v)
         } else {
@@ -422,15 +422,32 @@ impl EntryValue {
         }
     }
 
-    pub fn as_u8array(&self) -> Option<&[u8]> {
+    pub fn as_u8_slice(&self) -> Option<&[u8]> {
         if let EntryValue::U8Array(v) = self {
             Some(v)
         } else {
             None
         }
     }
-    pub fn to_u8array(self) -> Option<Vec<u8>> {
-        if let EntryValue::U8Array(v) = self {
+
+    pub fn as_u16_slice(&self) -> Option<&[u16]> {
+        if let EntryValue::U16Array(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_u32_slice(&self) -> Option<&[u32]> {
+        if let EntryValue::U32Array(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_undefined(&self) -> Option<&[u8]> {
+        if let EntryValue::Undefined(v) = self {
             Some(v)
         } else {
             None
@@ -1017,5 +1034,15 @@ mod tests {
         assert_eq!(EntryValue::URational(URational::new(1, 2)).try_as_float(), Some(0.5));
         assert_eq!(EntryValue::URational(URational::new(1, 0)).try_as_float(), None);
         assert_eq!(EntryValue::Text("x".into()).try_as_float(), None);
+    }
+
+    #[test]
+    fn entry_value_slice_accessors() {
+        assert_eq!(EntryValue::U8Array(vec![1, 2]).as_u8_slice(), Some(&[1u8, 2][..]));
+        assert_eq!(EntryValue::U16Array(vec![1, 2]).as_u16_slice(), Some(&[1u16, 2][..]));
+        assert_eq!(EntryValue::U32Array(vec![1, 2]).as_u32_slice(), Some(&[1u32, 2][..]));
+        assert_eq!(EntryValue::Undefined(vec![1, 2]).as_undefined(), Some(&[1u8, 2][..]));
+        let r = URational::new(1, 2);
+        assert_eq!(EntryValue::URationalArray(vec![r]).as_urational_slice(), Some(&[r][..]));
     }
 }
