@@ -18,10 +18,6 @@ pub(crate) struct Buffers {
 }
 
 impl Buffers {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     #[tracing::instrument(skip_all)]
     pub fn release(&mut self, mut buf: Vec<u8>) {
         if self.pooled() >= MAX_POOLED_BUF {
@@ -160,7 +156,7 @@ mod tests {
 
     #[test]
     fn buffers_prior_to_take_pooled() {
-        let mut bb = Buffers::new();
+        let mut bb = Buffers::default();
         assert_eq!(bb.acquired(), 0);
         assert_eq!(bb.pooled(), INIT_POOLED_BUF);
         assert_eq!(bb.shared(), 0);
@@ -239,7 +235,7 @@ mod tests {
 
     #[test]
     fn buffers_max_pooled() {
-        let mut bb = Buffers::new();
+        let mut bb = Buffers::default();
         assert_eq!(bb.acquired(), 0);
         assert_eq!(bb.pooled(), INIT_POOLED_BUF);
         assert_eq!(bb.shared(), 0);
