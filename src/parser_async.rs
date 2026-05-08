@@ -294,12 +294,12 @@ impl<R: AsyncRead + Unpin + Send> AsyncParseOutput<R> for TrackInfo {
 /// #[cfg(feature = "tokio")]
 /// #[tokio::main]
 /// async fn main() -> Result<()> {
-///     let mut parser = AsyncMediaParser::new();
+///     let mut parser = MediaParser::new();
 ///
 ///     // ------------------- Parse Exif Info
-///     let ms = AsyncMediaSource::file_path("./testdata/exif.heic").await.unwrap();
-///     assert!(ms.has_exif());
-///     let mut iter: ExifIter = parser.parse(ms).await.unwrap();
+///     let ms = AsyncMediaSource::open("./testdata/exif.heic").await.unwrap();
+///     assert_eq!(ms.kind(), MediaKind::Image);
+///     let mut iter = parser.parse_exif_async(ms).await.unwrap();
 ///
 ///     let entry = iter.next().unwrap();
 ///     assert_eq!(entry.tag().unwrap(), ExifTag::Make);
@@ -311,9 +311,9 @@ impl<R: AsyncRead + Unpin + Send> AsyncParseOutput<R> for TrackInfo {
 ///     assert_eq!(exif.get(ExifTag::Make).unwrap().as_str().unwrap(), "Apple");
 ///
 ///     // ------------------- Parse Track Info
-///     let ms = AsyncMediaSource::file_path("./testdata/meta.mov").await.unwrap();
-///     assert!(ms.has_track());
-///     let info: TrackInfo = parser.parse(ms).await.unwrap();
+///     let ms = AsyncMediaSource::open("./testdata/meta.mov").await.unwrap();
+///     assert_eq!(ms.kind(), MediaKind::Track);
+///     let info = parser.parse_track_async(ms).await.unwrap();
 ///
 ///     assert_eq!(info.get(TrackInfoTag::Make), Some(&"Apple".into()));
 ///     assert_eq!(info.get(TrackInfoTag::Model), Some(&"iPhone X".into()));

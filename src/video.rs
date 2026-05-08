@@ -128,9 +128,10 @@ impl TrackInfo {
 /// use std::fs::File;
 /// use chrono::DateTime;
 ///
-/// let ms = MediaSource::file_path("./testdata/meta.mov").unwrap();
+/// let ms = MediaSource::open("./testdata/meta.mov").unwrap();
+/// assert_eq!(ms.kind(), MediaKind::Track);
 /// let mut parser = MediaParser::new();
-/// let info: TrackInfo = parser.parse(ms).unwrap();
+/// let info: TrackInfo = parser.parse_track(ms).unwrap();
 ///
 /// assert_eq!(info.get(TrackInfoTag::Make), Some(&"Apple".into()));
 /// assert_eq!(info.get(TrackInfoTag::Model), Some(&"iPhone X".into()));

@@ -7,7 +7,7 @@ use std::{
 };
 
 use clap::Parser;
-use nom_exif::{ExifIter, MediaParser, MediaSource, TrackInfo};
+use nom_exif::{ExifIter, MediaKind, MediaParser, MediaSource, TrackInfo};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Registry};
 
 #[derive(Parser, Debug)]
@@ -101,31 +101,34 @@ fn parse_file<P: AsRef<Path>>(
     path: P,
     json: bool,
 ) -> Result<(), nom_exif::Error> {
-    let ms = MediaSource::file_path(path).inspect_err(handle_parsing_error)?;
-    let values = if ms.has_exif() {
-        let iter: ExifIter = parser.parse(ms).inspect_err(handle_parsing_error)?;
-        iter.into_iter()
-            .filter_map(|mut x| {
-                let res = x.take_result();
-                match res {
-                    Ok(v) => Some((
-                        x.tag()
-                            .map(|x| x.to_string())
-                            .unwrap_or_else(|| format!("Unknown(0x{:04x})", x.tag_code())),
-                        v,
-                    )),
-                    Err(e) => {
-                        tracing::warn!(?e);
-                        None
+    let ms = MediaSource::open(path).inspect_err(handle_parsing_error)?;
+    let values = match ms.kind() {
+        MediaKind::Image => {
+            let iter: ExifIter = parser.parse_exif(ms).inspect_err(handle_parsing_error)?;
+            iter.into_iter()
+                .filter_map(|mut x| {
+                    let res = x.take_result();
+                    match res {
+                        Ok(v) => Some((
+                            x.tag()
+                                .map(|x| x.to_string())
+                                .unwrap_or_else(|| format!("Unknown(0x{:04x})", x.tag_code())),
+                            v,
+                        )),
+                        Err(e) => {
+                            tracing::warn!(?e);
+                            None
+                        }
                     }
-                }
-            })
-            .collect::<Vec<_>>()
-    } else {
-        let info: TrackInfo = parser.parse(ms)?;
-        info.into_iter()
-            .map(|x| (x.0.to_string(), x.1))
-            .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>()
+        }
+        MediaKind::Track => {
+            let info: TrackInfo = parser.parse_track(ms)?;
+            info.into_iter()
+                .map(|x| (x.0.to_string(), x.1))
+                .collect::<Vec<_>>()
+        }
     };
     if json {
         #[cfg(feature = "serde")]

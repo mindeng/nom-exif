@@ -47,8 +47,9 @@ impl Exif {
     ///   fn main() -> Result<()> {
     ///       let mut parser = MediaParser::new();
     ///       
-    ///       let ms = MediaSource::file_path("./testdata/exif.jpg")?;
-    ///       let iter: ExifIter = parser.parse(ms)?;
+    ///       let ms = MediaSource::open("./testdata/exif.jpg")?;
+    ///       assert_eq!(ms.kind(), MediaKind::Image);
+    ///       let iter = parser.parse_exif(ms)?;
     ///       let exif: Exif = iter.into();
     ///
     ///       assert_eq!(exif.get(ExifTag::Model).unwrap(), &"vivo X90 Pro+".into());
@@ -81,8 +82,9 @@ impl Exif {
     ///   fn main() -> Result<()> {
     ///       let mut parser = MediaParser::new();
     ///       
-    ///       let ms = MediaSource::file_path("./testdata/exif.jpg")?;
-    ///       let iter: ExifIter = parser.parse(ms)?;
+    ///       let ms = MediaSource::open("./testdata/exif.jpg")?;
+    ///       assert_eq!(ms.kind(), MediaKind::Image);
+    ///       let iter = parser.parse_exif(ms)?;
     ///       let exif: Exif = iter.into();
     ///
     ///       assert_eq!(exif.get_by_ifd_tag_code(0, 0x0110).unwrap(), &"vivo X90 Pro+".into());

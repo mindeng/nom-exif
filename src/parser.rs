@@ -512,9 +512,9 @@ impl<R: Read> ParseOutput<R> for TrackInfo {
 /// let mut parser = MediaParser::new();
 ///
 /// // ------------------- Parse Exif Info
-/// let ms = MediaSource::file_path("./testdata/exif.heic").unwrap();
-/// assert!(ms.has_exif());
-/// let mut iter: ExifIter = parser.parse(ms).unwrap();
+/// let ms = MediaSource::open("./testdata/exif.heic").unwrap();
+/// assert_eq!(ms.kind(), MediaKind::Image);
+/// let mut iter = parser.parse_exif(ms).unwrap();
 ///
 /// let entry = iter.next().unwrap();
 /// assert_eq!(entry.tag().unwrap(), ExifTag::Make);
@@ -526,9 +526,9 @@ impl<R: Read> ParseOutput<R> for TrackInfo {
 /// assert_eq!(exif.get(ExifTag::Make).unwrap().as_str().unwrap(), "Apple");
 ///
 /// // ------------------- Parse Track Info
-/// let ms = MediaSource::file_path("./testdata/meta.mov").unwrap();
-/// assert!(ms.has_track());
-/// let info: TrackInfo = parser.parse(ms).unwrap();
+/// let ms = MediaSource::open("./testdata/meta.mov").unwrap();
+/// assert_eq!(ms.kind(), MediaKind::Track);
+/// let info = parser.parse_track(ms).unwrap();
 ///
 /// assert_eq!(info.get(TrackInfoTag::Make), Some(&"Apple".into()));
 /// assert_eq!(info.get(TrackInfoTag::Model), Some(&"iPhone X".into()));

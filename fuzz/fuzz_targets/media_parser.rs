@@ -10,7 +10,7 @@ fuzz_target!(|data: &[u8]| {
 
     // Parse seekable
     if let Ok(ms) = MediaSource::seekable(Cursor::new(data)) {
-        let iter: Result<ExifIter, _> = parser.parse(ms);
+        let iter: Result<ExifIter, _> = parser.parse_exif(ms);
         if let Ok(iter) = iter {
             let _ = iter.parse_gps_info();
             let _: Exif = iter.into();
@@ -18,12 +18,12 @@ fuzz_target!(|data: &[u8]| {
     }
 
     if let Ok(ms) = MediaSource::seekable(Cursor::new(data)) {
-        let _: Result<TrackInfo, _> = parser.parse(ms);
+        let _: Result<TrackInfo, _> = parser.parse_track(ms);
     }
 
     // Parse unseekable
     if let Ok(ms) = MediaSource::unseekable(Cursor::new(data)) {
-        let iter: Result<ExifIter, _> = parser.parse(ms);
+        let iter: Result<ExifIter, _> = parser.parse_exif(ms);
         if let Ok(iter) = iter {
             let _ = iter.parse_gps_info();
             let _: Exif = iter.into();
@@ -31,6 +31,6 @@ fuzz_target!(|data: &[u8]| {
     }
 
     if let Ok(ms) = MediaSource::unseekable(Cursor::new(data)) {
-        let _: Result<TrackInfo, _> = parser.parse(ms);
+        let _: Result<TrackInfo, _> = parser.parse_track(ms);
     }
 });
