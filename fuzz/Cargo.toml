@@ -1,0 +1,23 @@
+[package]
+name = "nom-exif-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.nom-exif]
+path = ".."
+
+[[bin]]
+name = "media_parser"
+path = "fuzz_targets/media_parser.rs"
+test = false
+doc = false
+bench = false
