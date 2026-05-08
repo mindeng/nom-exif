@@ -366,9 +366,6 @@ impl AsyncMediaParser {
         self.state.reset();
     }
 
-    fn buf(&self) -> &Vec<u8> {
-        self.state.buf()
-    }
 
     fn acquire_buf(&mut self) {
         self.state.acquire_buf();

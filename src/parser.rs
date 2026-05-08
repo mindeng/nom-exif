@@ -579,10 +579,6 @@ impl MediaParser {
         self.state.reset();
     }
 
-    pub(crate) fn buf(&self) -> &Vec<u8> {
-        self.state.buf()
-    }
-
     fn buf_mut(&mut self) -> &mut Vec<u8> {
         self.state.buf_mut()
     }
