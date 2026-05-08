@@ -17,8 +17,8 @@ use crate::{
     exif::parse_exif_iter_async,
     file::Mime,
     parser::{
-        clear_and_skip_decide, parse_loop_step, Buf, BufferedParserState, LoopAction, ParsingState,
-        ShareBuf, SkipPlan, INIT_BUF_SIZE, MAX_ALLOC_SIZE, MIN_GROW_SIZE,
+        check_fill_size, clear_and_skip_decide, parse_loop_step, Buf, BufferedParserState,
+        LoopAction, ParsingState, ShareBuf, SkipPlan, INIT_BUF_SIZE, MAX_ALLOC_SIZE, MIN_GROW_SIZE,
     },
     partial_vec::PartialVec,
     skip::AsyncSkip,
@@ -386,10 +386,7 @@ impl AsyncBufParser for AsyncMediaParser {
         reader: &mut R,
         size: usize,
     ) -> io::Result<usize> {
-        if size > MAX_ALLOC_SIZE {
-            tracing::error!(?size, "the requested buffer size is too big");
-            return Err(io::ErrorKind::Unsupported.into());
-        }
+        check_fill_size(self.state.buf().len(), size)?;
 
         // Same rationale as the sync version: do not pre-allocate `size` bytes.
         let n = reader.take(size as u64).read_to_end(self.state.buf_mut()).await?;
@@ -503,6 +500,21 @@ mod tests {
     use test_case::test_case;
 
     use crate::video::TrackInfoTag::*;
+
+    #[tokio::test(flavor = "current_thread")]
+    #[ignore] // allocates ~1GiB, run manually with: cargo test fill_buf_rejects_oversize -- --ignored
+    async fn fill_buf_rejects_oversize_when_combined_with_existing() {
+        use tokio::io::repeat;
+        let mut parser = AsyncMediaParser::new();
+        parser.state.acquire_buf();
+        parser.state.buf_mut().resize(MAX_ALLOC_SIZE - 1024, 0);
+        let mut r = repeat(0);
+        let res = parser.fill_buf(&mut r, 2 * 1024).await;
+        assert!(
+            res.is_err(),
+            "expected Err, got Ok"
+        );
+    }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     #[test_case("mkv_640x360.mkv", ImageWidth, 640_u32.into())]

@@ -225,6 +225,14 @@ pub(crate) fn clear_and_skip_decide(buffer_len: usize, n: usize) -> SkipPlan {
     }
 }
 
+pub(crate) fn check_fill_size(existing_len: usize, requested: usize) -> io::Result<()> {
+    if requested.saturating_add(existing_len) > MAX_ALLOC_SIZE {
+        tracing::error!(?requested, "the requested buffer size is too big");
+        return Err(io::ErrorKind::Unsupported.into());
+    }
+    Ok(())
+}
+
 pub(crate) enum LoopAction<O> {
     /// Parse succeeded; return this value to the caller.
     Done(O),
@@ -372,10 +380,7 @@ pub(crate) trait BufParser: Buf + Debug {
 impl BufParser for MediaParser {
     #[tracing::instrument(skip(self, reader), fields(buf_len=self.state.buf().len()))]
     fn fill_buf<R: Read>(&mut self, reader: &mut R, size: usize) -> io::Result<usize> {
-        if size.saturating_add(self.state.buf().len()) > MAX_ALLOC_SIZE {
-            tracing::error!(?size, "the requested buffer size is too big");
-            return Err(io::ErrorKind::Unsupported.into());
-        }
+        check_fill_size(self.state.buf().len(), size)?;
 
         // Do not pre-allocate `size` bytes: a crafted box header can declare a
         // huge extended size (up to MAX_ALLOC_SIZE) that far exceeds the actual
