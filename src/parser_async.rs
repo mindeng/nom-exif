@@ -17,8 +17,8 @@ use crate::{
     exif::parse_exif_iter_async,
     file::Mime,
     parser::{
-        Buf, BufferedParserState, ParsingState, ShareBuf, INIT_BUF_SIZE, MAX_ALLOC_SIZE,
-        MIN_GROW_SIZE,
+        parse_loop_step, Buf, BufferedParserState, LoopAction, ParsingState, ShareBuf,
+        INIT_BUF_SIZE, MAX_ALLOC_SIZE, MIN_GROW_SIZE,
     },
     partial_vec::PartialVec,
     skip::AsyncSkip,
@@ -128,32 +128,21 @@ pub(crate) trait AsyncBufParser: Buf + Debug {
         }
 
         let mut parsing_state: Option<ParsingState> = None;
+        let mut parse = parse; // coerce Fn → FnMut
         loop {
-            let res = parse(self.buffer(), offset, parsing_state.take());
-            match res {
-                Ok(o) => return Ok(o),
-                Err(es) => {
-                    tracing::debug!(?es);
-                    parsing_state = es.state;
-
-                    match es.err {
-                        ParsingError::ClearAndSkip(n) => {
-                            self.clear_and_skip::<R, S>(reader, n).await?;
-                        }
-                        ParsingError::Need(i) => {
-                            tracing::debug!(need = i, "need more bytes");
-                            let to_read = max(i, MIN_GROW_SIZE);
-                            // let to_read = min(to_read, MAX_GROW_SIZE);
-
-                            let n = self.fill_buf(reader, to_read).await?;
-                            if n == 0 {
-                                return Err(ParsedError::NoEnoughBytes);
-                            }
-                            tracing::debug!(actual_read = n, "has been read");
-                        }
-                        ParsingError::Failed(s) => return Err(ParsedError::Failed(s)),
+            match parse_loop_step(self.buffer(), offset, &mut parsing_state, &mut parse) {
+                LoopAction::Done(o) => return Ok(o),
+                LoopAction::NeedFill(needed) => {
+                    let to_read = max(needed, MIN_GROW_SIZE);
+                    let n = self.fill_buf(reader, to_read).await?;
+                    if n == 0 {
+                        return Err(ParsedError::NoEnoughBytes);
                     }
                 }
+                LoopAction::Skip(n) => {
+                    self.clear_and_skip::<R, S>(reader, n).await?;
+                }
+                LoopAction::Failed(s) => return Err(ParsedError::Failed(s)),
             }
         }
     }

@@ -208,6 +208,37 @@ impl ShareBuf for BufferedParserState {
     }
 }
 
+pub(crate) enum LoopAction<O> {
+    /// Parse succeeded; return this value to the caller.
+    Done(O),
+    /// Need more bytes — call `fill_buf(reader, n)` then re-step.
+    NeedFill(usize),
+    /// Need to skip bytes — call `clear_and_skip(reader, n)` then re-step.
+    Skip(usize),
+    /// Parse failed permanently.
+    Failed(String),
+}
+
+/// Drives one iteration of the parse-loop algorithm. Pure (no I/O).
+pub(crate) fn parse_loop_step<O>(
+    buffer: &[u8],
+    offset: usize,
+    parsing_state: &mut Option<ParsingState>,
+    parse: &mut dyn FnMut(&[u8], usize, Option<ParsingState>) -> Result<O, ParsingErrorState>,
+) -> LoopAction<O> {
+    match parse(buffer, offset, parsing_state.take()) {
+        Ok(o) => LoopAction::Done(o),
+        Err(es) => {
+            *parsing_state = es.state;
+            match es.err {
+                ParsingError::Need(n) => LoopAction::NeedFill(n),
+                ParsingError::ClearAndSkip(n) => LoopAction::Skip(n),
+                ParsingError::Failed(s) => LoopAction::Failed(s),
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) enum ParsingState {
     TiffHeader(TiffHeader),
@@ -260,31 +291,19 @@ pub(crate) trait BufParser: Buf + Debug {
 
         let mut parsing_state: Option<ParsingState> = None;
         loop {
-            let res = parse(self.buffer(), offset, parsing_state.take());
-            match res {
-                Ok(o) => return Ok(o),
-                Err(es) => {
-                    tracing::debug!(?es);
-                    parsing_state = es.state;
-
-                    match es.err {
-                        ParsingError::ClearAndSkip(n) => {
-                            self.clear_and_skip::<R, S>(reader, n)?;
-                        }
-                        ParsingError::Need(i) => {
-                            tracing::debug!(need = i, "need more bytes");
-                            let to_read = max(i, MIN_GROW_SIZE);
-                            // let to_read = min(to_read, MAX_GROW_SIZE);
-
-                            let n = self.fill_buf(reader, to_read)?;
-                            if n == 0 {
-                                return Err(ParsedError::NoEnoughBytes);
-                            }
-                            tracing::debug!(n, "actual read");
-                        }
-                        ParsingError::Failed(s) => return Err(ParsedError::Failed(s)),
+            match parse_loop_step(self.buffer(), offset, &mut parsing_state, &mut parse) {
+                LoopAction::Done(o) => return Ok(o),
+                LoopAction::NeedFill(needed) => {
+                    let to_read = max(needed, MIN_GROW_SIZE);
+                    let n = self.fill_buf(reader, to_read)?;
+                    if n == 0 {
+                        return Err(ParsedError::NoEnoughBytes);
                     }
                 }
+                LoopAction::Skip(n) => {
+                    self.clear_and_skip::<R, S>(reader, n)?;
+                }
+                LoopAction::Failed(s) => return Err(ParsedError::Failed(s)),
             }
         }
     }
