@@ -354,6 +354,42 @@ impl EntryValue {
         }
     }
 
+    pub fn as_i64(&self) -> Option<i64> {
+        if let EntryValue::I64(v) = self { Some(*v) } else { None }
+    }
+
+    pub fn as_f64(&self) -> Option<f64> {
+        if let EntryValue::F64(v) = self { Some(*v) } else { None }
+    }
+
+    /// Widen any integer EntryValue to i64. Returns None for non-integer values
+    /// (and for U64 values exceeding i64::MAX).
+    pub fn try_as_integer(&self) -> Option<i64> {
+        match self {
+            EntryValue::U8(v) => Some(*v as i64),
+            EntryValue::U16(v) => Some(*v as i64),
+            EntryValue::U32(v) => Some(*v as i64),
+            EntryValue::U64(v) => i64::try_from(*v).ok(),
+            EntryValue::I8(v) => Some(*v as i64),
+            EntryValue::I16(v) => Some(*v as i64),
+            EntryValue::I32(v) => Some(*v as i64),
+            EntryValue::I64(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    /// Widen any numeric EntryValue (integer / rational / float) to f64.
+    /// Rationals with denominator=0 return None.
+    pub fn try_as_float(&self) -> Option<f64> {
+        match self {
+            EntryValue::F32(v) => Some(*v as f64),
+            EntryValue::F64(v) => Some(*v),
+            EntryValue::URational(v) => v.to_f64(),
+            EntryValue::IRational(v) => v.to_f64(),
+            v => v.try_as_integer().map(|x| x as f64),
+        }
+    }
+
     pub fn as_urational(&self) -> Option<URational> {
         if let EntryValue::URational(v) = self {
             Some(*v)
@@ -955,5 +991,31 @@ mod tests {
         let i = IRational::new(3, -4);
         let err = URational::try_from(i).unwrap_err();
         assert!(matches!(err, crate::ConvertError::NegativeRational));
+    }
+
+    #[test]
+    fn entry_value_as_i64_f64() {
+        assert_eq!(EntryValue::I64(-7).as_i64(), Some(-7));
+        assert_eq!(EntryValue::F64(2.5).as_f64(), Some(2.5));
+        assert_eq!(EntryValue::I32(7).as_i64(), None);
+        assert_eq!(EntryValue::F32(2.5).as_f64(), None);
+    }
+
+    #[test]
+    fn entry_value_try_as_integer() {
+        assert_eq!(EntryValue::U8(7).try_as_integer(), Some(7));
+        assert_eq!(EntryValue::U32(0xffff_ffff).try_as_integer(), Some(0xffff_ffff_i64));
+        assert_eq!(EntryValue::I32(-7).try_as_integer(), Some(-7));
+        assert_eq!(EntryValue::U64(u64::MAX).try_as_integer(), None);
+        assert_eq!(EntryValue::Text("x".into()).try_as_integer(), None);
+    }
+
+    #[test]
+    fn entry_value_try_as_float() {
+        assert_eq!(EntryValue::U8(7).try_as_float(), Some(7.0));
+        assert_eq!(EntryValue::F32(1.5).try_as_float(), Some(1.5));
+        assert_eq!(EntryValue::URational(URational::new(1, 2)).try_as_float(), Some(0.5));
+        assert_eq!(EntryValue::URational(URational::new(1, 0)).try_as_float(), None);
+        assert_eq!(EntryValue::Text("x".into()).try_as_float(), None);
     }
 }
