@@ -5,7 +5,7 @@ use nom::multi::many0;
 use nom::number::complete::{
     be_f32, be_f64, be_i16, be_i24, be_i32, be_i64, be_u16, be_u24, be_u32, be_u64, u8,
 };
-use nom::sequence::tuple;
+use nom::Parser;
 
 use crate::EntryValue;
 
@@ -27,7 +27,7 @@ pub struct IlstBox {
 impl IlstBox {
     pub fn parse_box(input: &[u8]) -> nom::IResult<&[u8], IlstBox> {
         let (remain, header) = BoxHeader::parse(input)?;
-        let (remain, items) = many0(IlstItem::parse)(remain)?;
+        let (remain, items) = many0(IlstItem::parse).parse(remain)?;
 
         Ok((remain, IlstBox { header, items }))
     }
@@ -51,20 +51,20 @@ pub struct IlstItem {
 impl IlstItem {
     fn parse<'a>(input: &'a [u8]) -> nom::IResult<&'a [u8], IlstItem> {
         let (remain, (size, index, data_len, _, type_set, type_code, local)) =
-            tuple((be_u32, be_u32, be_u32, tag("data"), u8, be_u24, be_u32))(input)?;
+            (be_u32, be_u32, be_u32, tag("data"), u8, be_u24, be_u32).parse(input)?;
 
         if size < 24 || data_len < 16 {
-            context("invalid ilst item", fail::<_, (), _>)(remain)?;
+            context("invalid ilst item", fail::<_, (), _>()).parse(remain)?;
         }
 
         // assert_eq!(size - 24, data_len - 16);
         if size - 24 != data_len - 16 {
-            context("invalid ilst item", fail::<_, (), _>)(remain)?;
+            context("invalid ilst item", fail::<_, (), _>()).parse(remain)?;
         }
 
         let (remain, value) = map_res(take(data_len - 16), |bs: &'a [u8]| {
             parse_value(type_code, bs)
-        })(remain)?;
+        }).parse(remain)?;
 
         Ok((
             remain,

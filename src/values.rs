@@ -5,7 +5,7 @@ use std::{
 
 use chrono::{DateTime, FixedOffset, NaiveDateTime, Offset, Utc};
 
-use nom::{multi::many_m_n, number::Endianness, AsChar};
+use nom::{multi::many_m_n, number::Endianness, AsChar, Parser};
 #[cfg(feature = "json_dump")]
 use serde::{Deserialize, Serialize, Serializer};
 use thiserror::Error;
@@ -170,11 +170,11 @@ impl EntryValue {
                 if components_num == 1 {
                     Ok(Self::U16(u16::try_from_bytes(data, endian)?))
                 } else {
-                    let (_, v) = many_m_n::<_, _, nom::error::Error<_>, _>(
+                    let (_, v) = many_m_n::<_, nom::error::Error<_>, _>(
                         components_num as usize,
                         components_num as usize,
                         nom::number::complete::u16(endian),
-                    )(data)
+                    ).parse(data)
                     .map_err(|e| {
                         ParseEntryError::InvalidData(format!("parse U16Array error: {e:?}"))
                     })?;
@@ -185,11 +185,11 @@ impl EntryValue {
                 if components_num == 1 {
                     Ok(Self::U32(u32::try_from_bytes(data, endian)?))
                 } else {
-                    let (_, v) = many_m_n::<_, _, nom::error::Error<_>, _>(
+                    let (_, v) = many_m_n::<_, nom::error::Error<_>, _>(
                         components_num as usize,
                         components_num as usize,
                         nom::number::complete::u32(endian),
-                    )(data)
+                    ).parse(data)
                     .map_err(|e| {
                         ParseEntryError::InvalidData(format!("parse U32Array error: {e:?}"))
                     })?;

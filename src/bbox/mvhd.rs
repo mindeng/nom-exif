@@ -1,5 +1,5 @@
 use chrono::{DateTime, Duration, FixedOffset, Local, NaiveDate, NaiveDateTime, TimeZone, Utc};
-use nom::{bytes::complete::take, number::complete::be_u32, sequence::tuple};
+use nom::{bytes::complete::take, number::complete::be_u32, Parser};
 
 use super::{FullBoxHeader, ParseBody};
 
@@ -64,7 +64,7 @@ impl MvhdBox {
 impl ParseBody<MvhdBox> for MvhdBox {
     fn parse_body(body: &[u8], header: FullBoxHeader) -> nom::IResult<&[u8], MvhdBox> {
         let (remain, (creation_time, modification_time, time_scale, duration, _, next_track_id)) =
-            tuple((be_u32, be_u32, be_u32, be_u32, take(76usize), be_u32))(body)?;
+            (be_u32, be_u32, be_u32, be_u32, take(76usize), be_u32).parse(body)?;
 
         Ok((
             remain,

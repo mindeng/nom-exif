@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use nom::{
-    branch::alt, bytes::streaming::tag, combinator, number::Endianness, sequence, IResult, Needed,
+    branch::alt, bytes::streaming::tag, combinator, number::Endianness, IResult, Needed, Parser,
 };
 
 use crate::{EntryValue, ExifIter, ExifTag, GPSInfo, ParsedExifEntry};
@@ -160,10 +160,10 @@ impl TiffHeader {
     pub fn parse(input: &[u8]) -> IResult<&[u8], TiffHeader> {
         use nom::number::streaming::{u16, u32};
         let (remain, endian) = TiffHeader::parse_endian(input)?;
-        let (_, (_, offset)) = sequence::tuple((
+        let (_, (_, offset)) = (
             combinator::verify(u16(endian), |magic| *magic == 0x2a),
             u32(endian),
-        ))(remain)?;
+        ).parse(remain)?;
 
         let header = Self {
             endian,
@@ -209,7 +209,7 @@ impl TiffHeader {
             } else {
                 Endianness::Little
             }
-        })(input)
+        }).parse(input)
     }
 }
 
@@ -218,10 +218,10 @@ pub(crate) fn check_exif_header(data: &[u8]) -> Result<bool, nom::Err<nom::error
 }
 
 pub(crate) fn check_exif_header2(i: &[u8]) -> IResult<&[u8], ()> {
-    let (remain, _) = nom::sequence::tuple((
+    let (remain, _) = (
         nom::number::complete::be_u32,
         nom::bytes::complete::tag(EXIF_IDENT),
-    ))(i)?;
+    ).parse(i)?;
     Ok((remain, ()))
 }
 

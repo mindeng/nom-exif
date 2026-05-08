@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt::Debug, ops::Range};
 
-use nom::{combinator::fail, multi::many0, IResult, Needed};
+use nom::{combinator::fail, multi::many0, IResult, Needed, Parser};
 
 use crate::bbox::FullBoxHeader;
 
@@ -37,11 +37,11 @@ impl ParseBody<MetaBox> for MetaBox {
         let (remain, boxes) = many0(|remain: &'a [u8]| {
             if remain.is_empty() {
                 // stop many0 parsing to prevent Incomplete error
-                fail::<_, (), _>(remain)?;
+                fail::<_, (), _>().parse(remain)?;
             }
             let (remain, bbox) = BoxHolder::parse(remain)?;
             Ok((remain, bbox))
-        })(remain)?;
+        }).parse(remain)?;
 
         let boxes = boxes
             .into_iter()
@@ -106,11 +106,11 @@ impl MetaBox {
                     }
                     ConstructionMethod::IdatOffset => {
                         tracing::debug!("idat offset construction method is not supported yet");
-                        fail(input)
+                        fail().parse(input)
                     }
                     ConstructionMethod::ItemOffset => {
                         tracing::debug!("item offset construction method is not supported yet");
-                        fail(input)
+                        fail().parse(input)
                     }
                 }
             })

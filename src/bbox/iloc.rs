@@ -5,7 +5,7 @@ use nom::{
     error::context,
     multi::many_m_n,
     number::streaming::{be_u16, be_u32, be_u64, be_u8},
-    IResult,
+    IResult, Parser,
 };
 
 use crate::bbox::FullBoxHeader;
@@ -30,20 +30,20 @@ impl ParseBody<IlocBox> for IlocBox {
         let version = header.version;
 
         let (remain, (offset_size, length_size)) =
-            map_res(be_u8, |res| Ok::<(u8, u8), ()>((res >> 4, res & 0xF)))(remain)?;
+            map_res(be_u8, |res| Ok::<(u8, u8), ()>((res >> 4, res & 0xF))).parse(remain)?;
 
         let (remain, (base_offset_size, index_size)) =
-            map_res(be_u8, |res| Ok::<(u8, u8), ()>((res >> 4, res & 0xF)))(remain)?;
+            map_res(be_u8, |res| Ok::<(u8, u8), ()>((res >> 4, res & 0xF))).parse(remain)?;
 
         let (remain, item_count) = if version < 2 {
-            map_res(be_u16, |x| Ok::<u32, ()>(x as u32))(remain)?
+            map_res(be_u16, |x| Ok::<u32, ()>(x as u32)).parse(remain)?
         } else {
             be_u32(remain)?
         };
 
         let (remain, items) = many_m_n(item_count as usize, item_count as usize, |remain| {
             let (remain, item_id) = if version < 2 {
-                map_res(be_u16, |x| Ok::<u32, ()>(x as u32))(remain)?
+                map_res(be_u16, |x| Ok::<u32, ()>(x as u32)).parse(remain)?
             } else {
                 be_u32(remain)?
             };
@@ -51,7 +51,7 @@ impl ParseBody<IlocBox> for IlocBox {
             let (remain, construction_method_raw) = cond(
                 version >= 1,
                 map_res(be_u16, |res| Ok::<u8, ()>((res & 0xF) as u8)),
-            )(remain)?;
+            ).parse(remain)?;
             let construction_method =
                 ConstructionMethod::from(construction_method_raw.unwrap_or(0));
 
@@ -63,7 +63,7 @@ impl ParseBody<IlocBox> for IlocBox {
             let (remain, extent_count) = be_u16(remain)?;
             if extent_count > MAX_ILOC_EXTENTS_PER_ITEM {
                 tracing::debug!(?extent_count, "extent_count");
-                context("extent_count > 32", fail::<_, (), _>)(remain)?;
+                context("extent_count > 32", fail::<_, (), _>()).parse(remain)?;
             }
 
             let (remain, extents) =
@@ -83,7 +83,7 @@ impl ParseBody<IlocBox> for IlocBox {
                             length,
                         },
                     ))
-                })(remain)?;
+                }).parse(remain)?;
 
             Ok((
                 remain,
@@ -95,7 +95,7 @@ impl ParseBody<IlocBox> for IlocBox {
                     data_ref_index,
                 },
             ))
-        })(remain)?;
+        }).parse(remain)?;
 
         Ok((
             remain,
@@ -133,13 +133,13 @@ struct ItemLocationExtent {
 
 fn parse_base_offset<'a>(size: u8, remain: &'a [u8], msg: &'static str) -> IResult<&'a [u8], u64> {
     Ok(if size == 4 {
-        map_res(be_u32, |x| Ok::<u64, ()>(x as u64))(remain)?
+        map_res(be_u32, |x| Ok::<u64, ()>(x as u64)).parse(remain)?
     } else if size == 8 {
         be_u64(remain)?
     } else if size == 0 {
         (remain, 0)
     } else {
-        context(msg, fail)(remain)?
+        context(msg, fail()).parse(remain)?
     })
 }
 

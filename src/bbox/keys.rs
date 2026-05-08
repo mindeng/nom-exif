@@ -2,6 +2,7 @@ use nom::bytes::complete::take;
 use nom::combinator::{flat_map, map_res};
 use nom::multi::many_m_n;
 use nom::number::complete::be_u32;
+use nom::Parser;
 
 use crate::bbox::{FullBoxHeader, ParseBody};
 
@@ -23,7 +24,7 @@ impl ParseBody<KeysBox> for KeysBox {
     fn parse_body(body: &[u8], header: FullBoxHeader) -> nom::IResult<&[u8], KeysBox> {
         let (remain, entry_count) = be_u32(body)?;
         let (remain, entries) =
-            many_m_n(entry_count as usize, entry_count as usize, KeyEntry::parse)(remain)?;
+            many_m_n(entry_count as usize, entry_count as usize, KeyEntry::parse).parse(remain)?;
 
         Ok((
             remain,
@@ -53,7 +54,7 @@ impl KeyEntry {
                 take,
             ),
             |bs: &'a [u8]| String::from_utf8(bs.to_vec()),
-        )(input)?;
+        ).parse(input)?;
 
         Ok((
             remain,

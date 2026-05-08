@@ -1,6 +1,6 @@
 use nom::{
     number::{streaming, Endianness},
-    sequence::tuple,
+    Parser,
     IResult, Needed,
 };
 
@@ -55,12 +55,12 @@ impl<'a> IfdHeaderTravel<'a> {
         entry_data: &'a [u8],
     ) -> IResult<&'a [u8], Option<EntryInfo<'a>>> {
         let endian = self.endian;
-        let (remain, (tag, data_format, components_num, value_or_offset)) = tuple((
+        let (remain, (tag, data_format, components_num, value_or_offset)) = (
             streaming::u16::<_, nom::error::Error<_>>(endian),
             streaming::u16(endian),
             streaming::u32(endian),
             streaming::u32(endian),
-        ))(entry_data)?;
+        ).parse(entry_data)?;
 
         if tag == 0 {
             return Ok((remain, None));

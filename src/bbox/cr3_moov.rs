@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use nom::{combinator::fail, IResult};
+use nom::{combinator::fail, IResult, Parser};
 
 use super::{
     uuid::{CanonUuidBox, CANON_UUID, UUID_SIZE},
@@ -41,7 +41,7 @@ impl Cr3MoovBox {
                 input.len(),
                 MIN_CR3_INPUT_SIZE
             );
-            return fail(input);
+            return fail().parse(input);
         }
 
         let remain = input;
@@ -50,7 +50,7 @@ impl Cr3MoovBox {
         // Verify this is a valid file format by checking for ftyp box
         if bbox.box_type() != "ftyp" {
             tracing::warn!("Expected ftyp box, found: {}", bbox.box_type());
-            return fail(input);
+            return fail().parse(input);
         }
 
         // Validate ftyp box has minimum required size
@@ -60,7 +60,7 @@ impl Cr3MoovBox {
                 bbox.body_data().len(),
                 MIN_FTYP_BODY_SIZE
             );
-            return fail(input);
+            return fail().parse(input);
         }
 
         // Find the moov box containing the metadata

@@ -1,7 +1,7 @@
 use nom::{
     bytes::complete::take,
     number::complete::{be_u16, be_u32, be_u64},
-    sequence::tuple,
+    Parser,
 };
 
 use super::{find_box, travel_while, BoxHolder, FullBoxHeader, ParseBody, ParseBox};
@@ -58,7 +58,7 @@ impl ParseBody<TkhdBox> for TkhdBox {
                 height,
                 _,
             ),
-        ) = tuple((
+        ) = (
             be_u32,
             be_u32,
             be_u32,
@@ -74,7 +74,7 @@ impl ParseBody<TkhdBox> for TkhdBox {
             be_u16,
             be_u16,
             be_u16,
-        ))(body)?;
+        ).parse(body)?;
 
         Ok((
             remain,

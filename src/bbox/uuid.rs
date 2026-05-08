@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use nom::IResult;
+use nom::{IResult, Parser};
 
 use super::BoxHolder;
 use crate::exif::TiffHeader;
@@ -61,12 +61,12 @@ impl CanonUuidBox {
                 uuid_data.len(),
                 UUID_SIZE
             );
-            return nom::combinator::fail(uuid_data);
+            return nom::combinator::fail().parse(uuid_data);
         }
 
         if full_input.is_empty() {
             tracing::error!("Full input is empty for Canon UUID box parsing");
-            return nom::combinator::fail(uuid_data);
+            return nom::combinator::fail().parse(uuid_data);
         }
 
         // Skip the UUID header

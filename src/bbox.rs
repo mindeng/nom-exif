@@ -4,7 +4,7 @@ use nom::{
     bytes::streaming,
     combinator::{fail, map_res},
     error::context,
-    number, AsChar, IResult, Needed,
+    number, AsChar, IResult, Needed, Parser,
 };
 
 pub mod cr3_moov;
@@ -45,12 +45,12 @@ impl BoxHeader {
             //     tracing::error!(?error, ?res, "Failed to construct string");
             //     error
             // })
-        })(remain)?;
+        }).parse(remain)?;
 
         let (remain, box_size) = if size == 1 {
             number::streaming::be_u64(remain)?
         } else if size < 8 {
-            context("invalid box header: box_size is too small", fail)(remain)?
+            context("invalid box header: box_size is too small", fail()).parse(remain)?
         } else {
             (remain, size as u64)
         };
@@ -59,7 +59,7 @@ impl BoxHeader {
         assert!(header_size == 8 || header_size == 16);
 
         if box_size < header_size as u64 {
-            return fail(remain);
+            return fail().parse(remain);
         }
 
         Ok((
@@ -99,7 +99,7 @@ impl FullBoxHeader {
         assert!(header_size == 12 || header_size == 20);
 
         if header.box_size < header_size as u64 {
-            return fail(remain);
+            return fail().parse(remain);
         }
 
         Ok((
@@ -317,9 +317,9 @@ impl<O, T: ParseBody<O>> ParseBox<O> for T {
         let box_size = header.body_size() as usize;
         if box_size > MAX_BODY_LEN {
             tracing::error!(?header.box_type, ?box_size, "Box is too big");
-            return fail(remain);
+            return fail().parse(remain);
         }
-        let (remain, data) = streaming::take(box_size)(remain)?;
+        let (remain, data) = streaming::take(box_size).parse(remain)?;
         assert_eq!(input.len(), header.header_size + data.len() + remain.len());
 
         let (rem, bbox) = Self::parse_body(data, header)?;

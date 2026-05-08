@@ -1,6 +1,6 @@
 use std::{collections::HashSet, fmt::Debug, ops::Range, sync::Arc};
 
-use nom::{number::complete, sequence::tuple};
+use nom::{number::complete, Parser};
 use thiserror::Error;
 
 use crate::{
@@ -651,12 +651,12 @@ impl IfdIter {
 
     fn parse_tag_entry(&self, entry_data: &[u8]) -> Option<(u16, IfdEntry)> {
         let endian = self.header.endian;
-        let (_, (tag, data_format, components_num, value_or_offset)) = tuple((
+        let (_, (tag, data_format, components_num, value_or_offset)) = (
             complete::u16::<_, nom::error::Error<_>>(endian),
             complete::u16(endian),
             complete::u32(endian),
             complete::u32(endian),
-        ))(entry_data)
+        ).parse(entry_data)
         .ok()?;
 
         if tag == 0 {

@@ -6,7 +6,7 @@ use nom::{
     error::context,
     multi::many_m_n,
     number::streaming::{be_u16, be_u32},
-    IResult,
+    IResult, Parser,
 };
 
 use crate::{bbox::FullBoxHeader, utils::parse_cstr};
@@ -26,11 +26,11 @@ impl ParseBody<IinfBox> for IinfBox {
         let (remain, item_count) = if version > 0 {
             be_u32(remain)?
         } else {
-            map_res(be_u16, |x| Ok::<u32, ()>(x as u32))(remain)?
+            map_res(be_u16, |x| Ok::<u32, ()>(x as u32)).parse(remain)?
         };
 
         let (remain, entries) =
-            many_m_n(item_count as usize, item_count as usize, InfeBox::parse_box)(remain)?;
+            many_m_n(item_count as usize, item_count as usize, InfeBox::parse_box).parse(remain)?;
 
         let entries = entries
             .into_iter()
@@ -68,7 +68,7 @@ impl ParseBody<InfeBox> for InfeBox {
         let (remain, id) = if version > 2 {
             be_u32(remain)?
         } else {
-            map_res(be_u16, |x| Ok::<u32, ()>(x as u32))(remain)?
+            map_res(be_u16, |x| Ok::<u32, ()>(x as u32)).parse(remain)?
         };
 
         let (remain, protection_index) = be_u16(remain)?;
@@ -78,13 +78,13 @@ impl ParseBody<InfeBox> for InfeBox {
             map_res(streaming::take(4_usize), |res: &'a [u8]| {
                 String::from_utf8(res.to_vec())
             }),
-        )(remain)?;
+        ).parse(remain)?;
 
         // tracing::debug!(?header.box_type, ?item_type, ?version, "Got");
 
         let (remain, item_name) = parse_cstr(remain).map_err(|e| {
             if e.is_incomplete() {
-                context("no enough bytes for infe item name", fail::<_, (), _>)(remain).unwrap_err()
+                context("no enough bytes for infe item name", fail::<_, (), _>()).parse(remain).unwrap_err()
             } else {
                 e
             }
@@ -93,7 +93,7 @@ impl ParseBody<InfeBox> for InfeBox {
         let (remain, content_type, content_encoding) =
             if version <= 1 || (version >= 2 && item_type.as_ref().unwrap() == "mime") {
                 let (remain, content_type) = parse_cstr(remain)?;
-                let (remain, content_encoding) = cond(!remain.is_empty(), parse_cstr)(remain)?;
+                let (remain, content_encoding) = cond(!remain.is_empty(), parse_cstr).parse(remain)?;
                 (remain, Some(content_type), content_encoding)
             } else {
                 (remain, None, None)

@@ -1,5 +1,5 @@
 use nom::combinator::fail;
-use nom::IResult;
+use nom::{IResult, Parser};
 
 use crate::bbox::find_box;
 use crate::{
@@ -59,7 +59,7 @@ pub(crate) fn parse_meta_box(input: &[u8]) -> IResult<&[u8], Option<MetaBox>> {
     let remain = input;
     let (remain, bbox) = BoxHolder::parse(remain)?;
     if bbox.box_type() != "ftyp" {
-        return fail(input);
+        return fail().parse(input);
     }
 
     let (remain, Some(bbox)) = find_box(remain, "meta")? else {

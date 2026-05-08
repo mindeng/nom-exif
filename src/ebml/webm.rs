@@ -6,7 +6,7 @@ use std::{
 
 use bytes::Buf;
 use chrono::{DateTime, NaiveDate, Utc};
-use nom::{error::ErrorKind, multi::many_till};
+use nom::{error::ErrorKind, multi::many_till, Parser};
 use thiserror::Error;
 
 use crate::{
@@ -176,7 +176,7 @@ fn parse_tracks_info(input: &[u8], pos: usize) -> Result<Option<TracksInfo>, Par
     let start = pos + cursor.position() as usize;
     let data = &input[start..start + header.data_size];
 
-    if let Ok((_, (_, track))) = many_till::<&[u8], (), Option<_>, (&[u8], ErrorKind), _, _>(
+    if let Ok((_, (_, track))) = many_till(
         |data| {
             let mut cursor = Cursor::new(data);
             let header = next_element_header(&mut cursor)?;
@@ -204,7 +204,7 @@ fn parse_tracks_info(input: &[u8], pos: usize) -> Result<Option<TracksInfo>, Par
 
             Ok((Z, track))
         },
-    )(data)
+    ).parse(data)
     {
         Ok(track)
     } else {

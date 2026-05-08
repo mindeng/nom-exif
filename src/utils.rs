@@ -1,4 +1,4 @@
-use nom::{combinator::map_res, IResult};
+use nom::{combinator::map_res, IResult, Parser};
 
 pub(crate) fn parse_cstr(input: &[u8]) -> IResult<&[u8], String> {
     let (remain, s) = map_res(
@@ -10,7 +10,7 @@ pub(crate) fn parse_cstr(input: &[u8]) -> IResult<&[u8], String> {
                 String::from_utf8(bs.to_vec())
             }
         },
-    )(input)?;
+    ).parse(input)?;
 
     // consumes the zero byte
     Ok((&remain[1..], s)) // Safe-slice
