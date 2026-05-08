@@ -325,7 +325,7 @@
 //! ...
 //! ```
 
-pub use parser::{MediaParser, MediaSource};
+pub use parser::{MediaKind, MediaParser, MediaSource};
 pub use video::{TrackInfo, TrackInfoTag};
 
 #[cfg(feature = "tokio")]

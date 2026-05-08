@@ -48,6 +48,18 @@ pub struct MediaSource<R, S = Seekable> {
     phantom: PhantomData<S>,
 }
 
+/// Top-level classification of a media source.
+///
+/// `Image` files carry EXIF metadata (parse with `MediaParser::parse_exif`);
+/// `Track` files are time-based containers — video, audio, or both — and
+/// carry track-info metadata (parse with `MediaParser::parse_track`). Pure
+/// audio containers like `.mka` are classified as `Track`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MediaKind {
+    Image,
+    Track,
+}
+
 impl<R, S: Skip<R>> Debug for MediaSource<R, S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MediaSource")
@@ -91,6 +103,13 @@ impl<R: Read, S: Skip<R>> MediaSource<R, S> {
         match self.mime {
             MediaMime::Image(_) => true,
             MediaMime::Track(_) => false,
+        }
+    }
+
+    pub fn kind(&self) -> MediaKind {
+        match self.mime {
+            MediaMime::Image(_) => MediaKind::Image,
+            MediaMime::Track(_) => MediaKind::Track,
         }
     }
 }
@@ -766,5 +785,14 @@ mod tests {
         assert!(ms.has_exif());
         let res: Result<TrackInfo, _> = parser.parse(ms);
         assert!(matches!(res, Err(crate::Error::TrackNotFound)));
+    }
+
+    #[test]
+    fn media_kind_classifies_image_and_track() {
+        let img = MediaSource::file_path("testdata/exif.jpg").unwrap();
+        assert_eq!(img.kind(), MediaKind::Image);
+
+        let trk = MediaSource::file_path("testdata/meta.mov").unwrap();
+        assert_eq!(trk.kind(), MediaKind::Track);
     }
 }
