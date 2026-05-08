@@ -58,7 +58,9 @@ pub(crate) fn input_into_iter(
 
     let start = header.ifd0_offset as usize;
     if start > input.len() {
-        return Err(crate::Error::ParseFailed("no enough bytes".into()));
+        return Err(crate::Error::UnexpectedEof {
+            context: "exif iter init",
+        });
     }
     tracing::debug!(?header, offset = start);
 

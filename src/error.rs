@@ -156,9 +156,16 @@ impl From<std::io::Error> for ParsedError {
 impl From<ParsedError> for crate::Error {
     fn from(value: ParsedError) -> Self {
         match value {
-            ParsedError::NoEnoughBytes => Self::ParseFailed(value.into()),
-            ParsedError::IOError(e) => Self::IOError(e),
-            ParsedError::Failed(e) => Self::ParseFailed(e.into()),
+            ParsedError::NoEnoughBytes => Self::UnexpectedEof {
+                context: "media stream",
+            },
+            ParsedError::IOError(e) => Self::Io(e),
+            // Best-effort default: P3 will plumb the actual MalformedKind
+            // through ParsedError so this fallback can go away.
+            ParsedError::Failed(e) => Self::Malformed {
+                kind: MalformedKind::IsoBmffBox,
+                message: e,
+            },
         }
     }
 }

@@ -25,7 +25,9 @@ pub enum ParseEBMLFailed {
 impl From<ParseEBMLFailed> for crate::Error {
     fn from(e: ParseEBMLFailed) -> Self {
         match e {
-            ParseEBMLFailed::Need(_) => Self::ParseFailed("no enough bytes".into()),
+            ParseEBMLFailed::Need(_) => Self::UnexpectedEof {
+                context: "ebml element",
+            },
             ParseEBMLFailed::NotEBMLFile => Self::ParseFailed(e.into()),
             ParseEBMLFailed::InvalidEBMLFile(e) => Self::ParseFailed(e),
         }
