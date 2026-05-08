@@ -237,7 +237,6 @@ fn parse_meta(input: &[u8]) -> Option<Vec<(String, EntryValue)>> {
 }
 
 #[cfg(test)]
-#[cfg(test)]
 mod tests {
     use super::*;
     use crate::testkit::*;

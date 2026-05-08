@@ -517,28 +517,13 @@ impl MediaParser {
         Self::default()
     }
 
-    /// `MediaParser` comes with its own buffer management, so that buffers
-    /// can be reused during multiple parsing processes to avoid frequent
-    /// memory allocations. Therefore, try to reuse a `MediaParser` instead
-    /// of creating a new one every time you need it.
-    ///     
-    /// **Note**:
-    ///
-    /// - For [`ExifIter`] as parse output, Please avoid holding the `ExifIter`
-    ///   object all the time and drop it immediately after use. Otherwise, the
-    ///   parsing buffer referenced by the `ExifIter` object will not be reused
-    ///   by [`MediaParser`], resulting in repeated memory allocation in the
-    ///   subsequent parsing process.
-    ///
-    ///   If you really need to retain some data, please take out the required
-    ///   Entry values ​​and save them, or convert the `ExifIter` into an
-    ///   [`crate::Exif`] object to retain all Entry values.
-    ///
-    /// - For [`TrackInfo`] as parse output, you don't need to worry about
-    ///   this, because `TrackInfo` dosn't reference the parsing buffer.
-
     /// Parse Exif metadata from an image source. Returns `Error::ExifNotFound`
     /// if the source is a `Track` (use [`Self::parse_track`] instead).
+    ///
+    /// `MediaParser` reuses its internal parse buffer across calls, so prefer
+    /// reusing a single `MediaParser` over creating a new one per file. Drop
+    /// the returned [`ExifIter`] (or convert it into [`crate::Exif`]) before
+    /// the next `parse_*` call so the buffer can be reclaimed.
     pub fn parse_exif<R: Read>(&mut self, mut ms: MediaSource<R>) -> crate::Result<ExifIter> {
         self.reset();
         self.acquire_buf();
