@@ -156,7 +156,7 @@ fn handle_parsing_error(e: &nom_exif::Error) {
         nom_exif::Error::UnrecognizedFileFormat => {
             eprintln!("Unrecognized file format, consider filing a bug @ https://github.com/mindeng/nom-exif.");
         }
-        nom_exif::Error::ParseFailed(_) | nom_exif::Error::IOError(_) => {
+        _ => {
             eprintln!("Error: {e}");
         }
     }
