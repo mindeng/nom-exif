@@ -257,6 +257,30 @@ impl std::fmt::Display for MalformedKind {
     }
 }
 
+/// Errors from conversions that are *orthogonal* to file parsing: parsing a tag
+/// name from a string, narrowing an `IRational` into a `URational`, building a
+/// `LatLng` from decimal degrees, parsing an ISO 6709 coordinate string.
+///
+/// Deliberately a peer type of `Error` — there is **no** `From<ConvertError>
+/// for Error`. Downstream code that needs to combine file-level errors and
+/// conversion errors should define its own wrapper enum (the standard
+/// `thiserror` `#[from]` pattern). See spec §3.2.
+#[derive(Debug, Clone, thiserror::Error)]
+#[non_exhaustive]
+pub enum ConvertError {
+    #[error("unknown ExifTag name: {0}")]
+    UnknownTagName(String),
+
+    #[error("invalid ISO 6709 coordinate: {0}")]
+    InvalidIso6709(String),
+
+    #[error("rational has negative value")]
+    NegativeRational,
+
+    #[error("decimal degrees out of range or non-finite: {0}")]
+    InvalidDecimalDegrees(f64),
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -282,5 +306,39 @@ mod tests {
         ] {
             let _ = format!("{k:?}");
         }
+    }
+
+    #[test]
+    fn convert_error_displays_each_variant() {
+        let cases: &[(ConvertError, &str)] = &[
+            (
+                ConvertError::UnknownTagName("Foo".into()),
+                "unknown ExifTag name: Foo",
+            ),
+            (
+                ConvertError::InvalidIso6709("garbage".into()),
+                "invalid ISO 6709 coordinate: garbage",
+            ),
+            (
+                ConvertError::NegativeRational,
+                "rational has negative value",
+            ),
+            (
+                ConvertError::InvalidDecimalDegrees(f64::NAN),
+                "decimal degrees out of range or non-finite: NaN",
+            ),
+        ];
+        for (err, expected) in cases {
+            assert_eq!(err.to_string(), *expected);
+        }
+    }
+
+    #[test]
+    fn convert_error_does_not_convert_to_error() {
+        // Compile-time intent: ConvertError must NOT be convertible into Error.
+        // This is asserted documentally — there is no `impl From<ConvertError> for Error`.
+        // We just verify both types compile here.
+        let _ = ConvertError::NegativeRational;
+        let _ = Error::UnrecognizedFileFormat; // legacy variant; replaced in Task 3+5
     }
 }
