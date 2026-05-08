@@ -3,7 +3,6 @@ use std::{
     fmt::{Debug, Display},
     fs::File,
     io::{self, Read, Seek},
-    net::TcpStream,
     ops::Range,
     path::Path,
 };
@@ -11,10 +10,9 @@ use std::{
 use crate::{
     buffer::Buffers,
     error::{ParsedError, ParsingError, ParsingErrorState},
-    exif::{parse_exif_iter, TiffHeader},
+    exif::TiffHeader,
     file::MediaMime,
     partial_vec::PartialVec,
-    video::parse_track_info,
     ExifIter, TrackInfo,
 };
 
@@ -31,10 +29,8 @@ pub(crate) type SkipBySeekFn<R> = fn(&mut R, u64) -> io::Result<bool>;
 /// `MediaSource` represents a media data source that can be parsed by
 /// [`MediaParser`].
 ///
-/// - Use [`MediaSource::file_path`] or [`MediaSource::file`] to create
+/// - Use [`MediaSource::open`] or [`MediaSource::from_file`] to create
 ///   a MediaSource from a file
-///
-/// - Use [`MediaSource::tcp_stream`] to create a MediaSource from a `TcpStream`
 ///
 /// - In other cases:
 ///
@@ -102,15 +98,6 @@ impl<R: Read> MediaSource<R> {
         }
     }
 
-    // Legacy alongside; deleted in Task 13.
-    pub fn has_track(&self) -> bool {
-        matches!(self.mime, MediaMime::Track(_))
-    }
-
-    pub fn has_exif(&self) -> bool {
-        matches!(self.mime, MediaMime::Image(_))
-    }
-
     /// Use [`MediaSource::unseekable`] to create a MediaSource from a
     /// reader that only impl `Read`
     ///
@@ -151,21 +138,6 @@ impl MediaSource<File> {
     pub fn from_file(file: File) -> crate::Result<Self> {
         Self::seekable(file)
     }
-
-    // v2-shape constructors (deleted at end of P3; tests still use them).
-    pub fn file_path<P: AsRef<Path>>(path: P) -> crate::Result<Self> {
-        Self::open(path)
-    }
-
-    pub fn file(file: File) -> crate::Result<Self> {
-        Self::from_file(file)
-    }
-}
-
-impl MediaSource<TcpStream> {
-    pub fn tcp_stream(stream: TcpStream) -> crate::Result<Self> {
-        Self::unseekable(stream)
-    }
 }
 
 // Keep align with 4K
@@ -185,7 +157,7 @@ pub(crate) trait Buf {
     fn position(&self) -> usize;
 }
 
-/// Buffer-management state shared between `MediaParser` and `AsyncMediaParser`.
+/// Buffer-management state used by `MediaParser` (sync and async paths share it).
 #[derive(Debug, Default)]
 pub(crate) struct BufferedParserState {
     bb: Buffers,
@@ -462,45 +434,16 @@ impl Buf for MediaParser {
     }
 }
 
-pub trait ParseOutput<R>: Sized {
-    fn parse(parser: &mut MediaParser, ms: MediaSource<R>) -> crate::Result<Self>;
-}
-
-impl<R: Read> ParseOutput<R> for ExifIter {
-    fn parse(parser: &mut MediaParser, mut ms: MediaSource<R>) -> crate::Result<Self> {
-        if !ms.has_exif() {
-            return Err(crate::Error::ExifNotFound);
-        }
-        parse_exif_iter(parser, ms.mime.unwrap_image(), &mut ms.reader, ms.skip_by_seek)
-    }
-}
-
-impl<R: Read> ParseOutput<R> for TrackInfo {
-    fn parse(parser: &mut MediaParser, mut ms: MediaSource<R>) -> crate::Result<Self> {
-        if !ms.has_track() {
-            return Err(crate::Error::TrackNotFound);
-        }
-        let mime_track = ms.mime.unwrap_track();
-        let skip_by_seek = ms.skip_by_seek;
-        let out = parser.load_and_parse(ms.reader.by_ref(), skip_by_seek, |data, _| {
-            parse_track_info(data, mime_track).map_err(|e| ParsingErrorState::new(e, None))
-        })?;
-        Ok(out)
-    }
-}
-
-/// A `MediaParser`/`AsyncMediaParser` can parse media info from a
-/// [`MediaSource`].
+/// A `MediaParser` can parse media info from a [`MediaSource`].
 ///
-/// `MediaParser`/`AsyncMediaParser` manages inner parse buffers that can be
-/// shared between multiple parsing tasks, thus avoiding frequent memory
-/// allocations.
+/// `MediaParser` manages inner parse buffers that can be shared between
+/// multiple parsing tasks, thus avoiding frequent memory allocations.
 ///
 /// Therefore:
 ///
-/// - Try to reuse a `MediaParser`/`AsyncMediaParser` instead of creating a new
-///   one every time you need it.
-///   
+/// - Try to reuse a `MediaParser` instead of creating a new one every time
+///   you need it.
+///
 /// - `MediaSource` should be created directly from `Read`, not from `BufRead`.
 ///
 /// ## Example
@@ -574,10 +517,10 @@ impl MediaParser {
         Self::default()
     }
 
-    /// `MediaParser`/`AsyncMediaParser` comes with its own buffer management,
-    /// so that buffers can be reused during multiple parsing processes to
-    /// avoid frequent memory allocations. Therefore, try to reuse a
-    /// `MediaParser` instead of creating a new one every time you need it.
+    /// `MediaParser` comes with its own buffer management, so that buffers
+    /// can be reused during multiple parsing processes to avoid frequent
+    /// memory allocations. Therefore, try to reuse a `MediaParser` instead
+    /// of creating a new one every time you need it.
     ///     
     /// **Note**:
     ///
@@ -593,39 +536,45 @@ impl MediaParser {
     ///
     /// - For [`TrackInfo`] as parse output, you don't need to worry about
     ///   this, because `TrackInfo` dosn't reference the parsing buffer.
-    pub fn parse<R: Read, O: ParseOutput<R>>(
-        &mut self,
-        mut ms: MediaSource<R>,
-    ) -> crate::Result<O> {
+
+    /// Parse Exif metadata from an image source. Returns `Error::ExifNotFound`
+    /// if the source is a `Track` (use [`Self::parse_track`] instead).
+    pub fn parse_exif<R: Read>(&mut self, mut ms: MediaSource<R>) -> crate::Result<ExifIter> {
         self.reset();
         self.acquire_buf();
-
         self.buf_mut().append(&mut ms.buf);
-        let res = self.do_parse(ms);
-
+        let res: crate::Result<ExifIter> = (|| {
+            self.fill_buf(&mut ms.reader, INIT_BUF_SIZE)?;
+            if !matches!(ms.mime, crate::file::MediaMime::Image(_)) {
+                return Err(crate::Error::ExifNotFound);
+            }
+            crate::exif::parse_exif_iter(self, ms.mime.unwrap_image(), &mut ms.reader, ms.skip_by_seek)
+        })();
         self.reset();
         res
     }
 
-    /// Parse Exif metadata from an image source. Returns `Error::ExifNotFound`
-    /// if the source is a `Track` (use [`Self::parse_track`] instead).
-    pub fn parse_exif<R: Read>(&mut self, ms: MediaSource<R>) -> crate::Result<ExifIter> {
-        self.parse(ms)
-    }
-
     /// Parse track info from a video/audio source. Returns `Error::TrackNotFound`
     /// if the source is an `Image` (use [`Self::parse_exif`] instead).
-    pub fn parse_track<R: Read>(&mut self, ms: MediaSource<R>) -> crate::Result<TrackInfo> {
-        self.parse(ms)
-    }
-
-    fn do_parse<R: Read, O: ParseOutput<R>>(
-        &mut self,
-        mut ms: MediaSource<R>,
-    ) -> Result<O, crate::Error> {
-        self.fill_buf(&mut ms.reader, INIT_BUF_SIZE)?;
-        let res = ParseOutput::parse(self, ms)?;
-        Ok(res)
+    pub fn parse_track<R: Read>(&mut self, mut ms: MediaSource<R>) -> crate::Result<TrackInfo> {
+        self.reset();
+        self.acquire_buf();
+        self.buf_mut().append(&mut ms.buf);
+        let res: crate::Result<TrackInfo> = (|| {
+            self.fill_buf(&mut ms.reader, INIT_BUF_SIZE)?;
+            let mime_track = match ms.mime {
+                crate::file::MediaMime::Image(_) => return Err(crate::Error::TrackNotFound),
+                crate::file::MediaMime::Track(t) => t,
+            };
+            let skip = ms.skip_by_seek;
+            let out = self.load_and_parse(ms.reader.by_ref(), skip, |data, _| {
+                crate::video::parse_track_info(data, mime_track)
+                    .map_err(|e| ParsingErrorState::new(e, None))
+            })?;
+            Ok(out)
+        })();
+        self.reset();
+        res
     }
 
     fn reset(&mut self) {
@@ -772,19 +721,17 @@ mod tests {
     #[case("webm_480.webm", Track)]
     fn parse_media(path: &str, te: TrackExif) {
         let mut parser = parser();
-        let ms = MediaSource::file_path(Path::new("testdata").join(path));
+        let ms = MediaSource::open(Path::new("testdata").join(path));
         match te {
             Track => {
                 let ms = ms.unwrap();
-                // println!("path: {path} mime: {:?}", ms.mime);
-                assert!(ms.has_track());
-                let _: TrackInfo = parser.parse(ms).unwrap();
+                assert_eq!(ms.kind(), MediaKind::Track);
+                let _: TrackInfo = parser.parse_track(ms).unwrap();
             }
             Exif => {
                 let ms = ms.unwrap();
-                // println!("path: {path} mime: {:?}", ms.mime);
-                assert!(ms.has_exif());
-                let mut it: ExifIter = parser.parse(ms).unwrap();
+                assert_eq!(ms.kind(), MediaKind::Image);
+                let mut it: ExifIter = parser.parse_exif(ms).unwrap();
                 let _ = it.parse_gps_info();
 
                 if path.contains("one-entry") {
@@ -799,13 +746,15 @@ mod tests {
             }
             NoData => {
                 let ms = ms.unwrap();
-                // println!("path: {path} mime: {:?}", ms.mime);
-                if ms.has_exif() {
-                    let res: Result<ExifIter, _> = parser.parse(ms);
-                    res.unwrap_err();
-                } else if ms.has_track() {
-                    let res: Result<TrackInfo, _> = parser.parse(ms);
-                    res.unwrap_err();
+                match ms.kind() {
+                    MediaKind::Image => {
+                        let res = parser.parse_exif(ms);
+                        res.unwrap_err();
+                    }
+                    MediaKind::Track => {
+                        let res = parser.parse_track(ms);
+                        res.unwrap_err();
+                    }
                 }
             }
             Invalid => {
@@ -830,14 +779,14 @@ mod tests {
         let mut parser = parser();
 
         let mf = MediaSource::seekable(open_sample(path).unwrap()).unwrap();
-        assert!(mf.has_exif());
-        let iter: ExifIter = parser.parse(mf).unwrap();
+        assert_eq!(mf.kind(), MediaKind::Image);
+        let iter: ExifIter = parser.parse_exif(mf).unwrap();
         let exif: Exif = iter.into();
         assert_eq!(exif.get(tag).unwrap(), &v);
 
         let mf = MediaSource::unseekable(open_sample(path).unwrap()).unwrap();
-        assert!(mf.has_exif());
-        let iter: ExifIter = parser.parse(mf).unwrap();
+        assert_eq!(mf.kind(), MediaKind::Image);
+        let iter: ExifIter = parser.parse_exif(mf).unwrap();
         let exif: Exif = iter.into();
         assert_eq!(exif.get(tag).unwrap(), &v);
     }
@@ -867,11 +816,11 @@ mod tests {
         let mut parser = parser();
 
         let mf = MediaSource::seekable(open_sample(path).unwrap()).unwrap();
-        let info: TrackInfo = parser.parse(mf).unwrap();
+        let info: TrackInfo = parser.parse_track(mf).unwrap();
         assert_eq!(info.get(tag).unwrap(), &v);
 
         let mf = MediaSource::unseekable(open_sample(path).unwrap()).unwrap();
-        let info: TrackInfo = parser.parse(mf).unwrap();
+        let info: TrackInfo = parser.parse_track(mf).unwrap();
         assert_eq!(info.get(tag).unwrap(), &v);
     }
 
@@ -881,37 +830,19 @@ mod tests {
     fn parse_track_crash(path: &str) {
         let mut parser = parser();
 
-        let mf = MediaSource::file(open_sample(path).unwrap()).unwrap();
-        let _: TrackInfo = parser.parse(mf).unwrap_or_default();
+        let mf = MediaSource::from_file(open_sample(path).unwrap()).unwrap();
+        let _: TrackInfo = parser.parse_track(mf).unwrap_or_default();
 
         let mf = MediaSource::unseekable(open_sample(path).unwrap()).unwrap();
-        let _: TrackInfo = parser.parse(mf).unwrap_or_default();
-    }
-
-    #[test]
-    fn parse_exif_on_track_returns_exif_not_found() {
-        let mut parser = parser();
-        let ms = MediaSource::file_path("testdata/meta.mov").unwrap();
-        assert!(ms.has_track());
-        let res: Result<ExifIter, _> = parser.parse(ms);
-        assert!(matches!(res, Err(crate::Error::ExifNotFound)));
-    }
-
-    #[test]
-    fn parse_track_on_image_returns_track_not_found() {
-        let mut parser = parser();
-        let ms = MediaSource::file_path("testdata/exif.jpg").unwrap();
-        assert!(ms.has_exif());
-        let res: Result<TrackInfo, _> = parser.parse(ms);
-        assert!(matches!(res, Err(crate::Error::TrackNotFound)));
+        let _: TrackInfo = parser.parse_track(mf).unwrap_or_default();
     }
 
     #[test]
     fn media_kind_classifies_image_and_track() {
-        let img = MediaSource::file_path("testdata/exif.jpg").unwrap();
+        let img = MediaSource::open("testdata/exif.jpg").unwrap();
         assert_eq!(img.kind(), MediaKind::Image);
 
-        let trk = MediaSource::file_path("testdata/meta.mov").unwrap();
+        let trk = MediaSource::open("testdata/meta.mov").unwrap();
         assert_eq!(trk.kind(), MediaKind::Track);
     }
 

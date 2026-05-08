@@ -48,12 +48,6 @@ impl MediaMime {
             MediaMime::Track(_) => panic!("called `MediaMime::unwrap_image()` on a `MediaMime::Track`"),
         }
     }
-    pub fn unwrap_track(self) -> MediaMimeTrack {
-        match self {
-            MediaMime::Image(_) => panic!("called `MediaMime::unwrap_track()` on a `MediaMime::Image`"),
-            MediaMime::Track(val) => val,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]

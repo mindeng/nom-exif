@@ -125,10 +125,10 @@ mod tests {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 
         let mut parser = MediaParser::new();
-        let ms = MediaSource::file_path(format!("testdata/{}", path)).unwrap();
-        assert!(ms.has_exif());
+        let ms = MediaSource::open(format!("testdata/{}", path)).unwrap();
+        assert_eq!(ms.kind(), crate::MediaKind::Image);
 
-        let iter: crate::ExifIter = parser.parse(ms).unwrap();
+        let iter: crate::ExifIter = parser.parse_exif(ms).unwrap();
         let exif: crate::Exif = iter.into();
 
         let mut expect = String::new();
