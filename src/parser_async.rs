@@ -66,6 +66,13 @@ impl<R: AsyncRead + Unpin, S: AsyncSkip<R>> AsyncMediaSource<R, S> {
             MediaMime::Track(_) => false,
         }
     }
+
+    pub fn kind(&self) -> crate::MediaKind {
+        match self.mime {
+            crate::file::MediaMime::Image(_) => crate::MediaKind::Image,
+            crate::file::MediaMime::Track(_) => crate::MediaKind::Track,
+        }
+    }
 }
 
 impl<R: AsyncRead + AsyncSeek + Unpin + Send> AsyncMediaSource<R, Seekable> {
@@ -538,5 +545,14 @@ mod tests {
         let ms = AsyncMediaSource::unseekable(f).await.unwrap();
         let info: TrackInfo = parser.parse(ms).await.unwrap();
         assert_eq!(info.get(tag).unwrap(), &v);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn async_media_kind_classifies_image_and_track() {
+        let img = AsyncMediaSource::file_path("testdata/exif.jpg").await.unwrap();
+        assert_eq!(img.kind(), crate::MediaKind::Image);
+
+        let trk = AsyncMediaSource::file_path("testdata/meta.mov").await.unwrap();
+        assert_eq!(trk.kind(), crate::MediaKind::Track);
     }
 }
