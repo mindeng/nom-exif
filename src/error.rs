@@ -188,19 +188,6 @@ impl From<nom::Err<nom::error::Error<&[u8]>>> for ParsingError {
     }
 }
 
-// impl From<nom::Err<nom::error::Error<&[u8]>>> for ParsingErrorState {
-//     fn from(e: nom::Err<nom::error::Error<&[u8]>>) -> Self {
-//         match e {
-//             nom::Err::Incomplete(needed) => match needed {
-//                 nom::Needed::Unknown => ParsingErrorState::new(ParsingError::Need(1), None),
-//                 nom::Needed::Size(n) => ParsingErrorState::new(ParsingError::Need(n.get()), None),
-//             },
-//             nom::Err::Failure(e) | nom::Err::Error(e) => {
-//                 ParsingErrorState::new(ParsingError::Failed(e.code.description().to_string()), None)
-//             }
-//         }
-//     }
-// }
 
 pub(crate) fn nom_error_to_parsing_error_with_state(
     e: nom::Err<nom::error::Error<&[u8]>>,

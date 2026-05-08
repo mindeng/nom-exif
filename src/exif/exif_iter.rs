@@ -358,13 +358,6 @@ impl ParsedExifEntry {
         }
     }
 
-    // fn make_err(ifd: usize, tag: ExifTagCode, e: EntryError) -> Self {
-    //     Self {
-    //         ifd,
-    //         tag,
-    //         res: Some(Err(e)),
-    //     }
-    // }
 }
 
 impl Debug for ParsedExifEntry {
