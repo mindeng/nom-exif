@@ -336,8 +336,6 @@ pub use values::{EntryValue, IRational, URational};
 
 pub use error::{ConvertError, EntryError, Error, MalformedKind};
 pub type Result<T> = std::result::Result<T, Error>;
-#[cfg(feature = "tokio")]
-pub(crate) use skip::{Seekable, Unseekable};
 
 mod bbox;
 mod buffer;
@@ -354,7 +352,6 @@ mod parser;
 mod parser_async;
 mod partial_vec;
 mod raf;
-mod skip;
 mod slice;
 mod utils;
 mod values;

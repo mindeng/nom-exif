@@ -150,19 +150,18 @@ fn range_to_iter(
 }
 
 #[cfg(feature = "tokio")]
-#[tracing::instrument(skip(reader))]
-pub(crate) async fn parse_exif_iter_async<
-    R: AsyncRead + Unpin + Send,
-    S: crate::skip::AsyncSkip<R>,
->(
-    parser: &mut crate::AsyncMediaParser,
+#[tracing::instrument(skip(parser, reader, skip_by_seek))]
+pub(crate) async fn parse_exif_iter_async<P, R: AsyncRead + Unpin + Send>(
+    parser: &mut P,
     mime_img: MediaMimeImage,
     reader: &mut R,
-) -> Result<ExifIter, crate::Error> {
-    use crate::parser_async::AsyncBufParser;
-
+    skip_by_seek: crate::parser_async::AsyncSkipBySeekFn<R>,
+) -> Result<ExifIter, crate::Error>
+where
+    P: crate::parser_async::AsyncBufParser + crate::parser::ShareBuf,
+{
     let out = parser
-        .load_and_parse::<R, S, _, _>(reader, |buf, state| {
+        .load_and_parse(reader, skip_by_seek, |buf, state| {
             extract_exif_range(mime_img, buf, state)
         })
         .await?;

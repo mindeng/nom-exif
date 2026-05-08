@@ -2,7 +2,6 @@ use std::{
     cmp::{max, min},
     fmt::Debug,
     io::{self},
-    marker::PhantomData,
     ops::Range,
     path::Path,
 };
@@ -15,56 +14,56 @@ use tokio::{
 use crate::{
     error::{ParsedError, ParsingErrorState},
     exif::parse_exif_iter_async,
-    file::MediaMime,
     parser::{
         check_fill_size, clear_and_skip_decide, parse_loop_step, Buf, BufferedParserState,
         LoopAction, ParsingState, ShareBuf, SkipPlan, INIT_BUF_SIZE, MAX_ALLOC_SIZE, MIN_GROW_SIZE,
     },
     partial_vec::PartialVec,
-    skip::AsyncSkip,
     video::parse_track_info,
-    ExifIter, Seekable, TrackInfo, Unseekable,
+    ExifIter, TrackInfo,
 };
 
 // Should be enough for parsing header
 const HEADER_PARSE_BUF_SIZE: usize = 128;
 
-pub struct AsyncMediaSource<R, S = Seekable> {
+/// Async counterpart to `crate::parser::SkipBySeekFn<R>`. Closures that
+/// return a future cannot coerce to a plain `fn` type, so we use a fn pointer
+/// to a `Pin<Box<dyn Future>>`-returning closure. The Box-per-skip overhead
+/// is trivial against actual async I/O.
+pub(crate) type AsyncSkipBySeekFn<R> = for<'a> fn(
+    &'a mut R,
+    u64,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = io::Result<bool>> + Send + 'a>>;
+
+pub struct AsyncMediaSource<R> {
     pub(crate) reader: R,
     pub(crate) buf: Vec<u8>,
-    pub(crate) mime: MediaMime,
-    phantom: PhantomData<S>,
+    pub(crate) mime: crate::file::MediaMime,
+    pub(crate) skip_by_seek: AsyncSkipBySeekFn<R>,
 }
 
-impl<R: AsyncRead + Unpin, S: AsyncSkip<R>> AsyncMediaSource<R, S> {
-    async fn build(mut reader: R) -> crate::Result<Self> {
-        // TODO: reuse MediaParser to parse header
+impl<R> Debug for AsyncMediaSource<R> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AsyncMediaSource")
+            .field("mime", &self.mime)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<R: AsyncRead + Unpin> AsyncMediaSource<R> {
+    async fn build(mut reader: R, skip_by_seek: AsyncSkipBySeekFn<R>) -> crate::Result<Self> {
         let mut buf = Vec::with_capacity(HEADER_PARSE_BUF_SIZE);
         (&mut reader)
             .take(HEADER_PARSE_BUF_SIZE as u64)
             .read_to_end(&mut buf)
             .await?;
-        let mime: MediaMime = buf.as_slice().try_into()?;
+        let mime: crate::file::MediaMime = buf.as_slice().try_into()?;
         Ok(Self {
             reader,
             buf,
             mime,
-            phantom: PhantomData,
+            skip_by_seek,
         })
-    }
-
-    pub fn has_track(&self) -> bool {
-        match self.mime {
-            MediaMime::Image(_) => false,
-            MediaMime::Track(_) => true,
-        }
-    }
-
-    pub fn has_exif(&self) -> bool {
-        match self.mime {
-            MediaMime::Image(_) => true,
-            MediaMime::Track(_) => false,
-        }
     }
 
     pub fn kind(&self) -> crate::MediaKind {
@@ -73,32 +72,59 @@ impl<R: AsyncRead + Unpin, S: AsyncSkip<R>> AsyncMediaSource<R, S> {
             crate::file::MediaMime::Track(_) => crate::MediaKind::Track,
         }
     }
+
+    // Legacy alongside; deleted in Task 13.
+    pub fn has_track(&self) -> bool {
+        matches!(self.mime, crate::file::MediaMime::Track(_))
+    }
+
+    pub fn has_exif(&self) -> bool {
+        matches!(self.mime, crate::file::MediaMime::Image(_))
+    }
 }
 
-impl<R: AsyncRead + AsyncSeek + Unpin + Send> AsyncMediaSource<R, Seekable> {
+fn make_seekable_skip<R: AsyncRead + AsyncSeek + Unpin + Send>() -> AsyncSkipBySeekFn<R> {
+    |r, n| {
+        Box::pin(async move {
+            use std::io::SeekFrom;
+            use tokio::io::AsyncSeekExt;
+            let signed: i64 = n
+                .try_into()
+                .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
+            r.seek(SeekFrom::Current(signed)).await?;
+            Ok(true)
+        })
+    }
+}
+
+fn make_unseekable_skip<R: AsyncRead + Unpin + Send>() -> AsyncSkipBySeekFn<R> {
+    |_, _| Box::pin(async move { Ok(false) })
+}
+
+impl<R: AsyncRead + AsyncSeek + Unpin + Send> AsyncMediaSource<R> {
     pub async fn seekable(reader: R) -> crate::Result<Self> {
-        Self::build(reader).await
+        Self::build(reader, make_seekable_skip::<R>()).await
     }
 }
 
-impl<R: AsyncRead + Unpin + Send> AsyncMediaSource<R, Unseekable> {
+impl<R: AsyncRead + Unpin + Send> AsyncMediaSource<R> {
     pub async fn unseekable(reader: R) -> crate::Result<Self> {
-        Self::build(reader).await
+        Self::build(reader, make_unseekable_skip::<R>()).await
     }
 }
 
-impl AsyncMediaSource<File, Seekable> {
+impl AsyncMediaSource<File> {
     /// Open a file at `path` (via `tokio::fs::File`) and parse its header.
     pub async fn open<P: AsRef<Path>>(path: P) -> crate::Result<Self> {
-        Self::build(File::open(path).await?).await
+        Self::seekable(File::open(path).await?).await
     }
 
     /// Wrap an already-open async `File` and parse its header.
     pub async fn from_file(file: File) -> crate::Result<Self> {
-        Self::build(file).await
+        Self::seekable(file).await
     }
 
-    // v2-shape constructors (deleted at end of P3).
+    // Legacy aliases; deleted in Task 13.
     pub async fn file_path<P: AsRef<Path>>(path: P) -> crate::Result<Self> {
         Self::open(path).await
     }
@@ -115,16 +141,18 @@ pub(crate) trait AsyncBufParser: Buf + Debug {
         size: usize,
     ) -> io::Result<usize>;
 
-    async fn load_and_parse<R: AsyncRead + Unpin, S: AsyncSkip<R>, P, O>(
+    async fn load_and_parse<R: AsyncRead + Unpin, P, O>(
         &mut self,
         reader: &mut R,
+        skip_by_seek: AsyncSkipBySeekFn<R>,
         parse: P,
     ) -> Result<O, ParsedError>
     where
         P: Fn(&[u8], Option<ParsingState>) -> Result<O, ParsingErrorState>,
     {
-        self.load_and_parse_with_offset::<R, S, _, _>(
+        self.load_and_parse_with_offset(
             reader,
+            skip_by_seek,
             |data, _, state| parse(data, state),
             0,
         )
@@ -132,9 +160,10 @@ pub(crate) trait AsyncBufParser: Buf + Debug {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn load_and_parse_with_offset<R: AsyncRead + Unpin, S: AsyncSkip<R>, P, O>(
+    async fn load_and_parse_with_offset<R: AsyncRead + Unpin, P, O>(
         &mut self,
         reader: &mut R,
+        skip_by_seek: AsyncSkipBySeekFn<R>,
         parse: P,
         offset: usize,
     ) -> Result<O, ParsedError>
@@ -158,17 +187,18 @@ pub(crate) trait AsyncBufParser: Buf + Debug {
                     }
                 }
                 LoopAction::Skip(n) => {
-                    self.clear_and_skip::<R, S>(reader, n).await?;
+                    self.clear_and_skip(reader, skip_by_seek, n).await?;
                 }
                 LoopAction::Failed(s) => return Err(ParsedError::Failed(s)),
             }
         }
     }
 
-    #[tracing::instrument(skip(reader))]
-    async fn clear_and_skip<R: AsyncRead + Unpin, S: AsyncSkip<R>>(
+    #[tracing::instrument(skip(reader, skip_by_seek))]
+    async fn clear_and_skip<R: AsyncRead + Unpin>(
         &mut self,
         reader: &mut R,
+        skip_by_seek: AsyncSkipBySeekFn<R>,
         n: usize,
     ) -> Result<(), ParsedError> {
         match clear_and_skip_decide(self.buffer().len(), n) {
@@ -178,9 +208,10 @@ pub(crate) trait AsyncBufParser: Buf + Debug {
             }
             SkipPlan::ClearAndSkip { extra: skip_n } => {
                 self.clear();
-                let done = S::skip_by_seek(
+                let done = (skip_by_seek)(
                     reader,
-                    skip_n.try_into()
+                    skip_n
+                        .try_into()
                         .map_err(|_| ParsedError::Failed("skip too many bytes".into()))?,
                 )
                 .await?;
@@ -210,42 +241,41 @@ pub(crate) trait AsyncBufParser: Buf + Debug {
     }
 }
 
-pub trait AsyncParseOutput<R, S>: Sized {
+pub trait AsyncParseOutput<R>: Sized {
     fn parse(
         parser: &mut AsyncMediaParser,
-        ms: AsyncMediaSource<R, S>,
+        ms: AsyncMediaSource<R>,
     ) -> impl std::future::Future<Output = crate::Result<Self>> + Send;
 }
 
-impl<R: AsyncRead + Unpin + Send, S: AsyncSkip<R> + Send> AsyncParseOutput<R, S> for ExifIter {
+impl<R: AsyncRead + Unpin + Send> AsyncParseOutput<R> for ExifIter {
     async fn parse(
         parser: &mut AsyncMediaParser,
-        mut ms: AsyncMediaSource<R, S>,
+        mut ms: AsyncMediaSource<R>,
     ) -> crate::Result<Self> {
         if !ms.has_exif() {
             return Err(crate::Error::ExifNotFound);
         }
-        parse_exif_iter_async::<R, S>(parser, ms.mime.unwrap_image(), &mut ms.reader).await
+        parse_exif_iter_async(parser, ms.mime.unwrap_image(), &mut ms.reader, ms.skip_by_seek).await
     }
 }
 
-impl<R: AsyncRead + Unpin + Send, S: AsyncSkip<R> + Send> AsyncParseOutput<R, S> for TrackInfo {
+impl<R: AsyncRead + Unpin + Send> AsyncParseOutput<R> for TrackInfo {
     async fn parse(
         parser: &mut AsyncMediaParser,
-        ms: AsyncMediaSource<R, S>,
+        ms: AsyncMediaSource<R>,
     ) -> crate::Result<Self> {
         let mut ms = ms;
-        let out = match ms.mime {
-            MediaMime::Image(_) => return Err(crate::Error::TrackNotFound),
-            MediaMime::Track(v) => {
-                parser
-                    .load_and_parse::<R, S, _, _>(&mut ms.reader, |data, _| {
-                        parse_track_info(data, v).map_err(|e| ParsingErrorState::new(e, None))
-                    })
-                    .await?
-            }
+        let mime_track = match ms.mime {
+            crate::file::MediaMime::Image(_) => return Err(crate::Error::TrackNotFound),
+            crate::file::MediaMime::Track(t) => t,
         };
-
+        let skip = ms.skip_by_seek;
+        let out = parser
+            .load_and_parse(&mut ms.reader, skip, |data, _| {
+                parse_track_info(data, mime_track).map_err(|e| ParsingErrorState::new(e, None))
+            })
+            .await?;
         Ok(out)
     }
 }
@@ -309,16 +339,6 @@ impl Debug for AsyncMediaParser {
     }
 }
 
-impl<R, S: AsyncSkip<R>> Debug for AsyncMediaSource<R, S> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MediaSource")
-            // .field("reader", &self.reader)
-            .field("mime", &self.mime)
-            .field("seekable", &S::debug())
-            .finish_non_exhaustive()
-    }
-}
-
 impl Default for AsyncMediaParser {
     fn default() -> Self {
         Self {
@@ -357,9 +377,9 @@ impl AsyncMediaParser {
     ///
     /// - For [`TrackInfo`] as parse output, you don't need to worry about
     ///   this, because `TrackInfo` dosn't reference the parsing buffer.
-    pub async fn parse<R: AsyncRead + Unpin, S, O: AsyncParseOutput<R, S>>(
+    pub async fn parse<R: AsyncRead + Unpin, O: AsyncParseOutput<R>>(
         &mut self,
-        mut ms: AsyncMediaSource<R, S>,
+        mut ms: AsyncMediaSource<R>,
     ) -> crate::Result<O> {
         self.reset();
         self.acquire_buf();
@@ -371,9 +391,9 @@ impl AsyncMediaParser {
         res
     }
 
-    async fn do_parse<R: AsyncRead + Unpin, S, O: AsyncParseOutput<R, S>>(
+    async fn do_parse<R: AsyncRead + Unpin, O: AsyncParseOutput<R>>(
         &mut self,
-        mut ms: AsyncMediaSource<R, S>,
+        mut ms: AsyncMediaSource<R>,
     ) -> Result<O, crate::Error> {
         self.fill_buf(&mut ms.reader, INIT_BUF_SIZE).await?;
         let res = O::parse(self, ms).await?;
