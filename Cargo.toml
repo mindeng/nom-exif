@@ -55,4 +55,4 @@ name = "rexiftool"
 # required-features = ["json_dump"]
 
 [workspace]
-members = [".", "afl-fuzz"]
+members = ["."]
