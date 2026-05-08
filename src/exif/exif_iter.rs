@@ -1004,24 +1004,24 @@ mod tests {
 
     use crate::exif::extract_exif_with_mime;
     use crate::exif::input_into_iter;
-    use crate::file::MimeImage;
+    use crate::file::MediaMimeImage;
     use crate::slice::SubsliceRange;
     use crate::testkit::read_sample;
     use crate::Exif;
     use test_case::test_case;
 
-    #[test_case("exif.jpg", "+08:00", "2023-07-09T20:36:33+08:00", MimeImage::Jpeg)]
-    #[test_case("exif-no-tz.jpg", "", "2023-07-09 20:36:33", MimeImage::Jpeg)]
-    #[test_case("broken.jpg", "-", "2014-09-21 15:51:22", MimeImage::Jpeg)]
-    #[test_case("exif.heic", "+08:00", "2022-07-22T21:26:32+08:00", MimeImage::Heic)]
-    #[test_case("tif.tif", "-", "-", MimeImage::Tiff)]
+    #[test_case("exif.jpg", "+08:00", "2023-07-09T20:36:33+08:00", MediaMimeImage::Jpeg)]
+    #[test_case("exif-no-tz.jpg", "", "2023-07-09 20:36:33", MediaMimeImage::Jpeg)]
+    #[test_case("broken.jpg", "-", "2014-09-21 15:51:22", MediaMimeImage::Jpeg)]
+    #[test_case("exif.heic", "+08:00", "2022-07-22T21:26:32+08:00", MediaMimeImage::Heic)]
+    #[test_case("tif.tif", "-", "-", MediaMimeImage::Tiff)]
     #[test_case(
         "fujifilm_x_t1_01.raf.meta",
         "-",
         "2014-01-30 12:49:13",
-        MimeImage::Raf
+        MediaMimeImage::Raf
     )]
-    fn exif_iter_tz(path: &str, tz: &str, time: &str, img_type: MimeImage) {
+    fn exif_iter_tz(path: &str, tz: &str, time: &str, img_type: MediaMimeImage) {
         let buf = read_sample(path).unwrap();
         let (data, _) = extract_exif_with_mime(img_type, &buf, None).unwrap();
         let subslice_in_range = data.and_then(|x| buf.subslice_in_range(x)).unwrap();

@@ -3,7 +3,7 @@ use std::{
     io::{self, Read, Seek},
 };
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 use tokio::io::{AsyncRead, AsyncSeek, AsyncSeekExt};
 
 /// Seekable represents a *seek-able* `Read`, e.g. a `File`.
@@ -43,7 +43,7 @@ pub trait Skip<R> {
     fn debug() -> impl Debug;
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 pub trait AsyncSkip<R> {
     /// Skip the given number of bytes. If seek is not implemented by `reader`,
     /// `false` will be returned.
@@ -105,7 +105,7 @@ impl<R: Seek> Skip<R> for Seekable {
     }
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 impl<R: AsyncRead + Unpin + Send> AsyncSkip<R> for Unseekable {
     #[inline]
     async fn skip_by_seek(_: &mut R, _: u64) -> io::Result<bool> {
@@ -117,7 +117,7 @@ impl<R: AsyncRead + Unpin + Send> AsyncSkip<R> for Unseekable {
     }
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 impl<R: AsyncSeek + Unpin + Send> AsyncSkip<R> for Seekable {
     #[inline]
     async fn skip_by_seek(reader: &mut R, skip: u64) -> io::Result<bool> {
@@ -141,7 +141,7 @@ mod tests {
         S::skip_by_seek(reader, 2)
     }
 
-    #[cfg(feature = "async")]
+    #[cfg(feature = "tokio")]
     async fn parse_async<S: AsyncSkip<R>, R: AsyncRead + Unpin>(
         reader: &mut R,
     ) -> io::Result<bool> {
@@ -158,7 +158,7 @@ mod tests {
         assert!(!parse::<Unseekable, _>(&mut r).unwrap());
     }
 
-    #[cfg(feature = "async")]
+    #[cfg(feature = "tokio")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn skip_async() {
         let mut buf = Cursor::new([0u8, 3]);

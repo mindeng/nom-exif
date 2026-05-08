@@ -1,5 +1,5 @@
 use crate::error::{nom_error_to_parsing_error_with_state, ParsingError, ParsingErrorState};
-use crate::file::MimeImage;
+use crate::file::MediaMimeImage;
 use crate::parser::{BufParser, ParsingState, ShareBuf};
 use crate::raf::RafInfo;
 use crate::skip::Skip;
@@ -29,11 +29,11 @@ mod travel;
 #[tracing::instrument(skip(reader))]
 pub(crate) fn parse_exif_iter<R: Read, S: Skip<R>>(
     parser: &mut MediaParser,
-    mime_img: MimeImage,
+    mime_img: MediaMimeImage,
     reader: &mut R,
 ) -> Result<ExifIter, crate::Error> {
     // For CR3 files, we need special handling to get all CMT blocks
-    if mime_img == MimeImage::Cr3 {
+    if mime_img == MediaMimeImage::Cr3 {
         return parse_cr3_exif_iter::<R, S>(parser, reader);
     }
 
@@ -120,7 +120,7 @@ fn parse_cr3_exif_iter<R: Read, S: Skip<R>>(
 
 type ExifRangeResult = Result<Option<(Range<usize>, Option<TiffHeader>)>, ParsingErrorState>;
 
-fn extract_exif_range(img: MimeImage, buf: &[u8], state: Option<ParsingState>) -> ExifRangeResult {
+fn extract_exif_range(img: MediaMimeImage, buf: &[u8], state: Option<ParsingState>) -> ExifRangeResult {
     let (exif_data, state) = extract_exif_with_mime(img, buf, state)?;
     let header = state.and_then(|x| match x {
         ParsingState::TiffHeader(h) => Some(h),
@@ -148,14 +148,14 @@ fn range_to_iter(
     }
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 #[tracing::instrument(skip(reader))]
 pub(crate) async fn parse_exif_iter_async<
     R: AsyncRead + Unpin + Send,
     S: crate::skip::AsyncSkip<R>,
 >(
     parser: &mut crate::AsyncMediaParser,
-    mime_img: MimeImage,
+    mime_img: MediaMimeImage,
     reader: &mut R,
 ) -> Result<ExifIter, crate::Error> {
     use crate::parser_async::AsyncBufParser;
@@ -171,16 +171,16 @@ pub(crate) async fn parse_exif_iter_async<
 
 #[tracing::instrument(skip(buf))]
 pub(crate) fn extract_exif_with_mime(
-    img_type: crate::file::MimeImage,
+    img_type: crate::file::MediaMimeImage,
     buf: &[u8],
     state: Option<ParsingState>,
 ) -> Result<(Option<&[u8]>, Option<ParsingState>), ParsingErrorState> {
     let (exif_data, state) = match img_type {
-        MimeImage::Jpeg => jpeg::extract_exif_data(buf)
+        MediaMimeImage::Jpeg => jpeg::extract_exif_data(buf)
             .map(|res| (res.1, state.clone()))
             .map_err(|e| nom_error_to_parsing_error_with_state(e, state))?,
-        MimeImage::Heic | crate::file::MimeImage::Heif => heif_extract_exif(state, buf)?,
-        MimeImage::Tiff => {
+        MediaMimeImage::Heic | crate::file::MediaMimeImage::Heif => heif_extract_exif(state, buf)?,
+        MediaMimeImage::Tiff => {
             let header = match state {
                 Some(ParsingState::TiffHeader(ref h)) => h.to_owned(),
                 None => {
@@ -216,10 +216,10 @@ pub(crate) fn extract_exif_with_mime(
 
             (Some(buf), state)
         }
-        MimeImage::Raf => RafInfo::parse(buf)
+        MediaMimeImage::Raf => RafInfo::parse(buf)
             .map(|res| (res.1.exif_data, state.clone()))
             .map_err(|e| nom_error_to_parsing_error_with_state(e, state))?,
-        MimeImage::Cr3 => cr3_extract_exif(state, buf)?,
+        MediaMimeImage::Cr3 => cr3_extract_exif(state, buf)?,
     };
     Ok((exif_data, state))
 }
@@ -238,13 +238,13 @@ fn cr3_extract_exif(
     cr3::extract_exif_data(state, buf)
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 use tokio::io::AsyncRead;
 
 #[cfg(test)]
 mod tests {
     use crate::{
-        file::MimeImage,
+        file::MediaMimeImage,
         testkit::read_sample,
         values::URational,
     };
@@ -278,7 +278,7 @@ mod tests {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 
         let buf = read_sample(path).unwrap();
-        let (data, _) = extract_exif_with_mime(MimeImage::Jpeg, &buf, None).unwrap();
+        let (data, _) = extract_exif_with_mime(MediaMimeImage::Jpeg, &buf, None).unwrap();
         let data = data.unwrap();
 
         let subslice_in_range = buf.subslice_in_range(data).unwrap();

@@ -15,7 +15,7 @@ use tokio::{
 use crate::{
     error::{ParsedError, ParsingErrorState},
     exif::parse_exif_iter_async,
-    file::Mime,
+    file::MediaMime,
     parser::{
         check_fill_size, clear_and_skip_decide, parse_loop_step, Buf, BufferedParserState,
         LoopAction, ParsingState, ShareBuf, SkipPlan, INIT_BUF_SIZE, MAX_ALLOC_SIZE, MIN_GROW_SIZE,
@@ -32,7 +32,7 @@ const HEADER_PARSE_BUF_SIZE: usize = 128;
 pub struct AsyncMediaSource<R, S = Seekable> {
     pub(crate) reader: R,
     pub(crate) buf: Vec<u8>,
-    pub(crate) mime: Mime,
+    pub(crate) mime: MediaMime,
     phantom: PhantomData<S>,
 }
 
@@ -44,7 +44,7 @@ impl<R: AsyncRead + Unpin, S: AsyncSkip<R>> AsyncMediaSource<R, S> {
             .take(HEADER_PARSE_BUF_SIZE as u64)
             .read_to_end(&mut buf)
             .await?;
-        let mime: Mime = buf.as_slice().try_into()?;
+        let mime: MediaMime = buf.as_slice().try_into()?;
         Ok(Self {
             reader,
             buf,
@@ -55,15 +55,15 @@ impl<R: AsyncRead + Unpin, S: AsyncSkip<R>> AsyncMediaSource<R, S> {
 
     pub fn has_track(&self) -> bool {
         match self.mime {
-            Mime::Image(_) => false,
-            Mime::Video(_) => true,
+            MediaMime::Image(_) => false,
+            MediaMime::Track(_) => true,
         }
     }
 
     pub fn has_exif(&self) -> bool {
         match self.mime {
-            Mime::Image(_) => true,
-            Mime::Video(_) => false,
+            MediaMime::Image(_) => true,
+            MediaMime::Track(_) => false,
         }
     }
 }
@@ -218,8 +218,8 @@ impl<R: AsyncRead + Unpin + Send, S: AsyncSkip<R> + Send> AsyncParseOutput<R, S>
     ) -> crate::Result<Self> {
         let mut ms = ms;
         let out = match ms.mime {
-            Mime::Image(_) => return Err(crate::Error::TrackNotFound),
-            Mime::Video(v) => {
+            MediaMime::Image(_) => return Err(crate::Error::TrackNotFound),
+            MediaMime::Track(v) => {
                 parser
                     .load_and_parse::<R, S, _, _>(&mut ms.reader, |data, _| {
                         parse_track_info(data, v).map_err(|e| ParsingErrorState::new(e, None))
@@ -243,7 +243,7 @@ impl<R: AsyncRead + Unpin + Send, S: AsyncSkip<R> + Send> AsyncParseOutput<R, S>
 /// use tokio::fs::File;
 /// use chrono::DateTime;
 ///
-/// #[cfg(feature = "async")]
+/// #[cfg(feature = "tokio")]
 /// #[tokio::main]
 /// async fn main() -> Result<()> {
 ///     let mut parser = AsyncMediaParser::new();

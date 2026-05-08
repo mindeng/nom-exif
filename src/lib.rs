@@ -175,11 +175,11 @@
 //! sources, which can be created from any object that implements the `AsyncRead`
 //! trait, and can be parsed by `AsyncMediaParser`.
 //!
-//! Enable `async` feature flag for `nom-exif` in your `Cargo.toml`:
+//! Enable `tokio` feature flag for `nom-exif` in your `Cargo.toml`:
 //!
 //! ```toml
 //! [dependencies]
-//! nom-exif = { version = "2", features = ["async"] }
+//! nom-exif = { version = "2", features = ["tokio"] }
 //! ```
 //!
 //! See [`AsyncMediaSource`] & [`AsyncMediaParser`] for more information.
@@ -236,7 +236,7 @@
 //!
 //! ### Json Dump
 //!
-//! `cargo run --features json_dump --example rexiftool testdata/meta.mov -j`:
+//! `cargo run --features serde --example rexiftool testdata/meta.mov -j`:
 //!
 //! ``` text
 //! {
@@ -328,7 +328,7 @@
 pub use parser::{MediaParser, MediaSource};
 pub use video::{TrackInfo, TrackInfoTag};
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 pub use parser_async::{AsyncMediaParser, AsyncMediaSource};
 
 pub use exif::{Exif, ExifIter, ExifTag, GPSInfo, LatLng, ParsedExifEntry};
@@ -349,7 +349,7 @@ mod heif;
 mod jpeg;
 mod mov;
 mod parser;
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 mod parser_async;
 mod partial_vec;
 mod raf;

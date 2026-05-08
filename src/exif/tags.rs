@@ -3,11 +3,11 @@
 
 use std::fmt::{Debug, Display};
 
-#[cfg(feature = "json_dump")]
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 #[allow(unused)]
-#[cfg_attr(feature = "json_dump", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Eq, PartialEq, Hash, Clone, Copy)]
 pub(crate) enum ExifTagCode {
     /// Recognized Exif tag
@@ -72,7 +72,7 @@ impl Display for ExifTagCode {
 /// See [`ParsedExifEntry::tag_code`](crate::ParsedExifEntry::tag_code) and
 /// [`Exif::get_by_ifd_tag_code`](crate::Exif::get_by_ifd_tag_code).
 #[allow(unused)]
-#[cfg_attr(feature = "json_dump", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Eq, PartialEq, Hash, Clone, Copy)]
 #[non_exhaustive]
 pub enum ExifTag {

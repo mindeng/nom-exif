@@ -6,7 +6,7 @@ use std::{
 use chrono::{DateTime, FixedOffset, NaiveDateTime, Offset, Utc};
 
 use nom::{multi::many_m_n, number::Endianness, AsChar, Parser};
-#[cfg(feature = "json_dump")]
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize, Serializer};
 
 use crate::{error::EntryError, ExifTag};
@@ -485,7 +485,7 @@ impl TryFrom<u16> for DataFormat {
     }
 }
 
-#[cfg(feature = "json_dump")]
+#[cfg(feature = "serde")]
 impl Serialize for EntryValue {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -692,14 +692,14 @@ impl From<(i32, i32)> for EntryValue {
     }
 }
 
-// #[cfg_attr(feature = "json_dump", derive(Serialize, Deserialize))]
+// #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 // #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 // pub struct URational(pub u32, pub u32);
 
 pub type URational = Rational<u32>;
 pub type IRational = Rational<i32>;
 
-#[cfg_attr(feature = "json_dump", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 pub struct Rational<T>(pub T, pub T);
 

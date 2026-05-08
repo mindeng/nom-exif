@@ -13,7 +13,7 @@ use crate::{
     buffer::Buffers,
     error::{ParsedError, ParsingError, ParsingErrorState},
     exif::{parse_exif_iter, TiffHeader},
-    file::Mime,
+    file::MediaMime,
     partial_vec::PartialVec,
     skip::Skip,
     video::parse_track_info,
@@ -44,7 +44,7 @@ use crate::{
 pub struct MediaSource<R, S = Seekable> {
     pub(crate) reader: R,
     pub(crate) buf: Vec<u8>,
-    pub(crate) mime: Mime,
+    pub(crate) mime: MediaMime,
     phantom: PhantomData<S>,
 }
 
@@ -70,7 +70,7 @@ impl<R: Read, S: Skip<R>> MediaSource<R, S> {
             .by_ref()
             .take(HEADER_PARSE_BUF_SIZE as u64)
             .read_to_end(&mut buf)?;
-        let mime: Mime = buf.as_slice().try_into()?;
+        let mime: MediaMime = buf.as_slice().try_into()?;
         tracing::debug!(?mime);
         Ok(Self {
             reader,
@@ -82,15 +82,15 @@ impl<R: Read, S: Skip<R>> MediaSource<R, S> {
 
     pub fn has_track(&self) -> bool {
         match self.mime {
-            Mime::Image(_) => false,
-            Mime::Video(_) => true,
+            MediaMime::Image(_) => false,
+            MediaMime::Track(_) => true,
         }
     }
 
     pub fn has_exif(&self) -> bool {
         match self.mime {
-            Mime::Image(_) => true,
-            Mime::Video(_) => false,
+            MediaMime::Image(_) => true,
+            MediaMime::Track(_) => false,
         }
     }
 }
@@ -445,7 +445,7 @@ impl<R: Read, S: Skip<R>> ParseOutput<R, S> for TrackInfo {
             return Err(crate::Error::TrackNotFound);
         }
         let out = parser.load_and_parse::<R, S, _, _>(ms.reader.by_ref(), |data, _| {
-            parse_track_info(data, ms.mime.unwrap_video())
+            parse_track_info(data, ms.mime.unwrap_track())
                 .map_err(|e| ParsingErrorState::new(e, None))
         })?;
         Ok(out)

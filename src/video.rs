@@ -8,7 +8,7 @@ use thiserror::Error;
 use crate::{
     ebml::webm::parse_webm,
     error::ParsingError,
-    file::MimeVideo,
+    file::MediaMimeTrack,
     mov::{extract_moov_body_from_buf, parse_isobmff},
     EntryValue, GPSInfo,
 };
@@ -144,17 +144,17 @@ impl TrackInfo {
 #[tracing::instrument(skip(input))]
 pub(crate) fn parse_track_info(
     input: &[u8],
-    mime_video: MimeVideo,
+    mime_video: MediaMimeTrack,
 ) -> Result<TrackInfo, ParsingError> {
     let mut info: TrackInfo = match mime_video {
-        crate::file::MimeVideo::QuickTime
-        | crate::file::MimeVideo::_3gpp
-        | crate::file::MimeVideo::Mp4 => {
+        crate::file::MediaMimeTrack::QuickTime
+        | crate::file::MediaMimeTrack::_3gpp
+        | crate::file::MediaMimeTrack::Mp4 => {
             let range = extract_moov_body_from_buf(input)?;
             let moov_body = &input[range];
             parse_isobmff(moov_body)?.into()
         }
-        crate::file::MimeVideo::Webm | crate::file::MimeVideo::Matroska => {
+        crate::file::MediaMimeTrack::Webm | crate::file::MediaMimeTrack::Matroska => {
             parse_webm(input)?.into()
         }
     };

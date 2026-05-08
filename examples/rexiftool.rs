@@ -22,10 +22,10 @@ struct Cli {
     debug: bool,
 }
 
-#[cfg(feature = "json_dump")]
-const FEATURE_JSON_DUMP_ON: bool = true;
-#[cfg(not(feature = "json_dump"))]
-const FEATURE_JSON_DUMP_ON: bool = false;
+#[cfg(feature = "serde")]
+const FEATURE_SERDE_ON: bool = true;
+#[cfg(not(feature = "serde"))]
+const FEATURE_SERDE_ON: bool = false;
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
@@ -49,8 +49,8 @@ fn tracing_run(cli: &Cli) -> ExitCode {
 }
 
 fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
-    if cli.json && !FEATURE_JSON_DUMP_ON {
-        let msg = "-j/--json option requires the feature `json_dump`.";
+    if cli.json && !FEATURE_SERDE_ON {
+        let msg = "-j/--json option requires the feature `serde`.";
         eprintln!("{msg}");
         return Err(msg.into());
     }
@@ -128,10 +128,10 @@ fn parse_file<P: AsRef<Path>>(
             .collect::<Vec<_>>()
     };
     if json {
-        #[cfg(feature = "json_dump")]
+        #[cfg(feature = "serde")]
         use std::collections::HashMap;
 
-        #[cfg(feature = "json_dump")]
+        #[cfg(feature = "serde")]
         match serde_json::to_string_pretty(
             &values
                 .into_iter()
