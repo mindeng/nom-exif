@@ -1,12 +1,12 @@
 use std::{collections::HashSet, fmt::Debug, ops::Range, sync::Arc};
 
 use nom::{number::complete, Parser};
-use thiserror::Error;
 
 use crate::{
+    error::EntryError,
     partial_vec::{AssociatedInput, PartialVec},
     slice::SliceChecked,
-    values::{DataFormat, EntryData, IRational, ParseEntryError, URational},
+    values::{DataFormat, EntryData, IRational, URational},
     EntryValue, ExifTag,
 };
 
@@ -191,10 +191,7 @@ impl ExifIter {
                 if let Some(offset) = v.as_u32() {
                     offset
                 } else {
-                    return Err(EntryError(ParseEntryError::InvalidData(
-                        "invalid gps offset".into(),
-                    ))
-                    .into());
+                    return Err(EntryError::InvalidValue("invalid gps offset").into());
                 }
             }
             Err(e) => return Err(e.clone().into()),
@@ -236,16 +233,6 @@ impl ExifIter {
             data_range,
             header,
         });
-    }
-}
-
-#[derive(Debug, Clone, Error)]
-#[error("ifd entry error: {0}")]
-pub struct EntryError(ParseEntryError);
-
-impl From<EntryError> for crate::Error {
-    fn from(value: EntryError) -> Self {
-        Self::ParseFailed(value.into())
     }
 }
 
@@ -368,11 +355,11 @@ impl ParsedExifEntry {
         }
     }
 
-    // fn make_err(ifd: usize, tag: ExifTagCode, e: ParseEntryError) -> Self {
+    // fn make_err(ifd: usize, tag: ExifTagCode, e: EntryError) -> Self {
     //     Self {
     //         ifd,
     //         tag,
-    //         res: Some(Err(EntryError(e))),
+    //         res: Some(Err(e)),
     //     }
     // }
 }
@@ -663,12 +650,18 @@ impl IfdIter {
             return None;
         }
 
-        let df: DataFormat = match data_format.try_into() {
+        let df: DataFormat = match DataFormat::try_from(data_format) {
             Ok(df) => df,
-            Err(e) => {
+            Err(bad) => {
                 let t: ExifTagCode = tag.into();
-                tracing::warn!(tag = ?t, ?e, "invalid entry data format");
-                return Some((tag, IfdEntry::Err(e)));
+                tracing::warn!(tag = ?t, format = bad, "invalid entry data format");
+                return Some((
+                    tag,
+                    IfdEntry::Err(EntryError::InvalidShape {
+                        format: bad,
+                        count: components_num,
+                    }),
+                ));
             }
         };
         let (tag, res) = self.parse_entry(tag, df, components_num, entry_data, value_or_offset);
@@ -706,7 +699,13 @@ impl IfdIter {
                     end,
                     self.input.len(),
                 );
-                return (tag, IfdEntry::Err(ParseEntryError::EntrySizeTooBig));
+                return (
+                    tag,
+                    IfdEntry::Err(EntryError::Truncated {
+                        needed: size,
+                        available: self.input.len().saturating_sub(start),
+                    }),
+                );
             };
 
             data
@@ -883,7 +882,7 @@ impl IfdIter {
 pub(crate) enum IfdEntry {
     IfdNew(IfdIter), // ifd index
     Entry(EntryValue),
-    Err(ParseEntryError),
+    Err(EntryError),
 }
 
 impl IfdEntry {

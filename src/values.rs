@@ -8,9 +8,8 @@ use chrono::{DateTime, FixedOffset, NaiveDateTime, Offset, Utc};
 use nom::{multi::many_m_n, number::Endianness, AsChar, Parser};
 #[cfg(feature = "json_dump")]
 use serde::{Deserialize, Serialize, Serializer};
-use thiserror::Error;
 
-use crate::ExifTag;
+use crate::{error::EntryError, ExifTag};
 
 /// Represent a parsed entry value.
 #[derive(Debug, Clone, PartialEq)]
@@ -54,31 +53,20 @@ pub(crate) struct EntryData<'a> {
     pub components_num: u32,
 }
 
-#[derive(Debug, Clone, Error)]
-pub(crate) enum ParseEntryError {
-    #[error("size is too big")]
-    EntrySizeTooBig,
-
-    #[error("data is invalid: {0}")]
-    InvalidData(String),
-
-    #[error("data format is unsupported (please file a bug): {0}")]
-    Unsupported(String),
-}
-
-impl From<chrono::ParseError> for ParseEntryError {
-    fn from(value: chrono::ParseError) -> Self {
-        ParseEntryError::InvalidData(format!("invalid time format: {value}"))
+impl From<chrono::ParseError> for EntryError {
+    fn from(_: chrono::ParseError) -> Self {
+        EntryError::InvalidValue("invalid time format")
     }
 }
 
-use ParseEntryError as Error;
-
 impl EntryData<'_> {
     // Ensure that the returned Vec is not empty.
-    fn try_as_rationals<T: TryFromBytes>(&self) -> Result<Vec<Rational<T>>, Error> {
+    fn try_as_rationals<T: TryFromBytes>(&self) -> Result<Vec<Rational<T>>, EntryError> {
         if self.components_num == 0 {
-            return Err(Error::InvalidData("components is 0".to_string()));
+            return Err(EntryError::InvalidShape {
+                format: self.data_format as u16,
+                count: self.components_num,
+            });
         }
 
         let mut vec = Vec::with_capacity(self.components_num as usize);
@@ -112,11 +100,15 @@ impl EntryValue {
     /// # Data format
     ///
     /// See: [`DataFormat`].
-    pub(crate) fn parse(entry: &EntryData, tz: &Option<String>) -> Result<EntryValue, Error> {
+    pub(crate) fn parse(
+        entry: &EntryData,
+        tz: &Option<String>,
+    ) -> Result<EntryValue, EntryError> {
         if entry.data.is_empty() {
-            return Err(Error::InvalidData(
-                "invalid DirectoryEntry: entry data is empty".into(),
-            ));
+            return Err(EntryError::InvalidShape {
+                format: entry.data_format as u16,
+                count: entry.components_num,
+            });
         }
 
         let endian = entry.endian;
@@ -135,13 +127,7 @@ impl EntryValue {
                 || tag == ExifTag::CreateDate
                 || tag == ExifTag::ModifyDate
             {
-                // assert_eq!(data_format, 2);
-                // if data_format != 2 {
-                //     return Err(Error::InvalidData(
-                //         "invalid DirectoryEntry: date format is invalid".into(),
-                //     ));
-                // }
-                let s = get_cstr(data).map_err(|e| Error::InvalidData(e.to_string()))?;
+                let s = get_cstr(data).map_err(|_| EntryError::InvalidValue("invalid utf-8"))?;
 
                 let t = if let Some(tz) = tz {
                     let tz = repair_tz_str(tz);
@@ -164,7 +150,7 @@ impl EntryValue {
                 _ => Ok(Self::U8Array(data.into())),
             },
             DataFormat::Text => Ok(EntryValue::Text(
-                get_cstr(data).map_err(|e| Error::InvalidData(e.to_string()))?,
+                get_cstr(data).map_err(|_| EntryError::InvalidValue("invalid utf-8"))?,
             )),
             DataFormat::U16 => {
                 if components_num == 1 {
@@ -175,8 +161,9 @@ impl EntryValue {
                         components_num as usize,
                         nom::number::complete::u16(endian),
                     ).parse(data)
-                    .map_err(|e| {
-                        ParseEntryError::InvalidData(format!("parse U16Array error: {e:?}"))
+                    .map_err(|_| EntryError::InvalidShape {
+                        format: DataFormat::U16 as u16,
+                        count: components_num,
                     })?;
                     Ok(Self::U16Array(v))
                 }
@@ -190,8 +177,9 @@ impl EntryValue {
                         components_num as usize,
                         nom::number::complete::u32(endian),
                     ).parse(data)
-                    .map_err(|e| {
-                        ParseEntryError::InvalidData(format!("parse U32Array error: {e:?}"))
+                    .map_err(|_| EntryError::InvalidShape {
+                        format: DataFormat::U32 as u16,
+                        count: components_num,
                     })?;
                     Ok(Self::U32Array(v))
                 }
@@ -206,22 +194,25 @@ impl EntryValue {
             }
             DataFormat::I8 => match components_num {
                 1 => Ok(Self::I8(data[0] as i8)),
-                x => Err(Error::Unsupported(format!(
-                    "signed byte with {x} components"
-                ))),
+                x => Err(EntryError::InvalidShape {
+                    format: data_format as u16,
+                    count: x,
+                }),
             },
             DataFormat::Undefined => Ok(Self::Undefined(data.to_vec())),
             DataFormat::I16 => match components_num {
                 1 => Ok(Self::I16(i16::try_from_bytes(data, endian)?)),
-                x => Err(Error::Unsupported(format!(
-                    "signed short with {x} components"
-                ))),
+                x => Err(EntryError::InvalidShape {
+                    format: data_format as u16,
+                    count: x,
+                }),
             },
             DataFormat::I32 => match components_num {
                 1 => Ok(Self::I32(i32::try_from_bytes(data, endian)?)),
-                x => Err(Error::Unsupported(format!(
-                    "signed long with {x} components"
-                ))),
+                x => Err(EntryError::InvalidShape {
+                    format: data_format as u16,
+                    count: x,
+                }),
             },
             DataFormat::IRational => {
                 let rationals = entry.try_as_rationals::<i32>()?;
@@ -233,11 +224,17 @@ impl EntryValue {
             }
             DataFormat::F32 => match components_num {
                 1 => Ok(Self::F32(f32::try_from_bytes(data, endian)?)),
-                x => Err(Error::Unsupported(format!("float with {x} components"))),
+                x => Err(EntryError::InvalidShape {
+                    format: data_format as u16,
+                    count: x,
+                }),
             },
             DataFormat::F64 => match components_num {
                 1 => Ok(Self::F64(f64::try_from_bytes(data, endian)?)),
-                x => Err(Error::Unsupported(format!("double with {x} components"))),
+                x => Err(EntryError::InvalidShape {
+                    format: data_format as u16,
+                    count: x,
+                }),
             },
         }
     }
@@ -416,20 +413,10 @@ impl From<(NaiveDateTime, Option<FixedOffset>)> for EntryValue {
     }
 }
 
-fn parse_naive_time(s: String) -> Result<NaiveDateTime, ParseEntryError> {
+fn parse_naive_time(s: String) -> Result<NaiveDateTime, EntryError> {
     let t = NaiveDateTime::parse_from_str(&s, "%Y:%m:%d %H:%M:%S")?;
     Ok(t)
 }
-// fn parse_time_with_local_tz(s: String) -> Result<DateTime<FixedOffset>, ParseEntryError> {
-//     let t = NaiveDateTime::parse_from_str(&s, "%Y:%m:%d %H:%M:%S")?;
-//     let t = Local.from_local_datetime(&t);
-//     let t = if let LocalResult::Single(t) = t {
-//         Ok(t)
-//     } else {
-//         Err(Error::InvalidData(format!("parse time failed: {s}")))
-//     }?;
-//     Ok(t.with_timezone(t.offset()))
-// }
 
 fn repair_tz_str(tz: &str) -> String {
     if let Some(idx) = tz.find(":") {
@@ -486,12 +473,14 @@ impl DataFormat {
 }
 
 impl TryFrom<u16> for DataFormat {
-    type Error = Error;
+    /// On failure, returns the unrecognized format value so call sites can
+    /// pair it with the entry's `count` and build a richer `EntryError`.
+    type Error = u16;
     fn try_from(v: u16) -> Result<Self, Self::Error> {
         if v >= Self::U8 as u16 && v <= Self::F64 as u16 {
             Ok(unsafe { std::mem::transmute::<u16, Self>(v) })
         } else {
-            Err(Error::InvalidData(format!("data format 0x{v:02x}")))
+            Err(v)
         }
     }
 }
@@ -770,34 +759,34 @@ pub(crate) fn filter_zero(data: &[u8]) -> Vec<u8> {
 }
 
 pub(crate) trait TryFromBytes: Sized {
-    fn try_from_bytes(bs: &[u8], endian: Endianness) -> Result<Self, Error>;
+    fn try_from_bytes(bs: &[u8], endian: Endianness) -> Result<Self, EntryError>;
 }
 
 macro_rules! impl_try_from_bytes {
     ($type:ty) => {
         impl TryFromBytes for $type {
-            fn try_from_bytes(bs: &[u8], endian: Endianness) -> Result<Self, Error> {
-                fn make_err<T>() -> Error {
-                    Error::InvalidData(format!(
-                        "data is too small to convert to {}",
-                        std::any::type_name::<T>(),
-                    ))
+            fn try_from_bytes(bs: &[u8], endian: Endianness) -> Result<Self, EntryError> {
+                fn make_err<T>(available: usize) -> EntryError {
+                    EntryError::Truncated {
+                        needed: std::mem::size_of::<T>(),
+                        available,
+                    }
                 }
                 match endian {
                     Endianness::Big => {
                         let (int_bytes, _) = bs
                             .split_at_checked(std::mem::size_of::<Self>())
-                            .ok_or_else(make_err::<Self>)?;
+                            .ok_or_else(|| make_err::<Self>(bs.len()))?;
                         Ok(Self::from_be_bytes(
-                            int_bytes.try_into().map_err(|_| make_err::<Self>())?,
+                            int_bytes.try_into().map_err(|_| make_err::<Self>(bs.len()))?,
                         ))
                     }
                     Endianness::Little => {
                         let (int_bytes, _) = bs
                             .split_at_checked(std::mem::size_of::<Self>())
-                            .ok_or_else(make_err::<Self>)?;
+                            .ok_or_else(|| make_err::<Self>(bs.len()))?;
                         Ok(Self::from_le_bytes(
-                            int_bytes.try_into().map_err(|_| make_err::<Self>())?,
+                            int_bytes.try_into().map_err(|_| make_err::<Self>(bs.len()))?,
                         ))
                     }
                     Endianness::Native => unimplemented!(),
@@ -817,11 +806,12 @@ impl_try_from_bytes!(f64);
 pub(crate) fn decode_rational<T: TryFromBytes>(
     data: &[u8],
     endian: Endianness,
-) -> Result<Rational<T>, Error> {
+) -> Result<Rational<T>, EntryError> {
     if data.len() < 8 {
-        return Err(Error::InvalidData(
-            "data is too small to decode a rational".to_string(),
-        ));
+        return Err(EntryError::Truncated {
+            needed: 8,
+            available: data.len(),
+        });
     }
 
     let numerator = T::try_from_bytes(data, endian)?;

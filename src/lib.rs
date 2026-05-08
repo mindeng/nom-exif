@@ -334,7 +334,7 @@ pub use parser_async::{AsyncMediaParser, AsyncMediaSource};
 pub use exif::{Exif, ExifIter, ExifTag, GPSInfo, LatLng, ParsedExifEntry};
 pub use values::{EntryValue, IRational, URational};
 
-pub use error::Error;
+pub use error::{ConvertError, EntryError, Error, MalformedKind};
 pub type Result<T> = std::result::Result<T, Error>;
 pub(crate) use skip::{Seekable, Unseekable};
 

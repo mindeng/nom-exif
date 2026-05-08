@@ -307,6 +307,34 @@ pub enum ConvertError {
     InvalidDecimalDegrees(f64),
 }
 
+/// Errors that occur while decoding a single IFD entry.
+///
+/// Constructed internally during EXIF parsing; surfaces to downstream code
+/// as the `Err` arm of [`crate::ParsedExifEntry::get_result`] (and friends),
+/// or — when converted via `From<EntryError> for Error` — as
+/// [`Error::Malformed`] with [`MalformedKind::IfdEntry`].
+#[derive(Debug, Clone, thiserror::Error)]
+#[non_exhaustive]
+pub enum EntryError {
+    #[error("entry truncated: needed {needed} bytes, only {available} available")]
+    Truncated { needed: usize, available: usize },
+
+    #[error("invalid entry shape: format={format}, count={count}")]
+    InvalidShape { format: u16, count: u32 },
+
+    #[error("invalid value: {0}")]
+    InvalidValue(&'static str),
+}
+
+impl From<EntryError> for Error {
+    fn from(e: EntryError) -> Self {
+        Error::Malformed {
+            kind: MalformedKind::IfdEntry,
+            message: e.to_string(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -403,5 +431,36 @@ mod tests {
     fn error_unexpected_eof_displays() {
         let e = Error::UnexpectedEof { context: "tiff header" };
         assert_eq!(e.to_string(), "unexpected end of input while parsing tiff header");
+    }
+
+    #[test]
+    fn entry_error_truncated_displays() {
+        let e = EntryError::Truncated { needed: 8, available: 4 };
+        assert_eq!(e.to_string(), "entry truncated: needed 8 bytes, only 4 available");
+    }
+
+    #[test]
+    fn entry_error_invalid_shape_displays() {
+        let e = EntryError::InvalidShape { format: 7, count: 1 };
+        assert_eq!(e.to_string(), "invalid entry shape: format=7, count=1");
+    }
+
+    #[test]
+    fn entry_error_invalid_value_displays() {
+        let e = EntryError::InvalidValue("not utf-8");
+        assert_eq!(e.to_string(), "invalid value: not utf-8");
+    }
+
+    #[test]
+    fn entry_error_into_error_routes_to_malformed_ifd_entry() {
+        let e = EntryError::Truncated { needed: 8, available: 4 };
+        let err: Error = e.into();
+        match err {
+            Error::Malformed { kind, message } => {
+                assert_eq!(kind, MalformedKind::IfdEntry);
+                assert!(message.contains("entry truncated"));
+            }
+            other => panic!("unexpected variant: {other:?}"),
+        }
     }
 }
