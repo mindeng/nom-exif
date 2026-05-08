@@ -221,3 +221,66 @@ pub(crate) fn nom_error_to_parsing_error_with_state(
         ),
     }
 }
+
+/// Categorizes the format-family that produced a `Error::Malformed`.
+///
+/// Used by downstream code to react differently depending on which container
+/// or sub-structure failed to parse — e.g. a corrupted JPEG segment is
+/// recoverable for many use cases while a corrupted EBML element typically
+/// is not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum MalformedKind {
+    JpegSegment,
+    TiffHeader,
+    IfdEntry,
+    IsoBmffBox,
+    EbmlElement,
+    Cr3Container,
+    Heif,
+    Raf,
+}
+
+impl std::fmt::Display for MalformedKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Self::JpegSegment => "jpeg segment",
+            Self::TiffHeader => "tiff header",
+            Self::IfdEntry => "ifd entry",
+            Self::IsoBmffBox => "iso-bmff box",
+            Self::EbmlElement => "ebml element",
+            Self::Cr3Container => "cr3 container",
+            Self::Heif => "heif",
+            Self::Raf => "raf",
+        };
+        f.write_str(s)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn malformed_kind_is_copy_and_eq() {
+        let a = MalformedKind::JpegSegment;
+        let b = a;
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn malformed_kind_covers_all_format_families() {
+        for k in [
+            MalformedKind::JpegSegment,
+            MalformedKind::TiffHeader,
+            MalformedKind::IfdEntry,
+            MalformedKind::IsoBmffBox,
+            MalformedKind::EbmlElement,
+            MalformedKind::Cr3Container,
+            MalformedKind::Heif,
+            MalformedKind::Raf,
+        ] {
+            let _ = format!("{k:?}");
+        }
+    }
+}
