@@ -2,6 +2,7 @@ use std::io::{Read, Seek};
 
 use nom::{bytes::streaming, combinator::fail, number, IResult, Parser};
 
+use crate::error::MalformedKind;
 use crate::exif::check_exif_header;
 
 /// Extract Exif TIFF data from the bytes of a JPEG file.
@@ -116,7 +117,10 @@ fn read_image_data<T: Read + Seek>(mut reader: T) -> crate::Result<Vec<u8>> {
         reader.read_exact(&mut header)?;
         let (tag, marker) = (header[0], header[1]);
         if tag != 0xFF {
-            return Err("".into());
+            return Err(crate::Error::Malformed {
+                kind: MalformedKind::JpegSegment,
+                message: "expected 0xFF marker prefix".to_string(),
+            });
         }
 
         if marker == MarkerCode::Soi.code() {

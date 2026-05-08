@@ -4,6 +4,8 @@ use nom::{
     Parser,
 };
 
+use crate::error::MalformedKind;
+
 use super::{find_box, travel_while, BoxHolder, FullBoxHeader, ParseBody, ParseBox};
 
 /// Represents a [movie header atom][1].
@@ -102,7 +104,10 @@ pub fn parse_video_tkhd_in_moov(input: &[u8]) -> crate::Result<Option<TkhdBox>> 
     let (_, Some(bbox)) = find_box(bbox.body_data(), "tkhd")? else {
         return Ok(None);
     };
-    let (_, tkhd) = TkhdBox::parse_box(bbox.data).map_err(|_| "parse tkhd failed")?;
+    let (_, tkhd) = TkhdBox::parse_box(bbox.data).map_err(|_| crate::Error::Malformed {
+        kind: MalformedKind::IsoBmffBox,
+        message: "parse tkhd failed".to_string(),
+    })?;
     Ok(Some(tkhd))
 }
 
@@ -135,7 +140,10 @@ fn find_video_track(input: &[u8]) -> crate::Result<Option<BoxHolder<'_>>> {
             }
         }
     })
-    .map_err(|e| format!("find vide trak failed: {e:?}"))?;
+    .map_err(|e| crate::Error::Malformed {
+        kind: MalformedKind::IsoBmffBox,
+        message: format!("find vide trak failed: {e:?}"),
+    })?;
 
     Ok(bbox)
 }

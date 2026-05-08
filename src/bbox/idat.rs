@@ -3,6 +3,7 @@ use std::ops::Range;
 use nom::{bytes::streaming, IResult};
 
 use crate::bbox::BoxHeader;
+use crate::error::MalformedKind;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IdatBox<'a> {
@@ -24,7 +25,10 @@ impl<'a> IdatBox<'a> {
 
     pub fn get_data(&self, range: Range<usize>) -> crate::Result<&[u8]> {
         if range.len() > self.data.len() {
-            Err("idat data is too small".into())
+            Err(crate::Error::Malformed {
+                kind: MalformedKind::Heif,
+                message: "idat data is too small".to_string(),
+            })
         } else {
             Ok(&self.data[range])
         }

@@ -1,10 +1,5 @@
-use std::{
-    fmt::{Debug, Display},
-    string::FromUtf8Error,
-};
+use std::fmt::{Debug, Display};
 use thiserror::Error;
-
-type FallbackError = Box<dyn std::error::Error + Send + Sync>;
 
 /// Top-level error returned by `read_exif`, `MediaParser::parse_*`,
 /// `MediaSource::open`, and any other public function that touches a file.
@@ -36,20 +31,6 @@ pub enum Error {
     /// Parsing needed more bytes but the stream ended.
     #[error("unexpected end of input while parsing {context}")]
     UnexpectedEof { context: &'static str },
-
-    // ----- v2 compatibility, removed in Task 9. Do NOT reference these
-    // outside of the migration window.
-    #[doc(hidden)]
-    #[error("parse failed: {0}")]
-    ParseFailed(FallbackError),
-
-    #[doc(hidden)]
-    #[error("io error: {0}")]
-    IOError(std::io::Error),
-
-    #[doc(hidden)]
-    #[error("unrecognized file format")]
-    UnrecognizedFileFormat,
 }
 
 #[derive(Debug, Error)]
@@ -170,27 +151,7 @@ impl From<ParsedError> for crate::Error {
     }
 }
 
-use Error::*;
-
 use crate::parser::ParsingState;
-
-impl From<String> for Error {
-    fn from(src: String) -> Error {
-        ParseFailed(src.into())
-    }
-}
-
-impl From<&str> for Error {
-    fn from(src: &str) -> Error {
-        src.to_string().into()
-    }
-}
-
-impl From<FromUtf8Error> for Error {
-    fn from(value: FromUtf8Error) -> Self {
-        ParseFailed(value.into())
-    }
-}
 
 impl<T: Debug> From<nom::Err<nom::error::Error<T>>> for crate::Error {
     fn from(e: nom::Err<nom::error::Error<T>>) -> Self {
@@ -207,8 +168,10 @@ pub(crate) fn convert_parse_error<T: Debug>(
         nom::Err::Error(e) => format!("{}; {message}", e.code.description()),
         nom::Err::Failure(e) => format!("{}; {message}", e.code.description()),
     };
-
-    s.into()
+    Error::Malformed {
+        kind: MalformedKind::TiffHeader,
+        message: s,
+    }
 }
 
 impl From<nom::Err<nom::error::Error<&[u8]>>> for ParsingError {

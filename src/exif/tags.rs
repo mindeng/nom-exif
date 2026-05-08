@@ -485,7 +485,12 @@ impl TryFrom<u16> for ExifTag {
             x if x == RowsPerStrip.code() => Self::RowsPerStrip,
             x if x == PlanarConfiguration.code() => Self::PlanarConfiguration,
 
-            o => return Err(format!("Unrecognized ExifTag 0x{o:04x}").into()),
+            o => {
+                return Err(crate::Error::Malformed {
+                    kind: crate::error::MalformedKind::IfdEntry,
+                    message: format!("Unrecognized ExifTag 0x{o:04x}"),
+                })
+            }
         };
 
         Ok(tag)

@@ -7,6 +7,7 @@ use nom::number::complete::{
 };
 use nom::Parser;
 
+use crate::error::MalformedKind;
 use crate::EntryValue;
 
 use super::BoxHeader;
@@ -88,7 +89,10 @@ fn parse_value(type_code: u32, data: &[u8]) -> crate::Result<EntryValue> {
     use EntryValue::*;
     let v = match type_code {
         1 => {
-            let s = String::from_utf8(data.to_vec())?;
+            let s = String::from_utf8(data.to_vec()).map_err(|e| crate::Error::Malformed {
+                kind: MalformedKind::IsoBmffBox,
+                message: format!("ilst text item is not valid utf-8: {e}"),
+            })?;
             Text(s)
         }
         21 => match data.len() {
@@ -104,7 +108,10 @@ fn parse_value(type_code: u32, data: &[u8]) -> crate::Result<EntryValue> {
                     "Invalid ilst item data; \
                     data type is {data_type} while data len is : {data_len}",
                 );
-                return Err(msg.into());
+                return Err(crate::Error::Malformed {
+                    kind: MalformedKind::IsoBmffBox,
+                    message: msg,
+                });
             }
         },
         22 => match data.len() {
@@ -120,7 +127,10 @@ fn parse_value(type_code: u32, data: &[u8]) -> crate::Result<EntryValue> {
                     "Invalid ilst item data; \
                     data type is {data_type} while data len is : {data_len}",
                 );
-                return Err(msg.into());
+                return Err(crate::Error::Malformed {
+                    kind: MalformedKind::IsoBmffBox,
+                    message: msg,
+                });
             }
         },
         23 => be_f32(data)?.1.into(),
@@ -128,7 +138,10 @@ fn parse_value(type_code: u32, data: &[u8]) -> crate::Result<EntryValue> {
         data_type => {
             let msg = "Unsupported ilst item data type";
             tracing::warn!(data_type, "{}.", msg);
-            return Err(format!("{}: {data_type}", msg).into());
+            return Err(crate::Error::Malformed {
+                kind: MalformedKind::IsoBmffBox,
+                message: format!("{}: {data_type}", msg),
+            });
         }
     };
     Ok(v)

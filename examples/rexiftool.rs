@@ -153,7 +153,7 @@ fn parse_file<P: AsRef<Path>>(
 
 fn handle_parsing_error(e: &nom_exif::Error) {
     match e {
-        nom_exif::Error::UnrecognizedFileFormat => {
+        nom_exif::Error::UnsupportedFormat => {
             eprintln!("Unrecognized file format, consider filing a bug @ https://github.com/mindeng/nom-exif.");
         }
         _ => {

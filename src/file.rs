@@ -4,6 +4,7 @@ use std::io::Cursor;
 use crate::{
     bbox::{travel_header, BoxHolder},
     ebml::element::parse_ebml_doc_type,
+    error::MalformedKind,
     exif::TiffHeader,
     jpeg::check_jpeg,
     raf::RafInfo,
@@ -190,15 +191,20 @@ fn parse_bmff_mime(input: &[u8]) -> crate::Result<Mime> {
 }
 
 fn get_ftyp_and_major_brand(input: &[u8]) -> crate::Result<(BoxHolder<'_>, Option<&[u8]>)> {
-    let (_, bbox) = BoxHolder::parse(input).map_err(|e| format!("parse ftyp failed: {e}"))?;
+    let (_, bbox) = BoxHolder::parse(input).map_err(|e| crate::Error::Malformed {
+        kind: MalformedKind::IsoBmffBox,
+        message: format!("parse ftyp failed: {e}"),
+    })?;
 
     if bbox.box_type() == "ftyp" {
         if bbox.body_data().len() < 4 {
-            return Err(format!(
-                "parse ftyp failed; body size should greater than 4, got {}",
-                bbox.body_data().len()
-            )
-            .into());
+            return Err(crate::Error::Malformed {
+                kind: MalformedKind::IsoBmffBox,
+                message: format!(
+                    "parse ftyp failed; body size should greater than 4, got {}",
+                    bbox.body_data().len()
+                ),
+            });
         }
         let (_, ftyp) = complete::take(4_usize)(bbox.body_data())?;
         Ok((bbox, Some(ftyp)))
@@ -206,7 +212,10 @@ fn get_ftyp_and_major_brand(input: &[u8]) -> crate::Result<(BoxHolder<'_>, Optio
         // MOV files that extracted from HEIC starts with `wide` & `mdat` atoms
         Ok((bbox, None))
     } else {
-        Err(format!("parse ftyp failed; first box type is: {}", bbox.box_type()).into())
+        Err(crate::Error::Malformed {
+            kind: MalformedKind::IsoBmffBox,
+            message: format!("parse ftyp failed; first box type is: {}", bbox.box_type()),
+        })
     }
 }
 
