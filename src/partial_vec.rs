@@ -64,7 +64,6 @@ impl PartialVec {
     /// Convert this view into a standalone `Bytes` (the sliced view, not
     /// the full backing allocation). Used during the P4.5 migration to
     /// hand off byte ownership to `Bytes`-typed consumers.
-    #[allow(dead_code)]
     pub(crate) fn into_bytes(self) -> Bytes {
         self.data.slice(self.range)
     }

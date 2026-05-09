@@ -1,10 +1,11 @@
 use std::{collections::HashSet, fmt::Debug, ops::Range, sync::Arc};
 
+use bytes::Bytes;
 use nom::{number::complete, Parser};
 
 use crate::{
     error::EntryError,
-    partial_vec::{AssociatedInput, PartialVec},
+    partial_vec::PartialVec,
     slice::SliceChecked,
     values::{DataFormat, EntryData, IRational, URational},
     EntryValue, ExifTag,
@@ -64,7 +65,7 @@ pub(crate) fn input_into_iter(
     }
     tracing::debug!(?header, offset = start);
 
-    let mut ifd0 = IfdIter::try_new(0, input.to_owned(), header.to_owned(), start, None)?;
+    let mut ifd0 = IfdIter::try_new(0, input.clone().into_bytes(), header.to_owned(), start, None)?;
 
     let tz = ifd0.find_tz_offset();
     ifd0.tz = tz.clone();
@@ -207,7 +208,7 @@ impl ExifIter {
 
         let mut gps_subifd = match IfdIter::try_new(
             gps.ifd,
-            iter.input.partial(&iter.input[..]),
+            iter.input.partial(&iter.input[..]).into_bytes(),
             iter.tiff_header,
             offset as usize,
             iter.tz.clone(),
@@ -541,7 +542,7 @@ pub(crate) struct IfdIter {
     tag_code: Option<ExifTagCode>,
 
     // starts from TIFF header
-    input: AssociatedInput,
+    input: Bytes,
 
     // ifd data offset
     offset: usize,
@@ -603,7 +604,7 @@ impl IfdIter {
     #[tracing::instrument(skip(input))]
     pub fn try_new(
         ifd_idx: usize,
-        input: AssociatedInput,
+        input: Bytes,
         header: TiffHeader,
         offset: usize,
         tz: Option<String>,
@@ -616,7 +617,7 @@ impl IfdIter {
         }
         // should use the complete header data to parse ifd entry num
         assert!(offset <= input.len());
-        let ifd_data = input.partial(&input[offset..]);
+        let ifd_data = input.slice(offset..);
         let (_, entry_num) = TiffHeader::parse_ifd_entry_num(&ifd_data, header.endian)?;
 
         Ok(Self {
@@ -737,7 +738,7 @@ impl IfdIter {
         if offset < self.input.len() {
             match IfdIter::try_new(
                 ifd_idx,
-                self.input.partial(&self.input[..]),
+                self.input.clone(),
                 self.header.to_owned(),
                 offset,
                 self.tz.clone(),
