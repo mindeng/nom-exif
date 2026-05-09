@@ -753,22 +753,6 @@ impl From<&str> for EntryValue {
     }
 }
 
-impl From<(u32, u32)> for EntryValue {
-    fn from(value: (u32, u32)) -> Self {
-        Self::URational(value.into())
-    }
-}
-
-impl From<(i32, i32)> for EntryValue {
-    fn from(value: (i32, i32)) -> Self {
-        Self::IRational((value.0, value.1).into())
-    }
-}
-
-// #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-// #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
-// pub struct URational(pub u32, pub u32);
-
 pub type URational = Rational<u32>;
 pub type IRational = Rational<i32>;
 
@@ -802,18 +786,6 @@ impl<T: Copy + Into<f64> + PartialEq + Default> Rational<T> {
         } else {
             Some(self.numerator.into() / self.denominator.into())
         }
-    }
-}
-
-impl<T: Copy> From<(T, T)> for Rational<T> {
-    fn from(value: (T, T)) -> Self {
-        Self::new(value.0, value.1)
-    }
-}
-
-impl<T: Copy> From<Rational<T>> for (T, T) {
-    fn from(value: Rational<T>) -> Self {
-        (value.numerator, value.denominator)
     }
 }
 
