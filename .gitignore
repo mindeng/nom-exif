@@ -17,3 +17,6 @@ Cargo.lock
 /testdata/*.html
 /debug.log
 /testdata/fujifilm_x_t1_01.raf
+
+# Serena MCP local cache
+.serena/
