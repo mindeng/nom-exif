@@ -1,6 +1,6 @@
 # Changelog
 
-## nom-exif v3.0.0
+## nom-exif v3.0.0 (2026-05-09)
 
 **Breaking release.** The public API has been reshaped end-to-end. The
 canonical migration guide is [`docs/MIGRATION.md`](docs/MIGRATION.md);
