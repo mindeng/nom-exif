@@ -20,204 +20,147 @@
   - ISO base media file format (ISOBMFF): .mp4, .mov, .3gp, etc.
   - Matroska based file format: .webm, .mkv, .mka, etc.
 
-## Key Features
-
-- Ergonomic Design
-
-  - **Unified Workflow** for Various File Types
-  
-    Now, multimedia files of different types and formats (including images,
-    videos, and audio) can be processed using a unified method. This consistent
-    API interface simplifies user experience and reduces cognitive load.
-
-    The usage is demonstrated in the following examples. `examples/rexiftool`
-    is also a good example.
-  
-  - Two style APIs for Exif
-  
-    *iterator* style ([`ExifIter`]) and *get* style ([`Exif`]). The former is
-    parse-on-demand, and therefore, more detailed error information can be
-    captured; the latter is simpler and easier to use.
-  
-- Performance
-
-  - *Zero-copy* when appropriate: Use borrowing and slicing instead of
-    copying whenever possible.
-
-  - Minimize I/O operations: When metadata is stored at the end/middle of a
-    large file (such as a QuickTime file does), `Seek` rather than `Read`
-    to quickly locate the location of the metadata (if the reader supports
-    `Seek`).
-
-  - Supports both *seekable* and *unseekable* data sources, see [`MediaSource::seekable`]
-    for more information.
-  
-  - Share I/O and parsing buffer between multiple parse calls: This can
-    improve performance and avoid the overhead and memory fragmentation
-    caused by frequent memory allocation. This feature is very useful when
-    you need to perform batch parsing.
-
-  - Pay as you go: When working with [`ExifIter`], all entries are
-    lazy-parsed. That is, only when you iterate over [`ExifIter`] will the
-    IFD entries be parsed one by one.
-
-- Robustness and stability
-
-  Through long-term fuzz testing, tons of crash issues discovered during
-  testing have been fixed. Thanks to [@sigaloid](https://github.com/sigaloid)
-  for [pointing this out](https://github.com/mindeng/nom-exif/pull/5)!
-
-- Supports both *sync* and *async* APIs
-
-## Unified Workflow for Various File Types
-
-By using `MediaSource` & `MediaParser`, multimedia files of different types and
-formats (including images, videos, and audio) can be processed using a unified
-method.
-
-Here's an example:
+## Quick Start
 
 ```rust
-use nom_exif::*;
+use nom_exif::{read_exif, read_track, read_metadata, ExifTag, TrackInfoTag, Metadata};
 
-fn main() -> Result<()> {
-    let mut parser = MediaParser::new();
+// One image:
+let exif = read_exif("./testdata/exif.jpg")?;
+let make = exif.get(ExifTag::Make).and_then(|v| v.as_str());
 
-    let files = [
-        "./testdata/exif.heic",
-        "./testdata/exif.jpg",
-        "./testdata/tif.tif",
-        "./testdata/meta.mov",
-        "./testdata/meta.mp4",
-        "./testdata/webm_480.webm",
-        "./testdata/mkv_640x360.mkv",
-        "./testdata/mka.mka",
-        "./testdata/3gp_640x360.3gp"
-    ];
+// One video:
+let info = read_track("./testdata/meta.mov")?;
+let model = info.get(TrackInfoTag::Model).and_then(|v| v.as_str());
 
-    for f in files {
-        let ms = MediaSource::file_path(f)?;
+// Auto-detect:
+match read_metadata("./testdata/exif.jpg")? {
+    Metadata::Exif(_)  => { /* image */ }
+    Metadata::Track(_) => { /* video/audio */ }
+}
+# Ok::<(), nom_exif::Error>(())
+```
 
-        if ms.has_exif() {
-            // Parse the file as an Exif-compatible file
-            let mut iter: ExifIter = parser.parse(ms)?;
-            // ...
-        } else if ms.has_track() {
-            // Parse the file as a track
-            let info: TrackInfo = parser.parse(ms)?;
-            // ...
+## Reusable Parser
+
+For batch processing, build a `MediaParser` once and reuse its buffer
+across calls:
+
+```rust
+use nom_exif::{MediaKind, MediaParser, MediaSource, ExifTag, TrackInfoTag};
+
+let mut parser = MediaParser::new();
+
+let files = [
+    "./testdata/exif.heic",
+    "./testdata/exif.jpg",
+    "./testdata/meta.mov",
+];
+
+for f in files {
+    let ms = MediaSource::open(f)?;
+    match ms.kind() {
+        MediaKind::Image => {
+            let iter = parser.parse_exif(ms)?;
+            let exif: nom_exif::Exif = iter.into();
+            let _ = exif.get(ExifTag::Make);
+        }
+        MediaKind::Track => {
+            let info = parser.parse_track(ms)?;
+            let _ = info.get(TrackInfoTag::Make);
         }
     }
-
-    Ok(())
 }
+# Ok::<(), nom_exif::Error>(())
 ```
 
-## Sync API: `MediaSource` + `MediaParser`
+`MediaSource` accepts any `Read` (or `Read + Seek`):
 
-`MediaSource` is an abstraction of multimedia data sources, which can be
-created from any object that implements the `Read` trait, and can be parsed by
-`MediaParser`.
+- `MediaSource::open(path)` — convenience for files.
+- `MediaSource::seekable(reader)` — any `Read + Seek` source.
+- `MediaSource::unseekable(reader)` — `Read`-only source (e.g. a network
+  stream); slower for formats that store metadata at the end of the file
+  (such as `.mov`).
 
-Example:
+## Two API styles for Exif
+
+The library exposes both **eager** and **lazy** views of EXIF metadata.
 
 ```rust
-use nom_exif::*;
-use chrono::DateTime;
+use nom_exif::{read_exif, read_exif_iter, ExifTag};
 
-fn main() -> Result<()> {
-    let mut parser = MediaParser::new();
-    
-    let ms = MediaSource::file_path("./testdata/exif.heic")?;
-    assert!(ms.has_exif());
-    
-    let mut iter: ExifIter = parser.parse(ms)?;
-    let exif: Exif = iter.into();
-    assert_eq!(exif.get(ExifTag::Make).unwrap().as_str().unwrap(), "Apple");
-    assert_eq!(exif.get(ExifTag::Model).unwrap().as_str().unwrap(), "iPhone 12 Pro");
+// Eager — easiest. Get-by-tag, parsed up front.
+let exif = read_exif("./testdata/exif.jpg")?;
+let make = exif.get(ExifTag::Make).and_then(|v| v.as_str());
 
-    let dto_value = exif.get(ExifTag::DateTimeOriginal).unwrap();
-    let (ndt, offset) = dto_value.as_time_components().unwrap();
-    if let Some(offset) = offset {
-        // The DateTimeOriginal value has an offset, so we can convert it to
-        // a DateTime like this:
-        let dt = ndt.and_local_timezone(offset).unwrap();
-        assert_eq!(dt, DateTime::parse_from_str("2022-07-22T21:26:32+08:00", "%+").unwrap());
-    } else {
-        // The DateTimeOriginal value has no offset, use `ndt` directly
-    }
-
-    let ms = MediaSource::file_path("./testdata/meta.mov")?;
-    assert!(ms.has_track());
-    
-    let info: TrackInfo = parser.parse(ms)?;
-    assert_eq!(info.get(TrackInfoTag::Make), Some(&"Apple".into()));
-    assert_eq!(info.get(TrackInfoTag::Model), Some(&"iPhone X".into()));
-    assert_eq!(info.get(TrackInfoTag::GpsIso6709), Some(&"+27.1281+100.2508+000.000/".into()));
-    assert_eq!(info.get_gps_info().unwrap().latitude_ref, 'N');
-    assert_eq!(
-        info.get_gps_info().unwrap().latitude,
-        [(27, 1), (7, 1), (68, 100)].into(),
-    );
-
-    // `MediaSource` can also be created from a `TcpStream`:
-    // let ms = MediaSource::tcp_stream(stream)?;
-
-    // Or from any `Read + Seek`:
-    // let ms = MediaSource::seekable(stream)?;
-    
-    // From any `Read`:
-    // let ms = MediaSource::unseekable(stream)?;
-    
-    Ok(())
+// Lazy — finer-grained. Parse-on-demand, per-entry errors visible.
+let iter = read_exif_iter("./testdata/exif.jpg")?;
+for entry in iter {
+    let _tag = entry.tag();          // TagOrCode (Tag(...) or Unknown(code))
+    let _ifd = entry.ifd_index();    // IfdIndex
+    let _ = entry.into_result();      // Result<EntryValue, EntryError>
 }
+# Ok::<(), nom_exif::Error>(())
 ```
 
-See [`MediaSource`] & [`MediaParser`] for more information.
+## Async API
 
-## Async API: `AsyncMediaSource` + `AsyncMediaParser`
-
-Likewise, `AsyncMediaParser` is an abstraction for asynchronous multimedia data
-sources, which can be created from any object that implements the `AsyncRead`
-trait, and can be parsed by `AsyncMediaParser`.
-
-Enable `async` feature flag for `nom-exif` in your `Cargo.toml`:
+Enable the `tokio` feature in your `Cargo.toml`:
 
 ```toml
 [dependencies]
-nom-exif = { version = "2", features = ["async"] }
+nom-exif = { version = "3", features = ["tokio"] }
 ```
 
-See [`AsyncMediaSource`] & [`AsyncMediaParser`] for more information.
+Then use the `_async` helpers, or call `parse_exif_async` /
+`parse_track_async` on a `MediaParser` directly:
+
+```rust,no_run
+# #[cfg(feature = "tokio")]
+# async fn demo() -> nom_exif::Result<()> {
+use nom_exif::{read_exif_async, MediaParser, AsyncMediaSource};
+
+// One-shot:
+let exif = read_exif_async("./testdata/exif.jpg").await?;
+
+// Reusable:
+let mut parser = MediaParser::new();
+let ms = AsyncMediaSource::open("./testdata/exif.jpg").await?;
+let iter = parser.parse_exif_async(ms).await?;
+# let _ = (exif, iter); Ok(())
+# }
+```
 
 ## GPS Info
 
-`ExifIter` provides a convenience method for parsing gps information. (`Exif` &
-`TrackInfo` also provide a `get_gps_info` method).
+`Exif` and `TrackInfo` both expose `gps_info()`. `ExifIter` adds
+`parse_gps()` for early termination once GPS tags have been read.
 
 ```rust
-use nom_exif::*;
+use nom_exif::{read_exif, LatRef, LonRef, Altitude};
 
-fn main() -> Result<()> {
-    let mut parser = MediaParser::new();
-    
-    let ms = MediaSource::file_path("./testdata/exif.heic")?;
-    let iter: ExifIter = parser.parse(ms)?;
-
-    let gps_info = iter.parse_gps_info()?.unwrap();
-    assert_eq!(gps_info.format_iso6709(), "+43.29013+084.22713+1595.950CRSWGS_84/");
-    assert_eq!(gps_info.latitude_ref, 'N');
-    assert_eq!(gps_info.longitude_ref, 'E');
-    assert_eq!(
-        gps_info.latitude,
-        [(43, 1), (17, 1), (2446, 100)].into(),
-    );
-    Ok(())
+let exif = read_exif("./testdata/exif.heic")?;
+if let Some(g) = exif.gps_info() {
+    let _ = matches!(g.latitude_ref, LatRef::North | LatRef::South);
+    let _ = matches!(g.longitude_ref, LonRef::East | LonRef::West);
+    let _ = matches!(g.altitude, Altitude::AboveSeaLevel(_) | Altitude::BelowSeaLevel(_));
+    let _iso = g.to_iso6709();
 }
+# Ok::<(), nom_exif::Error>(())
 ```
 
-For more usage details, please refer to the [API
-documentation](https://docs.rs/nom-exif/latest/nom_exif/).
+## Migration from v2
+
+See `docs/V3_API_DESIGN.md` §5 for the full migration table. Hot items:
+
+- `MediaSource::file_path(p)` → `MediaSource::open(p)` or `read_exif(p)`.
+- `parser.parse::<_,_,ExifIter>(ms)` → `parser.parse_exif(ms)`.
+- `parser.parse::<_,_,TrackInfo>(ms)` → `parser.parse_track(ms)`.
+- `entry.take_result()` (panicky) → `entry.into_result()` (consumes self).
+- `iter.parse_gps_info()` → `iter.parse_gps()`.
+- `info.get_gps_info()` → `info.gps_info()` (returns `Option<&GPSInfo>`).
+- `g.latitude_ref == 'N'` → `matches!(g.latitude_ref, LatRef::North)`.
+- Cargo features: `async` → `tokio`, `json_dump` → `serde`.
 
 ## CLI Tool `rexiftool`
 
@@ -225,7 +168,7 @@ documentation](https://docs.rs/nom-exif/latest/nom_exif/).
 
 `cargo run --example rexiftool testdata/meta.mov`:
 
-``` text
+```text
 Make                            => Apple
 Model                           => iPhone X
 Software                        => 12.1.2
@@ -236,15 +179,15 @@ ImageHeight                     => 1280
 GpsIso6709                      => +27.1281+100.2508+000.000/
 ```
 
-Enabling option `--debug` to turn on tracing logs:
+Pass `--debug` to enable tracing logs:
 
 `cargo run --example rexiftool -- --debug ./testdata/meta.mov`
 
-### Json Dump
+### JSON Dump
 
-`cargo run --features json_dump --example rexiftool testdata/meta.mov -j`:
+`cargo run --features serde --example rexiftool testdata/meta.mov -j`:
 
-``` text
+```text
 {
   "ImageWidth": "720",
   "Software": "12.1.2",
@@ -257,7 +200,7 @@ Enabling option `--debug` to turn on tracing logs:
 }
 ```
 
-### Parsing Files in Directory
+### Parsing Files in a Directory
 
 `rexiftool` also supports batch parsing of all files in a folder
 (non-recursive).
@@ -276,58 +219,12 @@ ImageWidth                      => 1920
 ImageHeight                     => 1440
 GpsIso6709                      => +22.5797+113.9380+028.396/
 
-File: "testdata/compatible-brands-fail.heic"
-------------------------------------------------
-Unrecognized file format, consider filing a bug @ https://github.com/mindeng/nom-exif.
-
-File: "testdata/webm_480.webm"
-------------------------------------------------
-CreateDate                      => 2009-09-09T09:09:09+00:00
-DurationMs                      => 30543
-ImageWidth                      => 480
-ImageHeight                     => 270
-
-File: "testdata/mka.mka"
-------------------------------------------------
-DurationMs                      => 3422
-ImageWidth                      => 0
-ImageHeight                     => 0
-
-File: "testdata/exif-one-entry.heic"
-------------------------------------------------
-Orientation                     => 1
-
-File: "testdata/no-exif.jpg"
-------------------------------------------------
-Error: parse failed: Exif not found
-
 File: "testdata/exif.jpg"
 ------------------------------------------------
 ImageWidth                      => 3072
 Model                           => vivo X90 Pro+
 ImageHeight                     => 4096
 ModifyDate                      => 2023-07-09T20:36:33+08:00
-YCbCrPositioning                => 1
-ExifOffset                      => 201
-MakerNote                       => Undefined[0x30]
-RecommendedExposureIndex        => 454
-SensitivityType                 => 2
-ISOSpeedRatings                 => 454
-ExposureProgram                 => 2
-FNumber                         => 175/100 (1.7500)
-ExposureTime                    => 9997/1000000 (0.0100)
-SensingMethod                   => 2
-SubSecTimeDigitized             => 616
-OffsetTimeOriginal              => +08:00
-SubSecTimeOriginal              => 616
-OffsetTime                      => +08:00
-SubSecTime                      => 616
-FocalLength                     => 8670/1000 (8.6700)
-Flash                           => 16
-LightSource                     => 21
-MeteringMode                    => 1
-SceneCaptureType                => 0
-UserComment                     => filter: 0; fileterIntensity: 0.0; ...
 ...
 ```
 

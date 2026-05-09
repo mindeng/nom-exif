@@ -1,17 +1,70 @@
 //! `nom-exif` — Exif and track metadata parser for image, video, and audio
 //! files.
 //!
-//! **v3 (in progress):** the API is being reshaped; this top-level docstring
-//! is a placeholder until P6 lands the full v3 tutorial. The public symbols
-//! you most likely want:
+//! # Quick start
 //!
-//! - One-shot helpers: [`read_exif`], [`read_exif_iter`], [`read_track`],
-//!   [`read_metadata`].
-//! - Reusable parser: [`MediaParser`] + [`MediaSource`] + [`MediaKind`].
-//! - Async variants under `feature = "tokio"`.
+//! For a one-shot read, use the helpers — they wrap the file in a
+//! [`std::io::BufReader`] internally:
 //!
-//! See the v3 design document at `docs/V3_API_DESIGN.md` for the full
-//! migration story.
+//! ```rust
+//! use nom_exif::{read_exif, ExifTag};
+//!
+//! let exif = read_exif("./testdata/exif.jpg")?;
+//! let make = exif.get(ExifTag::Make).and_then(|v| v.as_str());
+//! assert_eq!(make, Some("vivo"));
+//! # Ok::<(), nom_exif::Error>(())
+//! ```
+//!
+//! For batch processing, build a [`MediaParser`] once and reuse its
+//! buffer:
+//!
+//! ```rust
+//! use nom_exif::{MediaKind, MediaParser, MediaSource};
+//!
+//! let mut parser = MediaParser::new();
+//! for path in ["./testdata/exif.jpg", "./testdata/meta.mov"] {
+//!     let ms = MediaSource::open(path)?;
+//!     match ms.kind() {
+//!         MediaKind::Image => { let _ = parser.parse_exif(ms)?; }
+//!         MediaKind::Track => { let _ = parser.parse_track(ms)?; }
+//!     }
+//! }
+//! # Ok::<(), nom_exif::Error>(())
+//! ```
+//!
+//! Async variants live behind `feature = "tokio"`:
+//! [`read_exif_async`], [`read_track_async`], [`read_metadata_async`],
+//! plus [`MediaParser::parse_exif_async`] / [`MediaParser::parse_track_async`].
+//!
+//! # API surface
+//!
+//! - **One-shot helpers**: [`read_exif`], [`read_exif_iter`], [`read_track`], [`read_metadata`].
+//! - **Reusable parser**: [`MediaParser`] + [`MediaSource`] (or [`AsyncMediaSource`])
+//!   + [`MediaKind`].
+//! - **Image metadata**: [`Exif`] (eager, get-by-tag) or [`ExifIter`]
+//!   (lazy iterator with per-entry errors). Convert: `let exif: Exif = iter.into();`.
+//! - **Track metadata**: [`TrackInfo`] (audio/video container metadata).
+//! - **Discriminated union**: [`Metadata`] returned by [`read_metadata`].
+//! - **Errors**: [`Error`] for parse-level, [`EntryError`] for per-entry
+//!   IFD errors, [`ConvertError`] for type-conversion peer errors.
+//! - **Convenience**: [`prelude`] re-exports the symbols you most often need.
+//!
+//! See `docs/V3_API_DESIGN.md` for the full design contract and the
+//! v2 → v3 migration table.
+//!
+//! # Cargo features
+//!
+//! - `tokio` — async API via tokio (`AsyncMediaSource`, `read_*_async`,
+//!   `MediaParser::parse_*_async`).
+//! - `serde` — derives `Serialize`/`Deserialize` on the public types.
+//!
+//! # Embedded media
+//!
+//! Some formats (HEIC Live Photos, RAF JPEG previews, …) embed media
+//! streams that `parse_exif` does not surface. The
+//! [`Exif::has_embedded_media`] / [`ExifIter::has_embedded_media`] /
+//! [`TrackInfo::has_embedded_media`] flags let callers detect this; the
+//! actual extraction API is a v3.x deliverable.
 
 pub use parser::{MediaKind, MediaParser, MediaSource};
 pub use video::{TrackInfo, TrackInfoTag};
