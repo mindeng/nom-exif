@@ -35,6 +35,10 @@ const QT_BRAND_NAMES: &[&str] = &["qt  ", "mqt "];
 
 const CR3_BRAND_NAMES: &[&str] = &["crx "];
 
+// AVIF (AV1 Image File Format, ISO/IEC 23000-22) brands. `avif` covers single
+// images; `avis` covers image sequences; `avio` covers AVIF item-only files.
+const AVIF_BRAND_NAMES: &[&[u8]] = &[b"avif", b"avis", b"avio"];
+
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub(crate) enum MediaMime {
     Image(MediaMimeImage),
@@ -57,6 +61,7 @@ pub(crate) enum MediaMimeImage {
     Jpeg,
     Heic,
     Heif,
+    Avif,
     Tiff,
     Raf,
     Cr3,
@@ -122,6 +127,13 @@ fn parse_bmff_mime(input: &[u8]) -> crate::Result<MediaMime> {
         return Ok(MediaMime::Track(MediaMimeTrack::QuickTime));
     }
 
+    // Check if it is an AVIF file. Must precede the HEIF compatible-brand
+    // check below because AVIF files commonly include `mif1`/`miaf` in their
+    // compatible-brand list.
+    if AVIF_BRAND_NAMES.contains(&major_brand) {
+        return Ok(MediaMime::Image(MediaMimeImage::Avif));
+    }
+
     // Check if it is a HEIF file
     if HEIF_HEIC_BRAND_NAMES.contains(&major_brand) {
         if HEIC_BRAND_NAMES.contains(&major_brand) {
@@ -151,6 +163,13 @@ fn parse_bmff_mime(input: &[u8]) -> crate::Result<MediaMime> {
         .any(|v| compatible_brands.find_substring(v.as_bytes()).is_some())
     {
         return Ok(MediaMime::Track(MediaMimeTrack::QuickTime));
+    }
+
+    if AVIF_BRAND_NAMES
+        .iter()
+        .any(|x| compatible_brands.find_substring(*x).is_some())
+    {
+        return Ok(MediaMime::Image(MediaMimeImage::Avif));
     }
 
     if HEIF_HEIC_BRAND_NAMES
@@ -228,6 +247,7 @@ mod tests {
     use crate::testkit::read_sample;
 
     #[test_case("exif.heic", Image(Heic))]
+    #[test_case("exif.avif", Image(Avif))]
     #[test_case("exif.jpg", Image(Jpeg))]
     #[test_case("fujifilm_x_t1_01.raf.meta", Image(Raf))]
     #[test_case("meta.mp4", Track(Mp4))]

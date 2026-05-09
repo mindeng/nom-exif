@@ -261,7 +261,9 @@ pub(crate) fn extract_exif_with_mime(
         MediaMimeImage::Jpeg => jpeg::extract_exif_data(buf)
             .map(|res| (res.1, state.clone()))
             .map_err(|e| nom_error_to_parsing_error_with_state(e, state))?,
-        MediaMimeImage::Heic | crate::file::MediaMimeImage::Heif => heif_extract_exif(state, buf)?,
+        MediaMimeImage::Heic
+        | crate::file::MediaMimeImage::Heif
+        | crate::file::MediaMimeImage::Avif => heif_extract_exif(state, buf)?,
         MediaMimeImage::Tiff => {
             let header = match state {
                 Some(ParsingState::TiffHeader(ref h)) => h.to_owned(),

@@ -1083,6 +1083,12 @@ mod tests {
         "2022-07-22T21:26:32+08:00",
         MediaMimeImage::Heic
     )]
+    #[test_case(
+        "exif.avif",
+        "+08:00",
+        "2022-07-22T21:26:32+08:00",
+        MediaMimeImage::Avif
+    )]
     #[test_case("tif.tif", "-", "-", MediaMimeImage::Tiff)]
     #[test_case(
         "fujifilm_x_t1_01.raf.meta",
