@@ -149,7 +149,7 @@ impl Exif {
 
 impl From<ExifIter> for Exif {
     fn from(iter: ExifIter) -> Self {
-        let gps_info = iter.parse_gps_info().ok().flatten();
+        let gps_info = iter.parse_gps().ok().flatten();
         let has_embedded_media = iter.has_embedded_media();
         let mut exif = Exif::new(gps_info, has_embedded_media);
 
@@ -310,7 +310,7 @@ mod tests {
         let range = data.and_then(|x| buf.subslice_in_range(x)).unwrap();
         let data = bytes::Bytes::from(buf).slice(range);
         let iter = input_into_iter(data, None).unwrap();
-        let gps = iter.parse_gps_info().unwrap().unwrap();
+        let gps = iter.parse_gps().unwrap().unwrap();
         assert_eq!(gps.to_iso6709(), "+22.53113+114.02148/");
     }
 

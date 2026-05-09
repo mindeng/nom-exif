@@ -748,16 +748,16 @@ mod tests {
                 let ms = ms.unwrap();
                 assert_eq!(ms.kind(), MediaKind::Image);
                 let mut it: ExifIter = parser.parse_exif(ms).unwrap();
-                let _ = it.parse_gps_info();
+                let _ = it.parse_gps();
 
                 if path.contains("one-entry") {
                     assert!(it.next().is_some());
                     assert!(it.next().is_none());
 
-                    let exif: crate::Exif = it.clone_and_rewind().into();
+                    let exif: crate::Exif = it.clone_rewound().into();
                     assert!(exif.get(ExifTag::Orientation).is_some());
                 } else {
-                    let _: crate::Exif = it.clone_and_rewind().into();
+                    let _: crate::Exif = it.clone_rewound().into();
                 }
             }
             NoData => {

@@ -176,7 +176,7 @@ impl Debug for ExifIter {
 
 impl Clone for ExifIter {
     fn clone(&self) -> Self {
-        self.clone_and_rewind()
+        self.clone_rewound()
     }
 }
 
@@ -202,11 +202,10 @@ impl ExifIter {
         }
     }
 
-    /// Clone and rewind the iterator's index.
+    /// Clone with iteration state reset to entry 0.
     ///
-    /// Clone an `ExifIter` is very cheap; the underlying data is shared
-    /// via `bytes::Bytes` reference counting.
-    pub fn clone_and_rewind(&self) -> Self {
+    /// Cheap: `ExifIter` shares its underlying `bytes::Bytes` via refcount.
+    pub fn clone_rewound(&self) -> Self {
         let ifd0 = self.ifd0.clone_and_rewind();
         let ifds = vec![ifd0.clone()];
         Self {
@@ -223,7 +222,18 @@ impl ExifIter {
         }
     }
 
-    /// Try to find and parse gps information.
+    /// Reset iteration to the first entry (in-place). After this call,
+    /// `next()` yields entries starting from IFD0 entry 0 again.
+    pub fn rewind(&mut self) {
+        let ifd0 = self.ifd0.clone_and_rewind();
+        self.ifds = vec![ifd0.clone()];
+        self.ifd0 = ifd0;
+        self.visited_offsets.clear();
+        self.current_block_index = 0;
+        self.encountered_tags.clear();
+    }
+
+    /// Try to find and parse GPS information.
     ///
     /// Calling this method won't affect the iterator's state.
     ///
@@ -233,8 +243,8 @@ impl ExifIter {
     /// - An `Ok<None>` if gps info is not found.
     /// - An `Err` if gps info is found but parsing failed.
     #[tracing::instrument(skip_all)]
-    pub fn parse_gps_info(&self) -> crate::Result<Option<GPSInfo>> {
-        let mut iter = self.clone_and_rewind();
+    pub fn parse_gps(&self) -> crate::Result<Option<GPSInfo>> {
+        let mut iter = self.clone_rewound();
         let Some(gps) = iter.find(|x| {
             tracing::info!(?x, "find");
             x.tag().tag().is_some_and(|t| t == ExifTag::GPSInfo)
@@ -1179,5 +1189,47 @@ mod tests {
             .unwrap()
             .any(|e| matches!(e.tag(), TagOrCode::Tag(ExifTag::Make)));
         assert!(make_present);
+    }
+
+    #[test]
+    fn exif_iter_rewind_resets_iteration_state() {
+        use crate::{MediaParser, MediaSource};
+        let mut parser = MediaParser::new();
+        let ms = MediaSource::open("testdata/exif.jpg").unwrap();
+        let mut iter = parser.parse_exif(ms).unwrap();
+        let first_count = iter.by_ref().count();
+        assert!(first_count > 0);
+        // Already exhausted.
+        assert_eq!(iter.by_ref().count(), 0);
+        iter.rewind();
+        let after_rewind = iter.count();
+        assert_eq!(first_count, after_rewind);
+    }
+
+    #[test]
+    fn exif_iter_clone_rewound_yields_independent_full_iter() {
+        use crate::{MediaParser, MediaSource};
+        let mut parser = MediaParser::new();
+        let ms = MediaSource::open("testdata/exif.jpg").unwrap();
+        let mut iter = parser.parse_exif(ms).unwrap();
+        let _consumed = iter.by_ref().take(2).count();
+        let cloned = iter.clone_rewound();
+        // cloned starts from entry 0 even though `iter` consumed 2 entries.
+        let cloned_total = cloned.count();
+        let remaining = iter.count();
+        assert!(cloned_total > remaining);
+    }
+
+    #[test]
+    fn exif_iter_parse_gps_returns_option_no_iteration_advance() {
+        use crate::{MediaParser, MediaSource};
+        let mut parser = MediaParser::new();
+        let ms = MediaSource::open("testdata/exif.jpg").unwrap();
+        let iter = parser.parse_exif(ms).unwrap();
+        let gps = iter.parse_gps().unwrap();
+        assert!(gps.is_some());
+        // parse_gps doesn't drive the outer iterator.
+        let count = iter.count();
+        assert!(count > 0);
     }
 }
