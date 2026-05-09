@@ -402,6 +402,16 @@ impl ParsedExifEntry {
         }
     }
 
+    /// Internal-only: consume the entry and return the underlying result.
+    /// Public counterpart `into_result` lands in Task 9 (when `ParsedExifEntry`
+    /// is renamed to `ExifIterEntry` and its private fields settle).
+    pub(crate) fn into_inner_result(mut self) -> Result<EntryValue, crate::error::EntryError> {
+        match self.res.take() {
+            Some(v) => v,
+            None => panic!("into_inner_result called on already-taken entry"),
+        }
+    }
+
     fn make_ok(ifd: usize, tag: TagOrCode, v: EntryValue) -> Self {
         Self {
             ifd,

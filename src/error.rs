@@ -270,7 +270,7 @@ pub enum ConvertError {
 /// as the `Err` arm of [`crate::ParsedExifEntry::get_result`] (and friends),
 /// or — when converted via `From<EntryError> for Error` — as
 /// [`Error::Malformed`] with [`MalformedKind::IfdEntry`].
-#[derive(Debug, Clone, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
 #[non_exhaustive]
 pub enum EntryError {
     #[error("entry truncated: needed {needed} bytes, only {available} available")]
