@@ -40,6 +40,136 @@ pub struct LatLng {
     pub seconds: URational,
 }
 
+/// Latitude hemisphere reference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LatRef {
+    North,
+    South,
+}
+
+impl LatRef {
+    /// Construct from the 'N' / 'S' character carried in EXIF GPSLatitudeRef.
+    pub fn from_char(c: char) -> Option<Self> {
+        match c {
+            'N' | 'n' => Some(Self::North),
+            'S' | 's' => Some(Self::South),
+            _ => None,
+        }
+    }
+
+    pub fn as_char(self) -> char {
+        match self {
+            Self::North => 'N',
+            Self::South => 'S',
+        }
+    }
+
+    /// +1.0 or -1.0 — useful when assembling decimal-degrees latitude.
+    pub fn sign(self) -> f64 {
+        match self {
+            Self::North => 1.0,
+            Self::South => -1.0,
+        }
+    }
+}
+
+/// Longitude hemisphere reference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LonRef {
+    East,
+    West,
+}
+
+impl LonRef {
+    pub fn from_char(c: char) -> Option<Self> {
+        match c {
+            'E' | 'e' => Some(Self::East),
+            'W' | 'w' => Some(Self::West),
+            _ => None,
+        }
+    }
+
+    pub fn as_char(self) -> char {
+        match self {
+            Self::East => 'E',
+            Self::West => 'W',
+        }
+    }
+
+    pub fn sign(self) -> f64 {
+        match self {
+            Self::East => 1.0,
+            Self::West => -1.0,
+        }
+    }
+}
+
+/// Altitude relative to sea level.
+///
+/// Combines EXIF's `GPSAltitudeRef` (0 = above, 1 = below) with the magnitude
+/// from `GPSAltitude` so the two cannot drift out of sync.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Altitude {
+    /// Absent or unparseable.
+    #[default]
+    Unknown,
+    AboveSeaLevel(URational),
+    BelowSeaLevel(URational),
+}
+
+impl Altitude {
+    /// Signed altitude in meters; `None` when Unknown or denominator=0.
+    pub fn meters(&self) -> Option<f64> {
+        match self {
+            Altitude::Unknown => None,
+            Altitude::AboveSeaLevel(r) => r.to_f64(),
+            Altitude::BelowSeaLevel(r) => r.to_f64().map(|m| -m),
+        }
+    }
+
+    /// The underlying magnitude rational, regardless of sign. None for `Unknown`.
+    pub fn magnitude(&self) -> Option<URational> {
+        match self {
+            Altitude::Unknown => None,
+            Altitude::AboveSeaLevel(r) | Altitude::BelowSeaLevel(r) => Some(*r),
+        }
+    }
+}
+
+/// EXIF GPS speed reference unit (`GPSSpeedRef`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpeedUnit {
+    KmPerHour,
+    MilesPerHour,
+    Knots,
+}
+
+impl SpeedUnit {
+    pub fn from_char(c: char) -> Option<Self> {
+        match c {
+            'K' | 'k' => Some(Self::KmPerHour),
+            'M' | 'm' => Some(Self::MilesPerHour),
+            'N' | 'n' => Some(Self::Knots),
+            _ => None,
+        }
+    }
+
+    pub fn as_char(self) -> char {
+        match self {
+            Self::KmPerHour => 'K',
+            Self::MilesPerHour => 'M',
+            Self::Knots => 'N',
+        }
+    }
+}
+
+/// EXIF GPS speed: unit + value paired so they cannot drift out of sync.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Speed {
+    pub unit: SpeedUnit,
+    pub value: URational,
+}
+
 impl LatLng {
     pub const fn new(degrees: URational, minutes: URational, seconds: URational) -> Self {
         Self { degrees, minutes, seconds }
@@ -369,5 +499,39 @@ mod tests {
             LatLng::try_from_decimal_degrees(181.0),
             Err(ConvertError::InvalidDecimalDegrees(_))
         ));
+    }
+
+    #[test]
+    fn lat_lon_ref_round_trip() {
+        for c in ['N', 'S', 'n', 's'] {
+            assert!(LatRef::from_char(c).is_some());
+        }
+        for c in ['E', 'W', 'e', 'w'] {
+            assert!(LonRef::from_char(c).is_some());
+        }
+        assert_eq!(LatRef::North.as_char(), 'N');
+        assert_eq!(LonRef::West.as_char(), 'W');
+        assert_eq!(LatRef::South.sign(), -1.0);
+        assert_eq!(LonRef::East.sign(), 1.0);
+        assert_eq!(LatRef::from_char('X'), None);
+    }
+
+    #[test]
+    fn altitude_meters_signed() {
+        let above = Altitude::AboveSeaLevel(URational::new(123, 1));
+        let below = Altitude::BelowSeaLevel(URational::new(123, 1));
+        assert_eq!(above.meters(), Some(123.0));
+        assert_eq!(below.meters(), Some(-123.0));
+        assert_eq!(Altitude::Unknown.meters(), None);
+        assert_eq!(Altitude::AboveSeaLevel(URational::new(1, 0)).meters(), None);
+    }
+
+    #[test]
+    fn speed_unit_round_trip() {
+        assert_eq!(SpeedUnit::from_char('K'), Some(SpeedUnit::KmPerHour));
+        assert_eq!(SpeedUnit::from_char('M'), Some(SpeedUnit::MilesPerHour));
+        assert_eq!(SpeedUnit::from_char('N'), Some(SpeedUnit::Knots));
+        assert_eq!(SpeedUnit::from_char('X'), None);
+        assert_eq!(SpeedUnit::Knots.as_char(), 'N');
     }
 }

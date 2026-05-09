@@ -20,6 +20,7 @@ pub use video::{TrackInfo, TrackInfoTag};
 pub use parser_async::AsyncMediaSource;
 
 pub use exif::{Exif, ExifIter, ExifTag, GPSInfo, LatLng, ParsedExifEntry};
+pub use exif::gps::{Altitude, LatRef, LonRef, Speed, SpeedUnit};
 pub use values::{EntryValue, ExifDateTime, IRational, URational};
 
 pub use error::{ConvertError, EntryError, Error, MalformedKind};

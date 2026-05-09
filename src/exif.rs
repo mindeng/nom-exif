@@ -21,7 +21,7 @@ pub(crate) use travel::IfdHeaderTravel;
 
 mod exif_exif;
 mod exif_iter;
-mod gps;
+pub mod gps;
 mod tags;
 mod travel;
 
