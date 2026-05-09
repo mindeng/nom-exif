@@ -53,7 +53,7 @@ let meta = nom_exif::read_metadata("file.heic")?;   // returns Metadata::{Exif,T
 | `value.as_time_components() -> Option<(NaiveDateTime, Option<FixedOffset>)>` | `value.as_datetime() -> Option<ExifDateTime>`, where `ExifDateTime` is `Aware`/`Naive` with `aware()` / `into_naive()` / `or_offset(fallback)` accessors |
 | `value.as_u8array()` | `value.as_u8_slice()` |
 | `value.to_u8array()` | Removed — use `as_u8_slice().map(<[u8]>::to_vec)` |
-| Missing `as_i64` / `as_f64` / `as_u16_slice` / etc. | Filled in. `as_i8` / `as_i16` / `as_f32` are intentionally **not** provided (these widths are virtually nonexistent in modern EXIF) |
+| Missing `as_i64` / `as_f64` / `as_u16_slice` / etc. | Filled in. `as_f32` is intentionally **not** provided (`as_f64` covers it via widening); `as_i8` / `as_i16` are present even though those widths are rare in modern EXIF |
 
 ## 4. ExifTag
 
