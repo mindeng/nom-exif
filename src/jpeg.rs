@@ -105,12 +105,11 @@ fn parse_motion_photo_offset(xmp: &[u8]) -> Option<u64> {
     if !has_motion_photo {
         return None;
     }
-    container_motion_photo_offset(xmp)
-        .or_else(|| {
-            extract_attr_value(xmp, b"GCamera:MotionPhotoOffset")
-                .or_else(|| extract_attr_value(xmp, b"GCamera:MicroVideoOffset"))
-                .and_then(|s| std::str::from_utf8(s).ok()?.parse::<u64>().ok())
-        })
+    container_motion_photo_offset(xmp).or_else(|| {
+        extract_attr_value(xmp, b"GCamera:MotionPhotoOffset")
+            .or_else(|| extract_attr_value(xmp, b"GCamera:MicroVideoOffset"))
+            .and_then(|s| std::str::from_utf8(s).ok()?.parse::<u64>().ok())
+    })
 }
 
 /// Walk `<Container:Directory>` and return the trailer length of the
@@ -179,9 +178,7 @@ fn memchr_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() || haystack.len() < needle.len() {
         return None;
     }
-    haystack
-        .windows(needle.len())
-        .position(|w| w == needle)
+    haystack.windows(needle.len()).position(|w| w == needle)
 }
 
 /// Extract Exif TIFF data from the bytes of a JPEG file.

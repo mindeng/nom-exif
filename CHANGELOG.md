@@ -1,5 +1,16 @@
 # Changelog
 
+## nom-exif v3.1.1 (2026-05-09)
+
+### Fixed
+
+- Apply `cargo fmt` to long-line breaks introduced in 3.1.0
+  (`src/exif/exif_exif.rs`, `src/jpeg.rs`, `src/parser.rs`). Pure
+  formatting; no functional changes. The 3.1.0 release passed every CI
+  job except `cargo fmt --check`; 3.1.1 closes that gap. Users on
+  3.1.0 should upgrade only if their build pipeline runs
+  `cargo fmt --check` against the published source.
+
 ## nom-exif v3.1.0 (2026-05-09)
 
 ### Added

@@ -541,9 +541,7 @@ mod tests {
         use crate::{MediaParser, MediaSource};
         for path in ["testdata/exif.jpg", "testdata/exif.heic"] {
             let mut parser = MediaParser::new();
-            let iter = parser
-                .parse_exif(MediaSource::open(path).unwrap())
-                .unwrap();
+            let iter = parser.parse_exif(MediaSource::open(path).unwrap()).unwrap();
             assert!(
                 !iter.has_embedded_track(),
                 "{path} has no Motion Photo / paired track signal"
@@ -583,8 +581,7 @@ mod tests {
             .parse_track(MediaSource::open(path).unwrap())
             .expect("parse_track must extract the trailer MP4");
         assert!(
-            track.get(TrackInfoTag::Width).is_some()
-                || track.get(TrackInfoTag::Height).is_some(),
+            track.get(TrackInfoTag::Width).is_some() || track.get(TrackInfoTag::Height).is_some(),
             "trailer should yield at least one geometry tag"
         );
     }

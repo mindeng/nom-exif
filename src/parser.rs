@@ -755,17 +755,18 @@ impl MediaParser {
 
         // The trailer can be MP4 / MOV / 3gp depending on the source device;
         // dispatch by sniffing it as a fresh ISO BMFF input.
-        let trailer_mime = crate::file::MediaMime::try_from(trailer)
-            .map_err(|_| crate::Error::TrackNotFound)?;
+        let trailer_mime =
+            crate::file::MediaMime::try_from(trailer).map_err(|_| crate::Error::TrackNotFound)?;
         let mime_track = match trailer_mime {
             crate::file::MediaMime::Track(t) => t,
             crate::file::MediaMime::Image(_) => return Err(crate::Error::TrackNotFound),
         };
         crate::video::parse_track_info(trailer, mime_track).map_err(|e| match e {
-            crate::error::ParsingError::Need(_)
-            | crate::error::ParsingError::ClearAndSkip(_) => crate::Error::UnexpectedEof {
-                context: "motion-photo trailer",
-            },
+            crate::error::ParsingError::Need(_) | crate::error::ParsingError::ClearAndSkip(_) => {
+                crate::Error::UnexpectedEof {
+                    context: "motion-photo trailer",
+                }
+            }
             crate::error::ParsingError::Failed(msg) => crate::Error::Malformed {
                 kind: crate::error::MalformedKind::IsoBmffBox,
                 message: msg,
