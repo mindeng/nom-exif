@@ -28,7 +28,10 @@ mod travel;
 /// `parse_exif` does not extract (HEIC Live Photo MOV, RAF JPEG preview, …).
 /// Used by `MediaParser::parse_exif` to stamp the returned `ExifIter`.
 fn mime_has_embedded_media(mime: MediaMimeImage) -> bool {
-    matches!(mime, MediaMimeImage::Heic | MediaMimeImage::Heif | MediaMimeImage::Raf)
+    matches!(
+        mime,
+        MediaMimeImage::Heic | MediaMimeImage::Heif | MediaMimeImage::Raf
+    )
 }
 
 #[tracing::instrument(skip(reader, skip_by_seek))]
@@ -63,8 +66,9 @@ fn parse_cr3_exif_iter<R: Read>(
     skip_by_seek: crate::parser::SkipBySeekFn<R>,
 ) -> Result<ExifIter, crate::Error> {
     // First, parse to get all CMT ranges
-    let cmt_ranges = parser
-        .load_and_parse(reader, skip_by_seek, |buf, _state| cr3::extract_all_cmt_ranges(buf))?;
+    let cmt_ranges = parser.load_and_parse(reader, skip_by_seek, |buf, _state| {
+        cr3::extract_all_cmt_ranges(buf)
+    })?;
 
     let Some(cmt_ranges) = cmt_ranges else {
         return Err(crate::Error::Malformed {
@@ -135,7 +139,11 @@ fn parse_cr3_exif_iter<R: Read>(
 
 type ExifRangeResult = Result<Option<(Range<usize>, Option<TiffHeader>)>, ParsingErrorState>;
 
-fn extract_exif_range(img: MediaMimeImage, buf: &[u8], state: Option<ParsingState>) -> ExifRangeResult {
+fn extract_exif_range(
+    img: MediaMimeImage,
+    buf: &[u8],
+    state: Option<ParsingState>,
+) -> ExifRangeResult {
     let (exif_data, state) = extract_exif_with_mime(img, buf, state)?;
     let header = state.and_then(|x| match x {
         ParsingState::TiffHeader(h) => Some(h),
@@ -273,9 +281,17 @@ mod tests {
     #[test_case(
         "exif.jpg",
         LatRef::North,
-        LatLng::new(URational::new(22, 1), URational::new(31, 1), URational::new(5208, 100)),
+        LatLng::new(
+            URational::new(22, 1),
+            URational::new(31, 1),
+            URational::new(5208, 100)
+        ),
         LonRef::East,
-        LatLng::new(URational::new(114, 1), URational::new(1, 1), URational::new(1733, 100)),
+        LatLng::new(
+            URational::new(114, 1),
+            URational::new(1, 1),
+            URational::new(1733, 100)
+        ),
         Altitude::AboveSeaLevel(URational::new(0, 1)),
         None
     )]

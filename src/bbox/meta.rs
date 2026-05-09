@@ -41,7 +41,8 @@ impl ParseBody<MetaBox> for MetaBox {
             }
             let (remain, bbox) = BoxHolder::parse(remain)?;
             Ok((remain, bbox))
-        }).parse(remain)?;
+        })
+        .parse(remain)?;
 
         let boxes = boxes
             .into_iter()

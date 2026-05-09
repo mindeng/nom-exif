@@ -78,26 +78,30 @@ impl ParseBody<InfeBox> for InfeBox {
             map_res(streaming::take(4_usize), |res: &'a [u8]| {
                 String::from_utf8(res.to_vec())
             }),
-        ).parse(remain)?;
+        )
+        .parse(remain)?;
 
         // tracing::debug!(?header.box_type, ?item_type, ?version, "Got");
 
         let (remain, item_name) = parse_cstr(remain).map_err(|e| {
             if e.is_incomplete() {
-                context("no enough bytes for infe item name", fail::<_, (), _>()).parse(remain).unwrap_err()
+                context("no enough bytes for infe item name", fail::<_, (), _>())
+                    .parse(remain)
+                    .unwrap_err()
             } else {
                 e
             }
         })?;
 
-        let (remain, content_type, content_encoding) =
-            if version <= 1 || (version >= 2 && item_type.as_ref().unwrap() == "mime") {
-                let (remain, content_type) = parse_cstr(remain)?;
-                let (remain, content_encoding) = cond(!remain.is_empty(), parse_cstr).parse(remain)?;
-                (remain, Some(content_type), content_encoding)
-            } else {
-                (remain, None, None)
-            };
+        let (remain, content_type, content_encoding) = if version <= 1
+            || (version >= 2 && item_type.as_ref().unwrap() == "mime")
+        {
+            let (remain, content_type) = parse_cstr(remain)?;
+            let (remain, content_encoding) = cond(!remain.is_empty(), parse_cstr).parse(remain)?;
+            (remain, Some(content_type), content_encoding)
+        } else {
+            (remain, None, None)
+        };
 
         let (remain, uri_type) = if version >= 2 && item_type.as_ref().unwrap() == "uri" {
             let (remain, uri_type) = parse_cstr(remain)?;

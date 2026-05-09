@@ -1,7 +1,6 @@
 use nom::{
     number::{streaming, Endianness},
-    Parser,
-    IResult, Needed,
+    IResult, Needed, Parser,
 };
 
 use crate::{
@@ -61,7 +60,8 @@ impl<'a> IfdHeaderTravel<'a> {
             streaming::u16(endian),
             streaming::u32(endian),
             streaming::u32(endian),
-        ).parse(entry_data)?;
+        )
+            .parse(entry_data)?;
 
         if tag == 0 {
             return Ok((remain, None));

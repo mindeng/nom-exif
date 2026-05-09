@@ -655,7 +655,10 @@ mod tests {
     #[test]
     fn exif_tag_from_str_recognized() {
         assert_eq!(ExifTag::from_str("Make").unwrap(), ExifTag::Make);
-        assert_eq!(ExifTag::from_str("ExifOffset").unwrap(), ExifTag::ExifOffset);
+        assert_eq!(
+            ExifTag::from_str("ExifOffset").unwrap(),
+            ExifTag::ExifOffset
+        );
     }
 
     #[test]

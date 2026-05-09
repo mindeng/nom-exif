@@ -38,7 +38,10 @@ impl From<EbmlFileInfo> for TrackInfo {
     fn from(value: EbmlFileInfo) -> Self {
         let mut info = TrackInfo::default();
         if let Some(date) = value.segment_info.date {
-            info.put(TrackInfoTag::CreateDate, EntryValue::DateTime(date.fixed_offset()));
+            info.put(
+                TrackInfoTag::CreateDate,
+                EntryValue::DateTime(date.fixed_offset()),
+            );
         }
         info.put(
             TrackInfoTag::DurationMs,
@@ -205,7 +208,8 @@ fn parse_tracks_info(input: &[u8], pos: usize) -> Result<Option<TracksInfo>, Par
 
             Ok((Z, track))
         },
-    ).parse(data)
+    )
+    .parse(data)
     {
         Ok(track)
     } else {

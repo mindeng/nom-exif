@@ -188,7 +188,6 @@ impl From<nom::Err<nom::error::Error<&[u8]>>> for ParsingError {
     }
 }
 
-
 pub(crate) fn nom_error_to_parsing_error_with_state(
     e: nom::Err<nom::error::Error<&[u8]>>,
     state: Option<ParsingState>,
@@ -358,17 +357,26 @@ mod tests {
 
     #[test]
     fn error_unsupported_format_displays() {
-        assert_eq!(Error::UnsupportedFormat.to_string(), "unsupported media format");
+        assert_eq!(
+            Error::UnsupportedFormat.to_string(),
+            "unsupported media format"
+        );
     }
 
     #[test]
     fn error_exif_not_found_displays() {
-        assert_eq!(Error::ExifNotFound.to_string(), "no exif data found in this file");
+        assert_eq!(
+            Error::ExifNotFound.to_string(),
+            "no exif data found in this file"
+        );
     }
 
     #[test]
     fn error_track_not_found_displays() {
-        assert_eq!(Error::TrackNotFound.to_string(), "no track info found in this file");
+        assert_eq!(
+            Error::TrackNotFound.to_string(),
+            "no track info found in this file"
+        );
     }
 
     #[test]
@@ -382,19 +390,33 @@ mod tests {
 
     #[test]
     fn error_unexpected_eof_displays() {
-        let e = Error::UnexpectedEof { context: "tiff header" };
-        assert_eq!(e.to_string(), "unexpected end of input while parsing tiff header");
+        let e = Error::UnexpectedEof {
+            context: "tiff header",
+        };
+        assert_eq!(
+            e.to_string(),
+            "unexpected end of input while parsing tiff header"
+        );
     }
 
     #[test]
     fn entry_error_truncated_displays() {
-        let e = EntryError::Truncated { needed: 8, available: 4 };
-        assert_eq!(e.to_string(), "entry truncated: needed 8 bytes, only 4 available");
+        let e = EntryError::Truncated {
+            needed: 8,
+            available: 4,
+        };
+        assert_eq!(
+            e.to_string(),
+            "entry truncated: needed 8 bytes, only 4 available"
+        );
     }
 
     #[test]
     fn entry_error_invalid_shape_displays() {
-        let e = EntryError::InvalidShape { format: 7, count: 1 };
+        let e = EntryError::InvalidShape {
+            format: 7,
+            count: 1,
+        };
         assert_eq!(e.to_string(), "invalid entry shape: format=7, count=1");
     }
 
@@ -406,7 +428,10 @@ mod tests {
 
     #[test]
     fn entry_error_into_error_routes_to_malformed_ifd_entry() {
-        let e = EntryError::Truncated { needed: 8, available: 4 };
+        let e = EntryError::Truncated {
+            needed: 8,
+            available: 4,
+        };
         let err: Error = e.into();
         match err {
             Error::Malformed { kind, message } => {

@@ -65,7 +65,8 @@ impl IlstItem {
 
         let (remain, value) = map_res(take(data_len - 16), |bs: &'a [u8]| {
             parse_value(type_code, bs)
-        }).parse(remain)?;
+        })
+        .parse(remain)?;
 
         Ok((
             remain,

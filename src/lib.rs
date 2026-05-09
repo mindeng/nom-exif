@@ -113,8 +113,10 @@ pub use video::{TrackInfo, TrackInfoTag};
 #[cfg(feature = "tokio")]
 pub use parser_async::AsyncMediaSource;
 
-pub use exif::{Exif, ExifEntry, ExifIter, ExifIterEntry, ExifTag, GPSInfo, IfdIndex, LatLng, TagOrCode};
 pub use exif::gps::{Altitude, LatRef, LonRef, Speed, SpeedUnit};
+pub use exif::{
+    Exif, ExifEntry, ExifIter, ExifIterEntry, ExifTag, GPSInfo, IfdIndex, LatLng, TagOrCode,
+};
 pub use values::{EntryValue, ExifDateTime, IRational, Rational, URational};
 
 pub use error::{ConvertError, EntryError, Error, MalformedKind};
@@ -131,12 +133,11 @@ pub use error::{ConvertError, EntryError, Error, MalformedKind};
 /// `LatLng`, `ConvertError`, `ExifDateTime`) are intentionally **not**
 /// in the prelude — import them explicitly via `nom_exif::Type`.
 pub mod prelude {
-    pub use crate::{
-        EntryValue, Error, Exif, ExifIter, ExifTag, GPSInfo, IfdIndex,
-        MalformedKind, MediaKind, MediaParser, MediaSource, Metadata,
-        Result, TrackInfo, TrackInfoTag,
-    };
     pub use crate::{read_exif, read_metadata, read_track};
+    pub use crate::{
+        EntryValue, Error, Exif, ExifIter, ExifTag, GPSInfo, IfdIndex, MalformedKind, MediaKind,
+        MediaParser, MediaSource, Metadata, Result, TrackInfo, TrackInfoTag,
+    };
 }
 
 /// Crate-wide convenience alias for `std::result::Result<T, Error>`.
@@ -239,7 +240,9 @@ pub fn read_metadata_from_bytes(bytes: impl Into<bytes::Bytes>) -> Result<Metada
     let ms = MediaSource::from_bytes(bytes)?;
     let mut parser = MediaParser::new();
     match ms.kind() {
-        MediaKind::Image => parser.parse_exif_from_bytes(ms).map(|i| Metadata::Exif(i.into())),
+        MediaKind::Image => parser
+            .parse_exif_from_bytes(ms)
+            .map(|i| Metadata::Exif(i.into())),
         MediaKind::Track => parser.parse_track_from_bytes(ms).map(Metadata::Track),
     }
 }
@@ -272,14 +275,19 @@ mod tokio_top_level {
         let ms = parser_async::AsyncMediaSource::seekable(file).await?;
         let mut parser = MediaParser::new();
         match ms.kind() {
-            MediaKind::Image => parser.parse_exif_async(ms).await.map(|i| Metadata::Exif(i.into())),
+            MediaKind::Image => parser
+                .parse_exif_async(ms)
+                .await
+                .map(|i| Metadata::Exif(i.into())),
             MediaKind::Track => parser.parse_track_async(ms).await.map(Metadata::Track),
         }
     }
 }
 
 #[cfg(feature = "tokio")]
-pub use tokio_top_level::{read_exif_async, read_exif_iter_async, read_metadata_async, read_track_async};
+pub use tokio_top_level::{
+    read_exif_async, read_exif_iter_async, read_metadata_async, read_track_async,
+};
 
 mod bbox;
 mod cr3;

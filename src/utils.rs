@@ -10,7 +10,8 @@ pub(crate) fn parse_cstr(input: &[u8]) -> IResult<&[u8], String> {
                 String::from_utf8(bs.to_vec())
             }
         },
-    ).parse(input)?;
+    )
+    .parse(input)?;
 
     // consumes the zero byte
     Ok((&remain[1..], s)) // Safe-slice

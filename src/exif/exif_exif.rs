@@ -105,17 +105,14 @@ impl Exif {
     /// Order is: IFD0 entries first (in `HashMap` order — not stable), then
     /// IFD1, etc. Filter by IFD with `.iter().filter(|e| e.ifd == IfdIndex::MAIN)`.
     pub fn iter(&self) -> impl Iterator<Item = ExifEntry<'_>> {
-        self.ifds
-            .iter()
-            .enumerate()
-            .flat_map(|(idx, dir)| {
-                let ifd = IfdIndex::new(idx);
-                dir.iter().map(move |(code, value)| ExifEntry {
-                    ifd,
-                    tag: TagOrCode::from(code),
-                    value,
-                })
+        self.ifds.iter().enumerate().flat_map(|(idx, dir)| {
+            let ifd = IfdIndex::new(idx);
+            dir.iter().map(move |(code, value)| ExifEntry {
+                ifd,
+                tag: TagOrCode::from(code),
+                value,
             })
+        })
     }
 
     /// Get parsed GPS information.
@@ -208,7 +205,8 @@ impl TiffHeader {
         let (_, (_, offset)) = (
             combinator::verify(u16(endian), |magic| *magic == 0x2a),
             u32(endian),
-        ).parse(remain)?;
+        )
+            .parse(remain)?;
 
         let header = Self {
             endian,
@@ -254,7 +252,8 @@ impl TiffHeader {
             } else {
                 Endianness::Little
             }
-        }).parse(input)
+        })
+        .parse(input)
     }
 }
 
@@ -266,7 +265,8 @@ pub(crate) fn check_exif_header2(i: &[u8]) -> IResult<&[u8], ()> {
     let (remain, _) = (
         nom::number::complete::be_u32,
         nom::bytes::complete::tag(EXIF_IDENT),
-    ).parse(i)?;
+    )
+        .parse(i)?;
     Ok((remain, ()))
 }
 
@@ -383,7 +383,11 @@ mod tests {
             })
             .collect();
         entries.sort();
-        assert!(entries.len() > 5, "expected >5 entries, got {}", entries.len());
+        assert!(
+            entries.len() > 5,
+            "expected >5 entries, got {}",
+            entries.len()
+        );
         assert!(
             entries.iter().any(|s| s.contains("0x010f")),
             "expected Make tag (0x010f) in snapshot, got {entries:?}"
@@ -402,7 +406,10 @@ mod tests {
         let v_via_get = exif.get(ExifTag::Model);
         let v_via_get_in = exif.get_in(IfdIndex::MAIN, ExifTag::Model);
         assert_eq!(v_via_get, v_via_get_in);
-        assert!(v_via_get.is_some(), "Model tag expected in testdata/exif.jpg");
+        assert!(
+            v_via_get.is_some(),
+            "Model tag expected in testdata/exif.jpg"
+        );
     }
 
     #[test]
@@ -439,7 +446,10 @@ mod tests {
         let exif: Exif = iter.into();
 
         let main_count = exif.iter().filter(|e| e.ifd == IfdIndex::MAIN).count();
-        assert!(main_count > 1, "expected >1 entries in main IFD, got {main_count}");
+        assert!(
+            main_count > 1,
+            "expected >1 entries in main IFD, got {main_count}"
+        );
 
         // Ensure each entry is well-formed.
         for entry in exif.iter() {
@@ -472,7 +482,10 @@ mod tests {
         // Clean fixture: errors() returns empty slice but the method exists
         // and the type matches the spec.
         let errs: &[(crate::IfdIndex, crate::TagOrCode, crate::EntryError)] = exif.errors();
-        assert!(errs.is_empty(), "exif.jpg has no per-entry errors, got {errs:?}");
+        assert!(
+            errs.is_empty(),
+            "exif.jpg has no per-entry errors, got {errs:?}"
+        );
     }
 
     #[test]
@@ -494,8 +507,10 @@ mod tests {
         let mut parser = MediaParser::new();
         let ms = MediaSource::open("testdata/exif.heic").unwrap();
         let iter = parser.parse_exif(ms).unwrap();
-        assert!(iter.has_embedded_media(),
-            "HEIC files may carry an embedded MOV (Live Photo)");
+        assert!(
+            iter.has_embedded_media(),
+            "HEIC files may carry an embedded MOV (Live Photo)"
+        );
         let exif: Exif = iter.into();
         assert!(exif.has_embedded_media(), "flag survives From<ExifIter>");
     }
@@ -506,8 +521,10 @@ mod tests {
         let mut parser = MediaParser::new();
         let ms = MediaSource::open("testdata/exif.jpg").unwrap();
         let iter = parser.parse_exif(ms).unwrap();
-        assert!(!iter.has_embedded_media(),
-            "plain JPEG does not carry embedded media");
+        assert!(
+            !iter.has_embedded_media(),
+            "plain JPEG does not carry embedded media"
+        );
         let exif: Exif = iter.into();
         assert!(!exif.has_embedded_media());
     }

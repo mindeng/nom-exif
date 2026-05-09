@@ -51,7 +51,8 @@ impl ParseBody<IlocBox> for IlocBox {
             let (remain, construction_method_raw) = cond(
                 version >= 1,
                 map_res(be_u16, |res| Ok::<u8, ()>((res & 0xF) as u8)),
-            ).parse(remain)?;
+            )
+            .parse(remain)?;
             let construction_method =
                 ConstructionMethod::from(construction_method_raw.unwrap_or(0));
 
@@ -83,7 +84,8 @@ impl ParseBody<IlocBox> for IlocBox {
                             length,
                         },
                     ))
-                }).parse(remain)?;
+                })
+                .parse(remain)?;
 
             Ok((
                 remain,
@@ -95,7 +97,8 @@ impl ParseBody<IlocBox> for IlocBox {
                     data_ref_index,
                 },
             ))
-        }).parse(remain)?;
+        })
+        .parse(remain)?;
 
         Ok((
             remain,

@@ -45,7 +45,8 @@ impl BoxHeader {
             //     tracing::error!(?error, ?res, "Failed to construct string");
             //     error
             // })
-        }).parse(remain)?;
+        })
+        .parse(remain)?;
 
         let (remain, box_size) = if size == 1 {
             number::streaming::be_u64(remain)?

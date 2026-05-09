@@ -163,7 +163,10 @@ fn s5_6_lat_ref_enum_pattern() {
     let exif = read_exif("./testdata/exif.heic").unwrap();
     if let Some(g) = exif.gps_info() {
         let _ = matches!(g.latitude_ref, LatRef::North | LatRef::South);
-        let _ = matches!(g.altitude, Altitude::AboveSeaLevel(_) | Altitude::BelowSeaLevel(_));
+        let _ = matches!(
+            g.altitude,
+            Altitude::AboveSeaLevel(_) | Altitude::BelowSeaLevel(_)
+        );
     }
 }
 

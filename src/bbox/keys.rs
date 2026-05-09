@@ -54,7 +54,8 @@ impl KeyEntry {
                 take,
             ),
             |bs: &'a [u8]| String::from_utf8(bs.to_vec()),
-        ).parse(input)?;
+        )
+        .parse(input)?;
 
         Ok((
             remain,

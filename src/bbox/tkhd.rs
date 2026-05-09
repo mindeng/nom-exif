@@ -76,7 +76,8 @@ impl ParseBody<TkhdBox> for TkhdBox {
             be_u16,
             be_u16,
             be_u16,
-        ).parse(body)?;
+        )
+            .parse(body)?;
 
         Ok((
             remain,

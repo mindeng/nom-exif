@@ -14,9 +14,7 @@ use crate::{
 };
 
 #[tracing::instrument(skip_all)]
-pub(crate) fn parse_isobmff(
-    moov_body: &[u8],
-) -> Result<crate::TrackInfo, ParsingError> {
+pub(crate) fn parse_isobmff(moov_body: &[u8]) -> Result<crate::TrackInfo, ParsingError> {
     let (_, entries) = match parse_moov_body(moov_body) {
         Ok((remain, Some(entries))) => (remain, entries),
         Ok((remain, None)) => (remain, Vec::new()),
@@ -268,5 +266,4 @@ mod tests {
 (\"com.apple.quicktime.creationdate\", Text(\"2019-02-12T15:27:12+08:00\"))"
         );
     }
-
 }

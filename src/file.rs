@@ -45,7 +45,9 @@ impl MediaMime {
     pub fn unwrap_image(self) -> MediaMimeImage {
         match self {
             MediaMime::Image(val) => val,
-            MediaMime::Track(_) => panic!("called `MediaMime::unwrap_image()` on a `MediaMime::Track`"),
+            MediaMime::Track(_) => {
+                panic!("called `MediaMime::unwrap_image()` on a `MediaMime::Track`")
+            }
         }
     }
 }

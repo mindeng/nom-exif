@@ -184,7 +184,6 @@ pub(crate) fn parse_track_info(
     Ok(info)
 }
 
-
 impl TrackInfoTag {
     /// Stable, programmatic name of this tag (matches the `Display` output).
     pub const fn name(self) -> &'static str {
@@ -227,7 +226,6 @@ impl std::str::FromStr for TrackInfoTag {
     }
 }
 
-
 #[cfg(test)]
 mod p6_baseline {
     use crate::{MediaParser, MediaSource, TrackInfoTag};
@@ -256,7 +254,10 @@ mod p6_baseline {
         .filter_map(|t| info.get(t).map(|v| format!("{t:?}={v}")))
         .collect();
         entries.sort();
-        assert!(entries.len() >= 4, "expected >=4 well-known tags, got {entries:?}");
+        assert!(
+            entries.len() >= 4,
+            "expected >=4 well-known tags, got {entries:?}"
+        );
         assert!(
             entries.iter().any(|s| s.starts_with("Make=")),
             "expected Make tag in snapshot, got {entries:?}"

@@ -373,7 +373,9 @@ pub(crate) fn clear_and_skip_decide(buffer_len: usize, n: usize) -> SkipPlan {
     if n <= buffer_len {
         SkipPlan::AdvanceOnly
     } else {
-        SkipPlan::ClearAndSkip { extra: n - buffer_len }
+        SkipPlan::ClearAndSkip {
+            extra: n - buffer_len,
+        }
     }
 }
 
@@ -451,7 +453,12 @@ pub(crate) trait BufParser: Buf + Debug {
     where
         P: FnMut(&[u8], Option<ParsingState>) -> Result<O, ParsingErrorState>,
     {
-        self.load_and_parse_with_offset(reader, skip_by_seek, |data, _, state| parse(data, state), 0)
+        self.load_and_parse_with_offset(
+            reader,
+            skip_by_seek,
+            |data, _, state| parse(data, state),
+            0,
+        )
     }
 
     #[tracing::instrument(skip_all)]
@@ -687,7 +694,12 @@ impl MediaParser {
             if !matches!(ms.mime, crate::file::MediaMime::Image(_)) {
                 return Err(crate::Error::ExifNotFound);
             }
-            crate::exif::parse_exif_iter(self, ms.mime.unwrap_image(), &mut ms.reader, ms.skip_by_seek)
+            crate::exif::parse_exif_iter(
+                self,
+                ms.mime.unwrap_image(),
+                &mut ms.reader,
+                ms.skip_by_seek,
+            )
         })();
         self.reset();
         res
@@ -768,10 +780,14 @@ impl MediaParser {
                 crate::file::MediaMime::Track(t) => t,
             };
             let mut empty = std::io::empty();
-            let out = self.load_and_parse(&mut empty, |_, _| Ok(false), |data, _| {
-                crate::video::parse_track_info(data, mime_track)
-                    .map_err(|e| ParsingErrorState::new(e, None))
-            })?;
+            let out = self.load_and_parse(
+                &mut empty,
+                |_, _| Ok(false),
+                |data, _| {
+                    crate::video::parse_track_info(data, mime_track)
+                        .map_err(|e| ParsingErrorState::new(e, None))
+                },
+            )?;
             Ok(out)
         })();
         self.reset();
@@ -1176,7 +1192,11 @@ mod tests {
         s.set_memory(original);
         let (shared, position) = s.share_buf();
         assert_eq!(position, 0);
-        assert_eq!(shared.as_ptr(), original_ptr, "memory share must be a Bytes::clone, not a Vec round-trip");
+        assert_eq!(
+            shared.as_ptr(),
+            original_ptr,
+            "memory share must be a Bytes::clone, not a Vec round-trip"
+        );
         // After share_buf, the parser's memory slot is taken — leaving the state
         // ready for the next `reset()` cycle.
         assert!(!s.is_memory_mode());
@@ -1240,7 +1260,10 @@ mod tests {
         // signature.
         let raw = vec![0xAAu8; 256];
         let res = MediaSource::from_bytes(raw);
-        assert!(res.is_err(), "expected mime-detection error for unknown bytes");
+        assert!(
+            res.is_err(),
+            "expected mime-detection error for unknown bytes"
+        );
     }
 
     #[test]
@@ -1272,7 +1295,11 @@ mod tests {
         // Sanity: should produce non-trivial content. Exact content is checked by
         // the existing parse_media tests; this one guards against accidental
         // re-ordering / dedup changes during the refactor.
-        assert!(entries.len() > 5, "expected >5 entries, got {}", entries.len());
+        assert!(
+            entries.len() > 5,
+            "expected >5 entries, got {}",
+            entries.len()
+        );
         assert!(snapshot.contains("Make"), "expected Make tag in snapshot");
     }
 
@@ -1350,7 +1377,11 @@ mod tests {
         let mut parser = MediaParser::new();
         let ms = MediaSource::from_bytes(raw).unwrap();
         let res = parser.parse_exif_from_bytes(ms);
-        assert!(res.is_err(), "expected error on truncated bytes, got {:?}", res);
+        assert!(
+            res.is_err(),
+            "expected error on truncated bytes, got {:?}",
+            res
+        );
     }
 
     #[test]
@@ -1360,7 +1391,10 @@ mod tests {
         let ms = MediaSource::from_bytes(raw).unwrap();
         let info = parser.parse_track_from_bytes(ms).unwrap();
         assert_eq!(info.get(crate::TrackInfoTag::Make), Some(&"Apple".into()));
-        assert_eq!(info.get(crate::TrackInfoTag::Model), Some(&"iPhone X".into()));
+        assert_eq!(
+            info.get(crate::TrackInfoTag::Model),
+            Some(&"iPhone X".into())
+        );
     }
 
     #[test]

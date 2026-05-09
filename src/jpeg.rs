@@ -33,7 +33,8 @@ fn find_exif_segment(input: &[u8]) -> IResult<&[u8], Option<Segment<'_>>> {
     let mut remain = input;
 
     let (remain, segment) = loop {
-        let (rem, (_, code)) = (streaming::tag(&[0xFF_u8][..]), number::streaming::u8).parse(remain)?;
+        let (rem, (_, code)) =
+            (streaming::tag(&[0xFF_u8][..]), number::streaming::u8).parse(remain)?;
         let (rem, segment) = parse_segment(code, rem)?;
         // Sanity check
         assert!(rem.len() < remain.len());
@@ -62,7 +63,11 @@ fn find_exif_segment(input: &[u8]) -> IResult<&[u8], Option<Segment<'_>>> {
 
 pub fn check_jpeg(input: &[u8]) -> crate::Result<()> {
     // check soi marker [0xff, 0xd8]
-    let (_, (_, code)) = (nom::bytes::complete::tag(&[0xFF_u8][..]), number::complete::u8).parse(input)?;
+    let (_, (_, code)) = (
+        nom::bytes::complete::tag(&[0xFF_u8][..]),
+        number::complete::u8,
+    )
+        .parse(input)?;
 
     // SOI has no payload
     if code != MarkerCode::Soi.code() {
@@ -73,7 +78,11 @@ pub fn check_jpeg(input: &[u8]) -> crate::Result<()> {
     }
 
     // check next marker [0xff, *]
-    let (_, (_, _)) = (nom::bytes::complete::tag(&[0xFF_u8][..]), number::complete::u8).parse(input)?;
+    let (_, (_, _)) = (
+        nom::bytes::complete::tag(&[0xFF_u8][..]),
+        number::complete::u8,
+    )
+        .parse(input)?;
     Ok(())
 }
 
@@ -244,5 +253,4 @@ mod tests {
             end
         );
     }
-
 }

@@ -653,8 +653,9 @@ impl IfdIter {
             complete::u16(endian),
             complete::u32(endian),
             complete::u32(endian),
-        ).parse(entry_data)
-        .ok()?;
+        )
+            .parse(entry_data)
+            .ok()?;
 
         if tag == 0 {
             return None;
@@ -825,7 +826,9 @@ impl IfdIter {
         let mut has_data = false;
 
         for (tag, entry) in self {
-            let Some(tag) = tag.and_then(|x| x.tag()) else { continue };
+            let Some(tag) = tag.and_then(|x| x.tag()) else {
+                continue;
+            };
             has_data = true;
             match tag {
                 ExifTag::GPSLatitudeRef => {
@@ -1045,10 +1048,20 @@ mod tests {
     use crate::Exif;
     use test_case::test_case;
 
-    #[test_case("exif.jpg", "+08:00", "2023-07-09T20:36:33+08:00", MediaMimeImage::Jpeg)]
+    #[test_case(
+        "exif.jpg",
+        "+08:00",
+        "2023-07-09T20:36:33+08:00",
+        MediaMimeImage::Jpeg
+    )]
     #[test_case("exif-no-tz.jpg", "", "2023-07-09 20:36:33", MediaMimeImage::Jpeg)]
     #[test_case("broken.jpg", "-", "2014-09-21 15:51:22", MediaMimeImage::Jpeg)]
-    #[test_case("exif.heic", "+08:00", "2022-07-22T21:26:32+08:00", MediaMimeImage::Heic)]
+    #[test_case(
+        "exif.heic",
+        "+08:00",
+        "2022-07-22T21:26:32+08:00",
+        MediaMimeImage::Heic
+    )]
     #[test_case("tif.tif", "-", "-", MediaMimeImage::Tiff)]
     #[test_case(
         "fujifilm_x_t1_01.raf.meta",

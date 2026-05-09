@@ -28,7 +28,9 @@ const HEADER_PARSE_BUF_SIZE: usize = 128;
 pub(crate) type AsyncSkipBySeekFn<R> = for<'a> fn(
     &'a mut R,
     u64,
-) -> std::pin::Pin<Box<dyn std::future::Future<Output = io::Result<bool>> + Send + 'a>>;
+) -> std::pin::Pin<
+    Box<dyn std::future::Future<Output = io::Result<bool>> + Send + 'a>,
+>;
 
 pub struct AsyncMediaSource<R> {
     pub(crate) reader: R,

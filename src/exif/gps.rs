@@ -168,7 +168,11 @@ pub struct Speed {
 
 impl LatLng {
     pub const fn new(degrees: URational, minutes: URational, seconds: URational) -> Self {
-        Self { degrees, minutes, seconds }
+        Self {
+            degrees,
+            minutes,
+            seconds,
+        }
     }
 
     /// Convert to decimal degrees. Returns `None` if any component has a zero
@@ -260,7 +264,11 @@ impl TryFrom<&[URational]> for LatLng {
                 message: "need at least 3 URational components for LatLng".into(),
             });
         }
-        Ok(Self { degrees: value[0], minutes: value[1], seconds: value[2] })
+        Ok(Self {
+            degrees: value[0],
+            minutes: value[1],
+            seconds: value[2],
+        })
     }
 }
 
@@ -314,8 +322,16 @@ impl GPSInfo {
     /// which keeps `iso6709parse::ISO6709Coord` out of the public API surface
     /// (so an `iso6709parse` major-version bump does not force one here).
     pub(crate) fn from_iso6709_coord(v: ISO6709Coord) -> Self {
-        let latitude_ref = if v.lat >= 0.0 { LatRef::North } else { LatRef::South };
-        let longitude_ref = if v.lon >= 0.0 { LonRef::East } else { LonRef::West };
+        let latitude_ref = if v.lat >= 0.0 {
+            LatRef::North
+        } else {
+            LatRef::South
+        };
+        let longitude_ref = if v.lon >= 0.0 {
+            LonRef::East
+        } else {
+            LonRef::West
+        };
         let latitude = LatLng::try_from_decimal_degrees(v.lat.abs()).unwrap_or_default();
         let longitude = LatLng::try_from_decimal_degrees(v.lon.abs()).unwrap_or_default();
         let altitude = match v.altitude {
@@ -436,10 +452,7 @@ mod tests {
             altitude: Altitude::BelowSeaLevel(URational::new(100, 3)),
             speed: None,
         };
-        assert_eq!(
-            below.to_iso6709(),
-            "+40.68917-074.04444-33.333CRSWGS_84/"
-        );
+        assert_eq!(below.to_iso6709(), "+40.68917-074.04444-33.333CRSWGS_84/");
     }
 
     #[test]
@@ -558,9 +571,17 @@ mod tests {
     fn gps_info_decimal_accessors() {
         let liberty = GPSInfo {
             latitude_ref: LatRef::North,
-            latitude: LatLng::new(URational::new(40, 1), URational::new(41, 1), URational::new(21, 1)),
+            latitude: LatLng::new(
+                URational::new(40, 1),
+                URational::new(41, 1),
+                URational::new(21, 1),
+            ),
             longitude_ref: LonRef::West,
-            longitude: LatLng::new(URational::new(74, 1), URational::new(2, 1), URational::new(40, 1)),
+            longitude: LatLng::new(
+                URational::new(74, 1),
+                URational::new(2, 1),
+                URational::new(40, 1),
+            ),
             altitude: Altitude::AboveSeaLevel(URational::new(123, 1)),
             speed: None,
         };
