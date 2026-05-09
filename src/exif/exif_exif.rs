@@ -154,12 +154,12 @@ impl From<ExifIter> for Exif {
         let mut exif = Exif::new(gps_info, has_embedded_media);
 
         for entry in iter {
-            let ifd_idx = entry.ifd_index();
-            let code = entry.tag_code();
-            let tag: TagOrCode = code.into();
-            match entry.into_inner_result() {
-                Ok(v) => exif.put_value(ifd_idx, code, v),
-                Err(e) => exif.errors.push((IfdIndex::new(ifd_idx), tag, e)),
+            let ifd = entry.ifd();
+            let tag = entry.tag();
+            let code = tag.code();
+            match entry.into_result() {
+                Ok(v) => exif.put_value(ifd.get(), code, v),
+                Err(e) => exif.errors.push((ifd, tag, e)),
             }
         }
 
@@ -283,7 +283,7 @@ mod tests {
     use crate::jpeg::extract_exif_data;
     use crate::slice::SubsliceRange;
     use crate::testkit::{open_sample, read_sample};
-    use crate::ParsedExifEntry;
+    use crate::ExifIterEntry;
 
     use super::*;
 
@@ -342,16 +342,17 @@ mod tests {
         assert_eq!(jh.join().unwrap().trim(), expect.trim());
     }
 
-    fn iter_to_str(it: impl Iterator<Item = ParsedExifEntry>) -> String {
+    fn iter_to_str(it: impl Iterator<Item = ExifIterEntry>) -> String {
         let ss = it
             .map(|x| {
                 format!(
-                    "ifd{}.{:<32} » {}",
-                    x.ifd_index(),
-                    x.tag()
-                        .map(|t| t.to_string())
-                        .unwrap_or_else(|| format!("Unknown(0x{:04x})", x.tag_code())),
-                    x.get_result()
+                    "{}.{:<32} » {}",
+                    x.ifd(),
+                    match x.tag() {
+                        crate::TagOrCode::Tag(t) => t.to_string(),
+                        crate::TagOrCode::Unknown(c) => format!("Unknown(0x{c:04x})"),
+                    },
+                    x.result()
                         .map(|v| v.to_string())
                         .map_err(|e| e.to_string())
                         .unwrap_or_else(|s| s)
@@ -374,11 +375,11 @@ mod tests {
 
         let mut entries: Vec<String> = iter
             .map(|e| {
-                let val = match e.get_result() {
+                let val = match e.result() {
                     Ok(v) => format!("{v}"),
                     Err(err) => format!("<err:{err}>"),
                 };
-                format!("ifd{}.0x{:04x}={val}", e.ifd_index(), e.tag_code())
+                format!("{}.0x{:04x}={val}", e.ifd(), e.tag().code())
             })
             .collect();
         entries.sort();

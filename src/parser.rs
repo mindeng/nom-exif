@@ -487,8 +487,8 @@ impl Buf for MediaParser {
 /// let mut iter = parser.parse_exif(ms).unwrap();
 ///
 /// let entry = iter.next().unwrap();
-/// assert_eq!(entry.tag().unwrap(), ExifTag::Make);
-/// assert_eq!(entry.get_value().unwrap().as_str().unwrap(), "Apple");
+/// assert!(matches!(entry.tag(), nom_exif::TagOrCode::Tag(ExifTag::Make)));
+/// assert_eq!(entry.value().unwrap().as_str().unwrap(), "Apple");
 ///
 /// // Convert `ExifIter` into an `Exif`. Clone it before converting, so that
 /// // we can start the iteration from the beginning.
@@ -958,15 +958,15 @@ mod tests {
 
         let mut entries: Vec<String> = iter
             .map(|e| {
-                let tag_name = e
-                    .tag()
-                    .map(|t| format!("{t}"))
-                    .unwrap_or_else(|| format!("0x{:04x}", e.tag_code()));
+                let tag_name = match e.tag() {
+                    crate::TagOrCode::Tag(t) => format!("{t}"),
+                    crate::TagOrCode::Unknown(c) => format!("0x{c:04x}"),
+                };
                 let value_str = e
-                    .get_value()
+                    .value()
                     .map(|v| format!("{v}"))
                     .unwrap_or_else(|| "<err>".into());
-                format!("ifd{}.{}={:?}", e.ifd_index(), tag_name, value_str)
+                format!("{}.{}={:?}", e.ifd(), tag_name, value_str)
             })
             .collect();
         entries.sort();

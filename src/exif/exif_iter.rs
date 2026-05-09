@@ -128,7 +128,7 @@ pub(crate) fn input_into_iter(
     Ok(iter)
 }
 
-/// An iterator version of [`Exif`](crate::Exif). Use [`ParsedExifEntry`] as
+/// An iterator version of [`Exif`](crate::Exif). Use [`ExifIterEntry`] as
 /// iterator items.
 ///
 /// Clone an `ExifIter` is very cheap; the underlying data is shared
@@ -237,13 +237,13 @@ impl ExifIter {
         let mut iter = self.clone_and_rewind();
         let Some(gps) = iter.find(|x| {
             tracing::info!(?x, "find");
-            x.tag.tag().is_some_and(|t| t == ExifTag::GPSInfo)
+            x.tag().tag().is_some_and(|t| t == ExifTag::GPSInfo)
         }) else {
             tracing::warn!(ifd0 = ?iter.ifds.first(), "GPSInfo not found");
             return Ok(None);
         };
 
-        let offset = match gps.get_result() {
+        let offset = match gps.result() {
             Ok(v) => {
                 if let Some(offset) = v.as_u32() {
                     offset
@@ -261,7 +261,7 @@ impl ExifIter {
         }
 
         let mut gps_subifd = match IfdIter::try_new(
-            gps.ifd,
+            gps.ifd().get(),
             iter.input.clone(),
             iter.tiff_header,
             offset as usize,
@@ -307,145 +307,72 @@ impl ExifIter {
     }
 }
 
-/// Represents a parsed IFD entry. Used as iterator items in [`ExifIter`].
+/// Lazy yield from [`ExifIter`]. Carries a *value xor error* invariant —
+/// every entry holds exactly one of [`Self::value`] or [`Self::error`].
+///
+/// # Why private fields?
+///
+/// Public fields would let callers construct nonsense like `value=Some,
+/// error=Some`. Private fields + getters preserve the invariant while
+/// exposing the natural API: [`Self::result`] for borrowed access,
+/// [`Self::into_result`] for ownership transfer (consumes `self`, no panic
+/// path).
 #[derive(Clone)]
-pub struct ParsedExifEntry {
-    // 0: ifd0, 1: ifd1
-    ifd: usize,
+pub struct ExifIterEntry {
+    ifd: IfdIndex,
     tag: TagOrCode,
-    res: Option<Result<EntryValue, EntryError>>,
+    res: Result<EntryValue, crate::error::EntryError>,
 }
 
-impl ParsedExifEntry {
-    /// Get the IFD index value where this entry is located.
-    /// - 0: ifd0 (main image)
-    /// - 1: ifd1 (thumbnail)
-    pub fn ifd_index(&self) -> usize {
+impl ExifIterEntry {
+    /// IFD this entry was found in (`IfdIndex::MAIN` for the primary image).
+    pub fn ifd(&self) -> IfdIndex {
         self.ifd
     }
 
-    /// Get recognized Exif tag of this entry, maybe return `None` if the tag
-    /// is unrecognized.
-    ///
-    /// If you have any custom defined tag which does not exist in [`ExifTag`],
-    /// then you should use [`Self::tag_code`] to get the raw tag code.
-    ///
-    /// **Note**: You can always get the raw tag code via [`Self::tag_code`],
-    /// no matter if it's recognized.
-    pub fn tag(&self) -> Option<ExifTag> {
-        match self.tag {
-            TagOrCode::Tag(t) => Some(t),
-            TagOrCode::Unknown(_) => None,
-        }
+    /// Recognized tag, or raw `u16` code if not in [`ExifTag`].
+    pub fn tag(&self) -> TagOrCode {
+        self.tag
     }
 
-    /// Get the raw tag code of this entry.
-    ///
-    /// In case you have some custom defined tags which doesn't exist in
-    /// [`ExifTag`], you can use this method to get the raw tag code of this
-    /// entry.
-    pub fn tag_code(&self) -> u16 {
-        self.tag.code()
+    /// Borrow the value. `None` iff this entry hit a parse error.
+    pub fn value(&self) -> Option<&EntryValue> {
+        self.res.as_ref().ok()
     }
 
-    /// Returns true if there is an `EntryValue` in self.
-    ///
-    /// Both of the following situations may cause this method to return false:
-    /// - An error occurred while parsing this entry
-    /// - The value has been taken by calling [`Self::take_value`] or
-    ///   [`Self::take_result`] methods.
-    pub fn has_value(&self) -> bool {
-        self.res.as_ref().map(|e| e.is_ok()).is_some_and(|b| b)
+    /// Borrow the error. `None` iff this entry parsed successfully.
+    pub fn error(&self) -> Option<&crate::error::EntryError> {
+        self.res.as_ref().err()
     }
 
-    /// Get the parsed entry value of this entry.
-    pub fn get_value(&self) -> Option<&EntryValue> {
-        match self.res.as_ref() {
-            Some(Ok(v)) => Some(v),
-            Some(Err(_)) | None => None,
-        }
+    /// Borrow either value or error, mirroring the underlying invariant.
+    pub fn result(&self) -> Result<&EntryValue, &crate::error::EntryError> {
+        self.res.as_ref()
     }
 
-    /// Takes out the parsed entry value of this entry.
-    ///
-    /// If you need to convert this `ExifIter` to an [`crate::Exif`], please
-    /// don't call this method! Otherwise the converted `Exif` is incomplete.
-    ///
-    /// **Note**: This method can only be called once! Once it has been called,
-    /// calling it again always returns `None`. You may want to check it by
-    /// calling [`Self::has_value`] before calling this method.
-    pub fn take_value(&mut self) -> Option<EntryValue> {
-        match self.res.take() {
-            Some(v) => v.ok(),
-            None => None,
-        }
+    /// Consume self and return the value or error. No second-call panic
+    /// path (the entry is moved out).
+    pub fn into_result(self) -> Result<EntryValue, crate::error::EntryError> {
+        self.res
     }
 
-    /// Get the parsed result of this entry.
-    ///
-    /// Returns:
-    ///
-    /// - If any error occurred while parsing this entry, an
-    ///   `Err(&EntryError)` is returned.
-    ///
-    /// - Otherwise, an `Ok(&EntryValue)` is returned.
-    #[allow(rustdoc::private_intra_doc_links)]
-    pub fn get_result(&self) -> Result<&EntryValue, &EntryError> {
-        match self.res {
-            Some(ref v) => v.as_ref(),
-            None => panic!("take result of entry twice"),
-        }
-    }
-
-    /// Takes out the parsed result of this entry.
-    ///
-    /// If you need to convert this `ExifIter` to an [`crate::Exif`], please
-    /// don't call this method! Otherwise the converted `Exif` is incomplete.
-    ///
-    /// Returns:
-    ///
-    /// - If any error occurred while parsing this entry, an
-    ///   `Err(EntryError)` is returned.
-    ///
-    /// - Otherwise, an `Ok(EntryValue)` is returned.
-    ///
-    /// **Note**: This method can ONLY be called once! If you call it twice, it
-    /// will **panic** directly!
-    pub fn take_result(&mut self) -> Result<EntryValue, EntryError> {
-        match self.res.take() {
-            Some(v) => v,
-            None => panic!("take result of entry twice"),
-        }
-    }
-
-    /// Internal-only: consume the entry and return the underlying result.
-    /// Public counterpart `into_result` lands in Task 9 (when `ParsedExifEntry`
-    /// is renamed to `ExifIterEntry` and its private fields settle).
-    pub(crate) fn into_inner_result(mut self) -> Result<EntryValue, crate::error::EntryError> {
-        match self.res.take() {
-            Some(v) => v,
-            None => panic!("into_inner_result called on already-taken entry"),
-        }
-    }
-
-    fn make_ok(ifd: usize, tag: TagOrCode, v: EntryValue) -> Self {
+    pub(crate) fn make_ok(ifd: usize, tag: TagOrCode, v: EntryValue) -> Self {
         Self {
-            ifd,
+            ifd: IfdIndex::new(ifd),
             tag,
-            res: Some(Ok(v)),
+            res: Ok(v),
         }
     }
-
 }
 
-impl Debug for ParsedExifEntry {
+impl std::fmt::Debug for ExifIterEntry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let value = match self.get_result() {
+        let value = match &self.res {
             Ok(v) => format!("{v}"),
             Err(e) => format!("{e:?}"),
         };
-        f.debug_struct("IfdEntryResult")
-            .field("ifd", &format!("ifd{}", self.ifd))
+        f.debug_struct("ExifIterEntry")
+            .field("ifd", &self.ifd)
             .field("tag", &self.tag)
             .field("value", &value)
             .finish()
@@ -515,7 +442,7 @@ impl ExifIter {
 }
 
 impl Iterator for ExifIter {
-    type Item = ParsedExifEntry;
+    type Item = ExifIterEntry;
 
     #[tracing::instrument(skip_all)]
     fn next(&mut self) -> Option<Self::Item> {
@@ -579,7 +506,7 @@ impl Iterator for ExifIter {
                                     continue;
                                 }
                                 // Return sub-ifd as an entry
-                                return Some(ParsedExifEntry::make_ok(
+                                return Some(ExifIterEntry::make_ok(
                                     ifd_idx,
                                     tc,
                                     EntryValue::U32(offset as u32),
@@ -593,7 +520,7 @@ impl Iterator for ExifIter {
                                 self.ifds.push(ifd);
                                 continue;
                             }
-                            let res = Some(ParsedExifEntry::make_ok(ifd.ifd_idx, tc, v));
+                            let res = Some(ExifIterEntry::make_ok(ifd.ifd_idx, tc, v));
                             self.ifds.push(ifd);
                             return res;
                         }
@@ -1205,5 +1132,52 @@ mod tests {
         // Copy works because EntryValue is borrowed.
         let _e2 = e;
         let _e3 = e;
+    }
+
+    #[test]
+    fn exif_iter_entry_value_xor_error_invariant() {
+        use crate::{MediaParser, MediaSource};
+        let mut parser = MediaParser::new();
+        let ms = MediaSource::open("testdata/exif.jpg").unwrap();
+        for entry in parser.parse_exif(ms).unwrap() {
+            // Exactly one of value / error is Some.
+            let has_v = entry.value().is_some();
+            let has_e = entry.error().is_some();
+            assert!(has_v ^ has_e, "entry must be value xor error");
+            // result() agrees with value()/error().
+            match entry.result() {
+                Ok(v) => assert_eq!(Some(v), entry.value()),
+                Err(e) => assert_eq!(Some(e), entry.error()),
+            }
+        }
+    }
+
+    #[test]
+    fn exif_iter_entry_into_result_consumes_self() {
+        use crate::{MediaParser, MediaSource};
+        let mut parser = MediaParser::new();
+        let ms = MediaSource::open("testdata/exif.jpg").unwrap();
+        let mut count_ok = 0usize;
+        for entry in parser.parse_exif(ms).unwrap() {
+            // into_result consumes; once consumed, we can't call any other
+            // method (the entry is gone). This is the spec's panic-free
+            // replacement for v2's take_result.
+            if entry.into_result().is_ok() {
+                count_ok += 1;
+            }
+        }
+        assert!(count_ok > 0);
+    }
+
+    #[test]
+    fn exif_iter_entry_tag_returns_tag_or_code() {
+        use crate::{ExifTag, MediaParser, MediaSource, TagOrCode};
+        let mut parser = MediaParser::new();
+        let ms = MediaSource::open("testdata/exif.jpg").unwrap();
+        let make_present = parser
+            .parse_exif(ms)
+            .unwrap()
+            .any(|e| matches!(e.tag(), TagOrCode::Tag(ExifTag::Make)));
+        assert!(make_present);
     }
 }

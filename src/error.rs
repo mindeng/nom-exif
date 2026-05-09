@@ -267,7 +267,7 @@ pub enum ConvertError {
 /// Errors that occur while decoding a single IFD entry.
 ///
 /// Constructed internally during EXIF parsing; surfaces to downstream code
-/// as the `Err` arm of [`crate::ParsedExifEntry::get_result`] (and friends),
+/// as the `Err` arm of [`crate::ExifIterEntry::result`],
 /// or — when converted via `From<EntryError> for Error` — as
 /// [`Error::Malformed`] with [`MalformedKind::IfdEntry`].
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]

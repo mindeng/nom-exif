@@ -106,13 +106,14 @@ fn parse_file<P: AsRef<Path>>(
         MediaKind::Image => {
             let iter: ExifIter = parser.parse_exif(ms).inspect_err(handle_parsing_error)?;
             iter.into_iter()
-                .filter_map(|mut x| {
-                    let res = x.take_result();
-                    match res {
+                .filter_map(|x| {
+                    let tag = x.tag();
+                    match x.into_result() {
                         Ok(v) => Some((
-                            x.tag()
-                                .map(|x| x.to_string())
-                                .unwrap_or_else(|| format!("Unknown(0x{:04x})", x.tag_code())),
+                            match tag {
+                                nom_exif::TagOrCode::Tag(t) => t.to_string(),
+                                nom_exif::TagOrCode::Unknown(c) => format!("Unknown(0x{c:04x})"),
+                            },
                             v,
                         )),
                         Err(e) => {
