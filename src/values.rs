@@ -159,8 +159,8 @@ impl EntryValue {
             return Ok(EntryValue::variant_default(data_format));
         }
 
-        let exif_tag: Result<ExifTag, _> = tag.try_into();
-        if let Ok(tag) = exif_tag {
+        let exif_tag = ExifTag::from_code(tag);
+        if let Some(tag) = exif_tag {
             if tag == ExifTag::DateTimeOriginal
                 || tag == ExifTag::CreateDate
                 || tag == ExifTag::ModifyDate

@@ -40,9 +40,9 @@ impl TagOrCode {
 
 impl From<u16> for TagOrCode {
     fn from(v: u16) -> Self {
-        match ExifTag::try_from(v) {
-            Ok(tag) => TagOrCode::Tag(tag),
-            Err(_) => TagOrCode::Unknown(v),
+        match ExifTag::from_code(v) {
+            Some(tag) => TagOrCode::Tag(tag),
+            None => TagOrCode::Unknown(v),
         }
     }
 }
@@ -216,18 +216,9 @@ impl ExifTag {
     pub const fn code(self) -> u16 {
         self as u16
     }
-}
 
-impl Display for ExifTag {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s: &str = (*self).into();
-        Display::fmt(s, f)
-    }
-}
-
-impl From<ExifTag> for &str {
-    fn from(value: ExifTag) -> Self {
-        match value {
+    pub const fn name(self) -> &'static str {
+        match self {
             ExifTag::Make => "Make",
             ExifTag::Model => "Model",
             ExifTag::Orientation => "Orientation",
@@ -353,14 +344,11 @@ impl From<ExifTag> for &str {
             ExifTag::PlanarConfiguration => "PlanarConfiguration",
         }
     }
-}
 
-impl TryFrom<u16> for ExifTag {
-    type Error = crate::Error;
-    fn try_from(v: u16) -> Result<Self, Self::Error> {
+    pub fn from_code(code: u16) -> Option<Self> {
         use ExifTag::*;
 
-        let tag = match v {
+        let tag = match code {
             x if x == Make.code() => Self::Make,
             x if x == Model.code() => Self::Model,
             x if x == Orientation.code() => Self::Orientation,
@@ -484,16 +472,156 @@ impl TryFrom<u16> for ExifTag {
             x if x == SamplesPerPixel.code() => Self::SamplesPerPixel,
             x if x == RowsPerStrip.code() => Self::RowsPerStrip,
             x if x == PlanarConfiguration.code() => Self::PlanarConfiguration,
-
-            o => {
-                return Err(crate::Error::Malformed {
-                    kind: crate::error::MalformedKind::IfdEntry,
-                    message: format!("Unrecognized ExifTag 0x{o:04x}"),
-                })
-            }
+            _ => return None,
         };
 
-        Ok(tag)
+        Some(tag)
+    }
+}
+
+impl Display for ExifTag {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+impl std::str::FromStr for ExifTag {
+    type Err = crate::ConvertError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // Linear scan over the recognized tag list. Tag count is ~120;
+        // a HashMap is overkill and would force a lazy_static.
+        const ALL: &[ExifTag] = &[
+            ExifTag::Make,
+            ExifTag::Model,
+            ExifTag::Orientation,
+            ExifTag::ImageWidth,
+            ExifTag::ImageHeight,
+            ExifTag::ISOSpeedRatings,
+            ExifTag::ShutterSpeedValue,
+            ExifTag::ExposureTime,
+            ExifTag::FNumber,
+            ExifTag::ExifImageWidth,
+            ExifTag::ExifImageHeight,
+            ExifTag::DateTimeOriginal,
+            ExifTag::CreateDate,
+            ExifTag::ModifyDate,
+            ExifTag::OffsetTime,
+            ExifTag::OffsetTimeOriginal,
+            ExifTag::OffsetTimeDigitized,
+            ExifTag::GPSLatitudeRef,
+            ExifTag::GPSLatitude,
+            ExifTag::GPSLongitudeRef,
+            ExifTag::GPSLongitude,
+            ExifTag::GPSAltitudeRef,
+            ExifTag::GPSAltitude,
+            ExifTag::GPSVersionID,
+            ExifTag::ExifOffset,
+            ExifTag::GPSInfo,
+            ExifTag::ImageDescription,
+            ExifTag::XResolution,
+            ExifTag::YResolution,
+            ExifTag::ResolutionUnit,
+            ExifTag::Software,
+            ExifTag::HostComputer,
+            ExifTag::WhitePoint,
+            ExifTag::PrimaryChromaticities,
+            ExifTag::YCbCrCoefficients,
+            ExifTag::ReferenceBlackWhite,
+            ExifTag::Copyright,
+            ExifTag::ExposureProgram,
+            ExifTag::SpectralSensitivity,
+            ExifTag::OECF,
+            ExifTag::SensitivityType,
+            ExifTag::ExifVersion,
+            ExifTag::ApertureValue,
+            ExifTag::BrightnessValue,
+            ExifTag::ExposureBiasValue,
+            ExifTag::MaxApertureValue,
+            ExifTag::SubjectDistance,
+            ExifTag::MeteringMode,
+            ExifTag::LightSource,
+            ExifTag::Flash,
+            ExifTag::FocalLength,
+            ExifTag::SubjectArea,
+            ExifTag::MakerNote,
+            ExifTag::UserComment,
+            ExifTag::FlashPixVersion,
+            ExifTag::ColorSpace,
+            ExifTag::RelatedSoundFile,
+            ExifTag::FlashEnergy,
+            ExifTag::FocalPlaneXResolution,
+            ExifTag::FocalPlaneYResolution,
+            ExifTag::FocalPlaneResolutionUnit,
+            ExifTag::SubjectLocation,
+            ExifTag::ExposureIndex,
+            ExifTag::SensingMethod,
+            ExifTag::FileSource,
+            ExifTag::SceneType,
+            ExifTag::CFAPattern,
+            ExifTag::CustomRendered,
+            ExifTag::ExposureMode,
+            ExifTag::WhiteBalanceMode,
+            ExifTag::DigitalZoomRatio,
+            ExifTag::FocalLengthIn35mmFilm,
+            ExifTag::SceneCaptureType,
+            ExifTag::GainControl,
+            ExifTag::Contrast,
+            ExifTag::Saturation,
+            ExifTag::Sharpness,
+            ExifTag::DeviceSettingDescription,
+            ExifTag::SubjectDistanceRange,
+            ExifTag::ImageUniqueID,
+            ExifTag::LensSpecification,
+            ExifTag::LensMake,
+            ExifTag::LensModel,
+            ExifTag::Gamma,
+            ExifTag::GPSTimeStamp,
+            ExifTag::GPSSatellites,
+            ExifTag::GPSStatus,
+            ExifTag::GPSMeasureMode,
+            ExifTag::GPSDOP,
+            ExifTag::GPSSpeedRef,
+            ExifTag::GPSSpeed,
+            ExifTag::GPSTrackRef,
+            ExifTag::GPSTrack,
+            ExifTag::GPSImgDirectionRef,
+            ExifTag::GPSImgDirection,
+            ExifTag::GPSMapDatum,
+            ExifTag::GPSDestLatitudeRef,
+            ExifTag::GPSDestLatitude,
+            ExifTag::GPSDestLongitudeRef,
+            ExifTag::GPSDestLongitude,
+            ExifTag::GPSDestBearingRef,
+            ExifTag::GPSDestBearing,
+            ExifTag::GPSDestDistanceRef,
+            ExifTag::GPSDestDistance,
+            ExifTag::GPSProcessingMethod,
+            ExifTag::GPSAreaInformation,
+            ExifTag::GPSDateStamp,
+            ExifTag::GPSDifferential,
+            ExifTag::YCbCrPositioning,
+            ExifTag::RecommendedExposureIndex,
+            ExifTag::SubSecTimeDigitized,
+            ExifTag::SubSecTimeOriginal,
+            ExifTag::SubSecTime,
+            ExifTag::InteropOffset,
+            ExifTag::ComponentsConfiguration,
+            ExifTag::ThumbnailOffset,
+            ExifTag::ThumbnailLength,
+            ExifTag::Compression,
+            ExifTag::BitsPerSample,
+            ExifTag::PhotometricInterpretation,
+            ExifTag::SamplesPerPixel,
+            ExifTag::RowsPerStrip,
+            ExifTag::PlanarConfiguration,
+        ];
+        for &t in ALL {
+            if t.name() == s {
+                return Ok(t);
+            }
+        }
+        Err(crate::ConvertError::UnknownTagName(s.to_owned()))
     }
 }
 
@@ -507,4 +635,48 @@ pub enum Orientation {
     Rotate90,
     MirrorHorizontalRotate90,
     Rotate270,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ConvertError;
+    use std::str::FromStr;
+
+    #[test]
+    fn exif_tag_from_code_recognized() {
+        assert_eq!(ExifTag::from_code(0x010f), Some(ExifTag::Make));
+        assert_eq!(ExifTag::from_code(0x0110), Some(ExifTag::Model));
+    }
+
+    #[test]
+    fn exif_tag_from_code_unknown_returns_none() {
+        assert_eq!(ExifTag::from_code(0xffff), None);
+        assert_eq!(ExifTag::from_code(0x0000), Some(ExifTag::GPSVersionID)); // 0 is GPSVersionID
+        assert_eq!(ExifTag::from_code(0xfffe), None);
+    }
+
+    #[test]
+    fn exif_tag_name_returns_static_str() {
+        assert_eq!(ExifTag::Make.name(), "Make");
+        assert_eq!(ExifTag::ExifOffset.name(), "ExifOffset");
+        // Display routes through name():
+        assert_eq!(ExifTag::Make.to_string(), "Make");
+    }
+
+    #[test]
+    fn exif_tag_from_str_recognized() {
+        assert_eq!(ExifTag::from_str("Make").unwrap(), ExifTag::Make);
+        assert_eq!(ExifTag::from_str("ExifOffset").unwrap(), ExifTag::ExifOffset);
+    }
+
+    #[test]
+    fn exif_tag_from_str_unknown_returns_convert_error() {
+        match ExifTag::from_str("DefinitelyNotATag") {
+            Err(ConvertError::UnknownTagName(s)) => {
+                assert_eq!(s, "DefinitelyNotATag");
+            }
+            other => panic!("expected UnknownTagName, got {other:?}"),
+        }
+    }
 }
