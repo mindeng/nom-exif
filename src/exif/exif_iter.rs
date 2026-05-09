@@ -10,7 +10,8 @@ use crate::{
     EntryValue, ExifTag,
 };
 
-use super::{exif_exif::IFD_ENTRY_SIZE, tags::ExifTagCode, GPSInfo, LatLng, TiffHeader};
+use super::{exif_exif::IFD_ENTRY_SIZE, GPSInfo, LatLng, TiffHeader};
+use crate::TagOrCode;
 
 /// Index of an IFD (Image File Directory) within an EXIF blob.
 ///
@@ -277,7 +278,7 @@ impl ExifIter {
 pub struct ParsedExifEntry {
     // 0: ifd0, 1: ifd1
     ifd: usize,
-    tag: ExifTagCode,
+    tag: TagOrCode,
     res: Option<Result<EntryValue, EntryError>>,
 }
 
@@ -299,8 +300,8 @@ impl ParsedExifEntry {
     /// no matter if it's recognized.
     pub fn tag(&self) -> Option<ExifTag> {
         match self.tag {
-            ExifTagCode::Tag(t) => Some(t),
-            ExifTagCode::Code(_) => None,
+            TagOrCode::Tag(t) => Some(t),
+            TagOrCode::Unknown(_) => None,
         }
     }
 
@@ -383,7 +384,7 @@ impl ParsedExifEntry {
         }
     }
 
-    fn make_ok(ifd: usize, tag: ExifTagCode, v: EntryValue) -> Self {
+    fn make_ok(ifd: usize, tag: TagOrCode, v: EntryValue) -> Self {
         Self {
             ifd,
             tag,
@@ -568,7 +569,7 @@ impl Iterator for ExifIter {
 #[derive(Clone)]
 pub(crate) struct IfdIter {
     ifd_idx: usize,
-    tag_code: Option<ExifTagCode>,
+    tag_code: Option<TagOrCode>,
 
     // starts from TIFF header
     input: Bytes,
@@ -625,7 +626,7 @@ impl IfdIter {
     }
 
     #[allow(unused)]
-    pub fn tag(mut self, tag: ExifTagCode) -> Self {
+    pub fn tag(mut self, tag: TagOrCode) -> Self {
         self.tag_code = Some(tag);
         self
     }
@@ -680,7 +681,7 @@ impl IfdIter {
         let df: DataFormat = match DataFormat::try_from(data_format) {
             Ok(df) => df,
             Err(bad) => {
-                let t: ExifTagCode = tag.into();
+                let t: TagOrCode = tag.into();
                 tracing::warn!(tag = ?t, format = bad, "invalid entry data format");
                 return Some((
                     tag,
@@ -995,7 +996,7 @@ impl IfdEntry {
 pub(crate) const SUBIFD_TAGS: &[u16] = &[ExifTag::ExifOffset.code(), ExifTag::GPSInfo.code()];
 
 impl Iterator for IfdIter {
-    type Item = (Option<ExifTagCode>, IfdEntry);
+    type Item = (Option<TagOrCode>, IfdEntry);
 
     #[tracing::instrument(skip(self))]
     fn next(&mut self) -> Option<Self::Item> {
@@ -1125,5 +1126,21 @@ mod tests {
         use crate::IfdIndex;
         assert_eq!(format!("{}", IfdIndex::MAIN), "ifd0");
         assert_eq!(format!("{}", IfdIndex::new(7)), "ifd7");
+    }
+
+    #[test]
+    fn tag_or_code_for_known_tag_resolves_to_tag_variant() {
+        use crate::{ExifTag, TagOrCode};
+        let t: TagOrCode = ExifTag::Make.code().into();
+        assert_eq!(t, TagOrCode::Tag(ExifTag::Make));
+        assert_eq!(t.code(), ExifTag::Make.code());
+    }
+
+    #[test]
+    fn tag_or_code_for_unknown_tag_resolves_to_unknown_variant() {
+        use crate::TagOrCode;
+        let t: TagOrCode = 0xffff_u16.into();
+        assert_eq!(t, TagOrCode::Unknown(0xffff));
+        assert_eq!(t.code(), 0xffff);
     }
 }

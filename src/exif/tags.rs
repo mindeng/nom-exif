@@ -6,61 +6,61 @@ use std::fmt::{Debug, Display};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
+/// Either a recognized [`ExifTag`] or a raw `u16` tag code that the parser did
+/// not recognize. Yielded by [`crate::ExifIterEntry::tag`] and by
+/// [`crate::ExifEntry::tag`].
 #[allow(unused)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Eq, PartialEq, Hash, Clone, Copy)]
-pub(crate) enum ExifTagCode {
-    /// Recognized Exif tag
+pub enum TagOrCode {
+    /// Tag is in the recognized [`ExifTag`] enum.
     Tag(ExifTag),
 
-    /// Unrecognized Exif tag
-    Code(u16),
+    /// Tag is *not* in [`ExifTag`]; raw `u16` code is preserved.
+    Unknown(u16),
 }
 
-impl ExifTagCode {
-    /// Get recognized Exif tag, maybe return `None` if it's unrecognized. You
-    /// can get raw tag code via [`Self::code`] in this case).
-    pub(crate) fn tag(&self) -> Option<ExifTag> {
+impl TagOrCode {
+    /// The recognized [`ExifTag`], if any. `None` for `Unknown(_)`.
+    pub fn tag(&self) -> Option<ExifTag> {
         match self {
-            ExifTagCode::Tag(t) => Some(t.to_owned()),
-            ExifTagCode::Code(_) => None,
+            TagOrCode::Tag(t) => Some(*t),
+            TagOrCode::Unknown(_) => None,
         }
     }
 
-    /// Get the raw tag code value.
-    pub(crate) fn code(&self) -> u16 {
+    /// The raw `u16` tag code (always available, recognized or not).
+    pub fn code(&self) -> u16 {
         match self {
-            ExifTagCode::Tag(t) => t.code(),
-            ExifTagCode::Code(c) => *c,
+            TagOrCode::Tag(t) => t.code(),
+            TagOrCode::Unknown(c) => *c,
         }
     }
 }
 
-impl From<u16> for ExifTagCode {
+impl From<u16> for TagOrCode {
     fn from(v: u16) -> Self {
-        let tag: crate::Result<ExifTag> = v.try_into();
-        if let Ok(tag) = tag {
-            ExifTagCode::Tag(tag)
-        } else {
-            ExifTagCode::Code(v)
+        match ExifTag::try_from(v) {
+            Ok(tag) => TagOrCode::Tag(tag),
+            Err(_) => TagOrCode::Unknown(v),
         }
     }
 }
 
-impl Debug for ExifTagCode {
+impl Debug for TagOrCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ExifTagCode::Tag(v) => Debug::fmt(v, f),
-            ExifTagCode::Code(v) => Debug::fmt(&format!("Unrecognized(0x{v:04x})"), f),
+            TagOrCode::Tag(v) => Debug::fmt(v, f),
+            TagOrCode::Unknown(v) => Debug::fmt(&format!("Unknown(0x{v:04x})"), f),
         }
     }
 }
 
-impl Display for ExifTagCode {
+impl Display for TagOrCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ExifTagCode::Tag(t) => Display::fmt(t, f),
-            ExifTagCode::Code(c) => Display::fmt(&format!("Unrecognized(0x{c:04x})"), f),
+            TagOrCode::Tag(t) => Display::fmt(t, f),
+            TagOrCode::Unknown(c) => write!(f, "Unknown(0x{c:04x})"),
         }
     }
 }

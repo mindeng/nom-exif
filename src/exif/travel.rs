@@ -6,8 +6,9 @@ use nom::{
 
 use crate::{
     error::ParsingError,
-    exif::{tags::ExifTagCode, TiffHeader},
+    exif::TiffHeader,
     values::{array_to_string, DataFormat},
+    TagOrCode,
 };
 
 use super::{exif_exif::IFD_ENTRY_SIZE, exif_iter::SUBIFD_TAGS};
@@ -19,7 +20,7 @@ pub(crate) struct IfdHeaderTravel<'a> {
     // starts from file beginning
     data: &'a [u8],
 
-    tag: ExifTagCode,
+    tag: TagOrCode,
 
     endian: Endianness,
 
@@ -40,7 +41,7 @@ pub(crate) struct EntryInfo<'a> {
 }
 
 impl<'a> IfdHeaderTravel<'a> {
-    pub fn new(input: &'a [u8], offset: usize, tag: ExifTagCode, endian: Endianness) -> Self {
+    pub fn new(input: &'a [u8], offset: usize, tag: TagOrCode, endian: Endianness) -> Self {
         Self {
             data: input,
             tag,
@@ -140,7 +141,7 @@ impl<'a> IfdHeaderTravel<'a> {
             // }
 
             if let Some(offset) = entry.sub_ifd_offset {
-                let tag: ExifTagCode = entry.tag.into();
+                let tag: TagOrCode = entry.tag.into();
                 tracing::debug!(?offset, data_len = self.data.len(), "sub-ifd: {:?}", tag);
 
                 // Full fill bytes until sub-ifd header

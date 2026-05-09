@@ -9,7 +9,7 @@ use exif_exif::TIFF_HEADER_LEN;
 use exif_iter::input_into_iter;
 pub use exif_iter::{ExifIter, IfdIndex, ParsedExifEntry};
 pub use gps::{GPSInfo, LatLng};
-pub use tags::ExifTag;
+pub use tags::{ExifTag, TagOrCode};
 
 use std::io::Read;
 use std::ops::Range;
@@ -211,7 +211,7 @@ pub(crate) fn extract_exif_with_mime(
             let mut iter = IfdHeaderTravel::new(
                 buf,
                 header.ifd0_offset as usize,
-                tags::ExifTagCode::Code(0x2a),
+                TagOrCode::Unknown(0x2a),
                 header.endian,
             );
             iter.travel_ifd(0)
