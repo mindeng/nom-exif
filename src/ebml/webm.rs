@@ -47,8 +47,8 @@ impl From<EbmlFileInfo> for TrackInfo {
             TrackInfoTag::DurationMs,
             ((value.segment_info.duration / 1000.0 / 1000.0) as u64).into(),
         );
-        info.put(TrackInfoTag::ImageWidth, value.tracks_info.width.into());
-        info.put(TrackInfoTag::ImageHeight, value.tracks_info.height.into());
+        info.put(TrackInfoTag::Width, value.tracks_info.width.into());
+        info.put(TrackInfoTag::Height, value.tracks_info.height.into());
         info
     }
 }

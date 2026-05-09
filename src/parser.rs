@@ -1016,23 +1016,23 @@ mod tests {
 
     use crate::video::TrackInfoTag::*;
 
-    #[test_case("mkv_640x360.mkv", ImageWidth, 640_u32.into())]
-    #[test_case("mkv_640x360.mkv", ImageHeight, 360_u32.into())]
+    #[test_case("mkv_640x360.mkv", Width, 640_u32.into())]
+    #[test_case("mkv_640x360.mkv", Height, 360_u32.into())]
     #[test_case("mkv_640x360.mkv", DurationMs, 13346_u64.into())]
     #[test_case("mkv_640x360.mkv", CreateDate, DateTime::parse_from_str("2008-08-08T08:08:08Z", "%+").unwrap().into())]
     #[test_case("meta.mov", Make, "Apple".into())]
     #[test_case("meta.mov", Model, "iPhone X".into())]
     #[test_case("meta.mov", GpsIso6709, "+27.1281+100.2508+000.000/".into())]
     #[test_case("meta.mov", CreateDate, DateTime::parse_from_str("2019-02-12T15:27:12+08:00", "%+").unwrap().into())]
-    #[test_case("meta.mp4", ImageWidth, 1920_u32.into())]
-    #[test_case("meta.mp4", ImageHeight, 1080_u32.into())]
+    #[test_case("meta.mp4", Width, 1920_u32.into())]
+    #[test_case("meta.mp4", Height, 1080_u32.into())]
     #[test_case("meta.mp4", DurationMs, 1063_u64.into())]
     #[test_case("meta.mp4", GpsIso6709, "+27.2939+112.6932/".into())]
     #[test_case("meta.mp4", CreateDate, DateTime::parse_from_str("2024-02-03T07:05:38Z", "%+").unwrap().into())]
     #[test_case("udta.auth.mp4", Author, "ReplayKitRecording".into(); "udta author")]
     #[test_case("auth.mov", Author, "ReplayKitRecording".into(); "mov author")]
-    #[test_case("sony-a7-xavc.MP4", ImageWidth, 1920_u32.into())]
-    #[test_case("sony-a7-xavc.MP4", ImageHeight, 1080_u32.into())]
+    #[test_case("sony-a7-xavc.MP4", Width, 1920_u32.into())]
+    #[test_case("sony-a7-xavc.MP4", Height, 1080_u32.into())]
     #[test_case("sony-a7-xavc.MP4", DurationMs, 1440_u64.into())]
     #[test_case("sony-a7-xavc.MP4", CreateDate, DateTime::parse_from_str("2026-04-26T09:25:15+00:00", "%+").unwrap().into())]
     fn parse_track_info(path: &str, tag: TrackInfoTag, v: EntryValue) {
@@ -1413,7 +1413,7 @@ mod tests {
         let ms = MediaSource::from_bytes(raw).unwrap();
         let info = parser.parse_track_from_bytes(ms).unwrap();
         assert_eq!(
-            info.get(crate::TrackInfoTag::ImageWidth),
+            info.get(crate::TrackInfoTag::Width),
             Some(&(640_u32.into()))
         );
     }

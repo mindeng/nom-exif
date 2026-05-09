@@ -32,10 +32,10 @@ pub enum TrackInfoTag {
     DurationMs,
 
     /// Its value is an `EntryValue::U32`.
-    ImageWidth,
+    Width,
 
     /// Its value is an `EntryValue::U32`.
-    ImageHeight,
+    Height,
 
     /// Its value is an `EntryValue::Text`, location presented in ISO6709.
     ///
@@ -193,8 +193,8 @@ impl TrackInfoTag {
             TrackInfoTag::Software => "Software",
             TrackInfoTag::CreateDate => "CreateDate",
             TrackInfoTag::DurationMs => "DurationMs",
-            TrackInfoTag::ImageWidth => "ImageWidth",
-            TrackInfoTag::ImageHeight => "ImageHeight",
+            TrackInfoTag::Width => "Width",
+            TrackInfoTag::Height => "Height",
             TrackInfoTag::GpsIso6709 => "GpsIso6709",
             TrackInfoTag::Author => "Author",
         }
@@ -217,8 +217,8 @@ impl std::str::FromStr for TrackInfoTag {
             "Software" => TrackInfoTag::Software,
             "CreateDate" => TrackInfoTag::CreateDate,
             "DurationMs" => TrackInfoTag::DurationMs,
-            "ImageWidth" => TrackInfoTag::ImageWidth,
-            "ImageHeight" => TrackInfoTag::ImageHeight,
+            "Width" => TrackInfoTag::Width,
+            "Height" => TrackInfoTag::Height,
             "GpsIso6709" => TrackInfoTag::GpsIso6709,
             "Author" => TrackInfoTag::Author,
             other => return Err(crate::ConvertError::UnknownTagName(other.to_owned())),
@@ -247,8 +247,8 @@ mod p6_baseline {
             TrackInfoTag::Model,
             TrackInfoTag::GpsIso6709,
             TrackInfoTag::DurationMs,
-            TrackInfoTag::ImageWidth,
-            TrackInfoTag::ImageHeight,
+            TrackInfoTag::Width,
+            TrackInfoTag::Height,
         ]
         .into_iter()
         .filter_map(|t| info.get(t).map(|v| format!("{t:?}={v}")))
@@ -281,8 +281,8 @@ mod p6_baseline {
             TrackInfoTag::Software,
             TrackInfoTag::CreateDate,
             TrackInfoTag::DurationMs,
-            TrackInfoTag::ImageWidth,
-            TrackInfoTag::ImageHeight,
+            TrackInfoTag::Width,
+            TrackInfoTag::Height,
             TrackInfoTag::GpsIso6709,
             TrackInfoTag::Author,
         ] {

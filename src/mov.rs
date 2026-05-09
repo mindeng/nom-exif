@@ -51,8 +51,8 @@ fn parse_mvhd_tkhd(moov_body: &[u8]) -> BTreeMap<TrackInfoTag, EntryValue> {
     }
 
     if let Ok(Some(tkhd)) = parse_video_tkhd_in_moov(moov_body) {
-        entries.insert(TrackInfoTag::ImageWidth, tkhd.width.into());
-        entries.insert(TrackInfoTag::ImageHeight, tkhd.height.into());
+        entries.insert(TrackInfoTag::Width, tkhd.width.into());
+        entries.insert(TrackInfoTag::Height, tkhd.height.into());
     }
 
     entries

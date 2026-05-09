@@ -228,8 +228,8 @@ Model                           => iPhone X
 Software                        => 12.1.2
 CreateDate                      => 2024-02-02T08:09:57+00:00
 DurationMs                      => 500
-ImageWidth                      => 720
-ImageHeight                     => 1280
+Width                           => 720
+Height                          => 1280
 GpsIso6709                      => +27.1281+100.2508+000.000/
 ```
 
@@ -243,9 +243,9 @@ Pass `--debug` to enable tracing logs:
 
 ```text
 {
-  "ImageWidth": "720",
+  "Width": "720",
   "Software": "12.1.2",
-  "ImageHeight": "1280",
+  "Height": "1280",
   "Make": "Apple",
   "GpsIso6709": "+27.1281+100.2508+000.000/",
   "CreateDate": "2024-02-02T08:09:57+00:00",
@@ -269,8 +269,8 @@ Model                           => iPhone 15 Pro
 Software                        => 17.1
 CreateDate                      => 2023-11-02T12:01:02+00:00
 DurationMs                      => 2795
-ImageWidth                      => 1920
-ImageHeight                     => 1440
+Width                           => 1920
+Height                          => 1440
 GpsIso6709                      => +22.5797+113.9380+028.396/
 
 File: "testdata/exif.jpg"

@@ -827,7 +827,7 @@ impl TrackInfo {
 #[non_exhaustive]
 pub enum TrackInfoTag {
     Make, Model, Software, CreateDate,
-    DurationMs, ImageWidth, ImageHeight,
+    DurationMs, Width, Height,
     GpsIso6709, Author,
 }
 
