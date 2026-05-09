@@ -205,12 +205,17 @@ pub(crate) fn nom_error_to_parsing_error_with_state(
     }
 }
 
-/// Categorizes the format-family that produced a `Error::Malformed`.
+/// Categorizes the *structural unit* that produced a `Error::Malformed`.
 ///
-/// Used by downstream code to react differently depending on which container
-/// or sub-structure failed to parse — e.g. a corrupted JPEG segment is
-/// recoverable for many use cases while a corrupted EBML element typically
-/// is not.
+/// Variants describe the kind of bytes that failed to parse (a JPEG segment,
+/// a TIFF header, an IFD entry, an ISO BMFF box, an EBML element), not the
+/// outer file format. Format-specific context — e.g. "cr3:", "heif idat:" —
+/// is conveyed in the accompanying `message` string.
+///
+/// This intentionally avoids a parallel format-level taxonomy (`Heif`,
+/// `Cr3Container`, `Raf`, …): those families are all built on top of one of
+/// the structural units listed here, so adding a row per format would create
+/// non-orthogonal categories that overlap with the structural ones.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum MalformedKind {
@@ -219,9 +224,6 @@ pub enum MalformedKind {
     IfdEntry,
     IsoBmffBox,
     EbmlElement,
-    Cr3Container,
-    Heif,
-    Raf,
 }
 
 impl std::fmt::Display for MalformedKind {
@@ -232,9 +234,6 @@ impl std::fmt::Display for MalformedKind {
             Self::IfdEntry => "ifd entry",
             Self::IsoBmffBox => "iso-bmff box",
             Self::EbmlElement => "ebml element",
-            Self::Cr3Container => "cr3 container",
-            Self::Heif => "heif",
-            Self::Raf => "raf",
         };
         f.write_str(s)
     }
@@ -304,16 +303,13 @@ mod tests {
     }
 
     #[test]
-    fn malformed_kind_covers_all_format_families() {
+    fn malformed_kind_covers_all_structural_units() {
         for k in [
             MalformedKind::JpegSegment,
             MalformedKind::TiffHeader,
             MalformedKind::IfdEntry,
             MalformedKind::IsoBmffBox,
             MalformedKind::EbmlElement,
-            MalformedKind::Cr3Container,
-            MalformedKind::Heif,
-            MalformedKind::Raf,
         ] {
             let _ = format!("{k:?}");
         }

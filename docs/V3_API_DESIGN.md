@@ -113,10 +113,11 @@ pub enum MalformedKind {
     IfdEntry,
     IsoBmffBox,
     EbmlElement,
-    Cr3Container,
-    Heif,
-    Raf,
 }
+// Format-level granularity (Heif / Cr3Container / Raf) was removed in favor
+// of structural-only categories — those families are all built on top of
+// IsoBmffBox / TiffHeader / JpegSegment, and the `message` string carries
+// the format prefix (e.g. "cr3: no CMT data found").
 
 /// 单个 Exif entry 的解析错误，用于 ExifIter 的 per-entry 错误。
 ///

@@ -68,15 +68,15 @@ fn parse_cr3_exif_iter<R: Read>(
 
     let Some(cmt_ranges) = cmt_ranges else {
         return Err(crate::Error::Malformed {
-            kind: crate::error::MalformedKind::Cr3Container,
-            message: "no CMT data found".into(),
+            kind: crate::error::MalformedKind::IsoBmffBox,
+            message: "cr3: no CMT data found".into(),
         });
     };
 
     if cmt_ranges.ranges.is_empty() {
         return Err(crate::Error::Malformed {
-            kind: crate::error::MalformedKind::Cr3Container,
-            message: "no CMT ranges available".into(),
+            kind: crate::error::MalformedKind::IsoBmffBox,
+            message: "cr3: no CMT ranges available".into(),
         });
     }
 

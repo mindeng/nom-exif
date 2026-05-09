@@ -26,8 +26,8 @@ impl<'a> IdatBox<'a> {
     pub fn get_data(&self, range: Range<usize>) -> crate::Result<&[u8]> {
         if range.len() > self.data.len() {
             Err(crate::Error::Malformed {
-                kind: MalformedKind::Heif,
-                message: "idat data is too small".to_string(),
+                kind: MalformedKind::IsoBmffBox,
+                message: "heif idat: data is too small".to_string(),
             })
         } else {
             Ok(&self.data[range])

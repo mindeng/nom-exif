@@ -61,7 +61,7 @@ fn s5_2_malformed_variant_pattern() {
 
 #[test]
 fn s5_2_malformed_kind_imports_from_top_level() {
-    let _kind: MalformedKind = MalformedKind::Heif;
+    let _kind: MalformedKind = MalformedKind::IsoBmffBox;
 }
 
 // ─── §5.3 EntryValue accessors ─────────────────────────────────────────────
