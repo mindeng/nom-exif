@@ -3,7 +3,6 @@ use std::{
     fmt::{Debug, Display},
     fs::File,
     io::{self, Read, Seek},
-    ops::Range,
     path::Path,
 };
 
@@ -12,7 +11,6 @@ use crate::{
     error::{ParsedError, ParsingError, ParsingErrorState},
     exif::TiffHeader,
     file::MediaMime,
-    partial_vec::PartialVec,
     ExifIter, TrackInfo,
 };
 
@@ -201,12 +199,10 @@ impl Buf for BufferedParserState {
 }
 
 impl ShareBuf for BufferedParserState {
-    fn share_buf(&mut self, mut range: Range<usize>) -> PartialVec {
+    fn share_buf(&mut self) -> (bytes::Bytes, usize) {
         let buf = self.buf.take().expect("no buf to share");
         let bytes = self.bb.release_to_share(buf);
-        range.start += self.position;
-        range.end += self.position;
-        PartialVec::new(bytes, range)
+        (bytes, self.position)
     }
 }
 
@@ -497,12 +493,16 @@ impl Default for MediaParser {
 }
 
 pub(crate) trait ShareBuf {
-    fn share_buf(&mut self, range: Range<usize>) -> PartialVec;
+    /// Take ownership of the parser's active buffer and return the full
+    /// allocation as `Bytes` plus the parser's `position` at share-time.
+    /// Caller is responsible for slicing: a parse-loop range `r` corresponds
+    /// to absolute range `(r.start + position)..(r.end + position)`.
+    fn share_buf(&mut self) -> (bytes::Bytes, usize);
 }
 
 impl ShareBuf for MediaParser {
-    fn share_buf(&mut self, range: Range<usize>) -> PartialVec {
-        self.state.share_buf(range)
+    fn share_buf(&mut self) -> (bytes::Bytes, usize) {
+        self.state.share_buf()
     }
 }
 

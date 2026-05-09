@@ -124,7 +124,6 @@ mod mov;
 mod parser;
 #[cfg(feature = "tokio")]
 mod parser_async;
-mod partial_vec;
 mod raf;
 mod slice;
 mod utils;

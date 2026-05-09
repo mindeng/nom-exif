@@ -44,17 +44,26 @@ pub(crate) fn extract_all_cmt_ranges(
         ));
     }
 
-    // Validate all ranges are within buffer bounds
+    // Enforce the invariant that parse_moov_box's streaming::take guarantees:
+    // when we reach here all CMT blocks are fully loaded. parse_cr3_exif_iter
+    // (which slices each range out of the shared buffer upfront) relies on
+    // this; better to surface a structured error here than to let Bytes::slice
+    // panic later.
     for (block_id, range) in &ranges {
         if range.end > buf.len() {
-            // For now, we'll skip validation and let it fail later if needed
-            // This matches the behavior of the original extract_exif_data
-            tracing::warn!(
+            tracing::error!(
                 block_id,
                 range_end = range.end,
                 buf_len = buf.len(),
-                "CMT range extends beyond buffer"
+                "CMT range extends beyond loaded buffer (parse_moov_box invariant violated)"
             );
+            return Err(ParsingErrorState::new(
+                ParsingError::Failed(format!(
+                    "CR3 CMT block {block_id} range {range:?} extends past loaded buffer ({} bytes)",
+                    buf.len()
+                )),
+                None,
+            ));
         }
     }
 

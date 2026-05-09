@@ -51,8 +51,6 @@ fn parse_cr3_exif_iter<R: Read>(
     reader: &mut R,
     skip_by_seek: crate::parser::SkipBySeekFn<R>,
 ) -> Result<ExifIter, crate::Error> {
-    use crate::parser::Buf;
-
     // First, parse to get all CMT ranges
     let cmt_ranges = parser
         .load_and_parse(reader, skip_by_seek, |buf, _state| cr3::extract_all_cmt_ranges(buf))?;
@@ -76,49 +74,49 @@ fn parse_cr3_exif_iter<R: Read>(
         "Found CMT ranges in CR3 file"
     );
 
-    // Get the parser position offset - share_buf will add this to ranges
-    let position_offset = parser.position();
-
     // Get the first CMT range (CMT1) to create the primary ExifIter
     let (first_block_id, first_range) = &cmt_ranges.ranges[0];
     tracing::debug!(
         block_id = first_block_id,
         range = ?first_range,
-        position_offset,
         "Creating primary ExifIter from first CMT block"
     );
 
-    // Share the buffer and create the primary ExifIter.
-    // Temporarily reach into pv.data for the full backing Bytes so we can
-    // slice additional CMT ranges out of it. Task 5 will clean this up by
-    // changing share_buf to return (Bytes, usize) directly.
-    let pv = parser.share_buf(first_range.clone());
-    let full_bytes = pv.data.clone(); // full parser buffer (Bytes) — Task 5 prep
-    let primary_view = pv.into_bytes(); // first_range view
+    // Take ownership of the parser's full buffer once. All CMT block ranges
+    // are relative to the parser's position-adjusted buffer view; absolute
+    // ranges within `full` are obtained by adding `position`.
+    let (full, position) = parser.share_buf();
+
+    // Invariant: parse_moov_box uses streaming::take(box_size) for every box,
+    // so when extract_all_cmt_ranges returns Some, all child boxes (including
+    // CMT1/2/3 data) are fully loaded into `full`. Step 3a hardens this from
+    // a soft warning to a structured ParsingError, so reaching here always
+    // means every range fits within `full`.
+    debug_assert!(
+        cmt_ranges
+            .ranges
+            .iter()
+            .all(|(_, r)| r.end + position <= full.len()),
+        "CMT range extends beyond loaded buffer; parse_moov_box invariant violated"
+    );
+
+    let primary_abs = (first_range.start + position)..(first_range.end + position);
+    let primary_view = full.slice(primary_abs);
     let mut iter = input_into_iter(primary_view, None)?;
 
-    // Add remaining CMT blocks as additional TIFF blocks.
-    // Note: We skip CMT3 (MakerNotes) as it has a proprietary format that requires
-    // special handling and would produce garbage data if parsed as standard EXIF
     for (block_id, range) in cmt_ranges.ranges.iter().skip(1) {
-        // Skip CMT3 (MakerNotes) - it has a proprietary Canon format
         if *block_id == "CMT3" {
             tracing::debug!(block_id, "Skipping CMT3 (MakerNotes) - proprietary format");
             continue;
         }
-
-        let adjusted_range = (range.start + position_offset)..(range.end + position_offset);
+        let abs = (range.start + position)..(range.end + position);
         tracing::debug!(
             block_id,
             original_range = ?range,
-            adjusted_range = ?adjusted_range,
+            absolute_range = ?abs,
             "Adding additional CMT block"
         );
-        iter.add_tiff_block(
-            block_id.to_string(),
-            full_bytes.slice(adjusted_range),
-            None,
-        );
+        iter.add_tiff_block(block_id.to_string(), full.slice(abs), None);
     }
 
     Ok(iter)
@@ -144,9 +142,10 @@ fn range_to_iter(
 ) -> Result<ExifIter, crate::Error> {
     if let Some((range, header)) = out {
         tracing::debug!(?range, ?header, "Got Exif data");
-        let input = parser.share_buf(range).into_bytes();
-        let iter = input_into_iter(input, header)?;
-
+        let (full, position) = parser.share_buf();
+        let abs = (range.start + position)..(range.end + position);
+        let view = full.slice(abs);
+        let iter = input_into_iter(view, header)?;
         Ok(iter)
     } else {
         tracing::debug!("Exif not found");
