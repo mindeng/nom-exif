@@ -48,6 +48,7 @@ internal design rationale lives in `docs/V3_API_DESIGN.md`.
 | `iter.clone_and_rewind()` | `iter.clone_rewound()` |
 | `iter.parse_gps_info()` | `iter.parse_gps()` |
 | `info.get_gps_info()` | `info.gps_info() -> Option<&GPSInfo>` |
+| `TrackInfoTag::ImageWidth` / `ImageHeight` | `TrackInfoTag::Width` / `Height` (Track context only; `ExifTag::ImageWidth/ImageHeight` unchanged) |
 | `g.latitude_ref == 'N'` | `matches!(g.latitude_ref, LatRef::North)` |
 | `URational(1, 2)` | `URational::new(1, 2)`; `.to_f64()?` |
 | `LatLng::from(f64)` (panicky) | `LatLng::try_from_decimal_degrees(f64)?` |

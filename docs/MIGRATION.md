@@ -158,6 +158,7 @@ Feature names only — semantics and functionality are unchanged.
 
 | v2 | v3 |
 |----|-----|
+| `TrackInfoTag::ImageWidth` / `ImageHeight` | `TrackInfoTag::Width` / `Height` (the `Image` prefix is wrong in a video/audio container; aligns with Matroska's `PixelWidth`/`PixelHeight` and ISOBMFF's `width`/`height`. `ExifTag::ImageWidth`/`ImageHeight` are unchanged — `Image` is correct in EXIF context) |
 | `info.get_gps_info() -> Option<GPSInfo>` (Result-wrapped) | `info.gps_info() -> Option<&GPSInfo>` (parallels `Exif::gps_info`) |
 | `<&str as From<TrackInfoTag>>::from(t)` | `t.name()` or `t.to_string()` |
 | `TryFrom<&str> for TrackInfoTag` (with `UnknownTrackInfoTag` error) | `TrackInfoTag::from_str("Make")` (impl `FromStr`, `Err = ConvertError`) |
