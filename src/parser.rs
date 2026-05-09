@@ -203,10 +203,10 @@ impl Buf for BufferedParserState {
 impl ShareBuf for BufferedParserState {
     fn share_buf(&mut self, mut range: Range<usize>) -> PartialVec {
         let buf = self.buf.take().expect("no buf to share");
-        let vec = self.bb.release_to_share(buf);
+        let bytes = self.bb.release_to_share(buf);
         range.start += self.position;
         range.end += self.position;
-        PartialVec::new(vec, range)
+        PartialVec::new(bytes, range)
     }
 }
 

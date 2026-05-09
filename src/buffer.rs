@@ -1,7 +1,7 @@
 use std::{
     collections::VecDeque,
     fmt::Debug,
-    sync::{atomic::AtomicUsize, Arc},
+    sync::atomic::AtomicUsize,
 };
 
 use crate::parser::INIT_BUF_SIZE;
@@ -12,7 +12,7 @@ const INIT_POOLED_BUF: usize = 2;
 const MAX_POOLED_BUF: usize = 8;
 
 pub(crate) struct Buffers {
-    shared: VecDeque<Arc<Vec<u8>>>,
+    shared: VecDeque<bytes::Bytes>,
     pool: VecDeque<Vec<u8>>,
     acquired: AtomicUsize,
 }
@@ -32,12 +32,12 @@ impl Buffers {
     }
 
     #[tracing::instrument(skip_all)]
-    pub fn release_to_share(&mut self, buf: Vec<u8>) -> Arc<Vec<u8>> {
-        let arc = Arc::new(buf);
-        self.shared.push_back(arc.clone());
+    pub fn release_to_share(&mut self, buf: Vec<u8>) -> bytes::Bytes {
+        let bytes = bytes::Bytes::from(buf);
+        self.shared.push_back(bytes.clone());
         self.checked_sub_acquired();
         tracing::debug!(?self, "buffers status");
-        arc
+        bytes
     }
 
     #[tracing::instrument(skip_all)]
@@ -68,18 +68,20 @@ impl Buffers {
     fn recycle(&mut self) -> Option<Vec<u8>> {
         let mut remain = VecDeque::new();
         let buf = loop {
-            let Some(arc) = self.shared.pop_front() else {
+            let Some(b) = self.shared.pop_front() else {
                 break None;
             };
-            match Arc::try_unwrap(arc) {
-                Ok(mut buf) => {
-                    // recycled
-                    Self::clean(&mut buf);
-                    break Some(buf);
+            match b.try_into_mut() {
+                Ok(bm) => {
+                    let mut v: Vec<u8> = Vec::from(bm);
+                    v.clear();
+                    if v.capacity() > MAX_REUSE_BUF_SIZE {
+                        v.shrink_to(MAX_REUSE_BUF_SIZE);
+                    }
+                    break Some(v);
                 }
-                Err(arc) => {
-                    // still being used, put it back
-                    remain.push_back(arc);
+                Err(b_still_shared) => {
+                    remain.push_back(b_still_shared);
                 }
             }
         };
