@@ -1,11 +1,16 @@
 //! Runnable migration guide. Each test exercises the v3 side of one
-//! migration row in `docs/V3_API_DESIGN.md` §5. Lives in `tests/` so it
-//! compiles as a downstream crate would, validating the public API
-//! surface end-to-end.
+//! migration row in `docs/MIGRATION.md`. Lives in `tests/` so it compiles
+//! as a downstream crate would, validating the public API surface end-to-end.
 //!
-//! If you change the public surface and one of these breaks, **update
-//! the corresponding row in V3_API_DESIGN.md §5 and CHANGELOG.md** too —
-//! the three artifacts are meant to stay in lock-step.
+//! If you change the public surface and one of these breaks, **update the
+//! corresponding row in `docs/MIGRATION.md` and the excerpt in CHANGELOG.md**
+//! — the three artifacts are meant to stay in lock-step.
+//!
+//! Section names below preserve the historical `§5.x` ordering from the
+//! original location of the migration table (V3_API_DESIGN.md §5); they map
+//! 1:1 to the renumbered §1-§9 sections in `docs/MIGRATION.md`. §10 there
+//! covers TrackInfo and is exercised by `crate::parser::tests::parse_track_info`
+//! and friends in the unit tests.
 
 use nom_exif::*;
 

@@ -2,8 +2,9 @@
 
 ## nom-exif v3.0.0
 
-**Breaking release.** The public API has been reshaped end-to-end. See
-`docs/V3_API_DESIGN.md` for the full design contract and rationale.
+**Breaking release.** The public API has been reshaped end-to-end. The
+canonical migration guide is [`docs/MIGRATION.md`](docs/MIGRATION.md);
+internal design rationale lives in `docs/V3_API_DESIGN.md`.
 
 ### Highlights
 
@@ -21,7 +22,7 @@
 - Cargo features renamed: `async` → `tokio`, `json_dump` → `serde`.
 - MSRV: 1.83.
 
-### Migration Table (excerpt — full table in `docs/V3_API_DESIGN.md` §5)
+### Migration Table (excerpt — full guide in [`docs/MIGRATION.md`](docs/MIGRATION.md))
 
 | v2 | v3 |
 |----|-----|

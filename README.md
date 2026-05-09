@@ -151,7 +151,9 @@ if let Some(g) = exif.gps_info() {
 
 ## Migration from v2
 
-See `docs/V3_API_DESIGN.md` §5 for the full migration table. Hot items:
+v3.0.0 reshapes the public API end-to-end. The full migration guide lives
+in [`docs/MIGRATION.md`](docs/MIGRATION.md) — every row there is exercised
+by `tests/migration_guide.rs`. A few high-traffic items:
 
 - `MediaSource::file_path(p)` → `MediaSource::open(p)` or `read_exif(p)`.
 - `parser.parse::<_,_,ExifIter>(ms)` → `parser.parse_exif(ms)`.
