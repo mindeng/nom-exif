@@ -4,7 +4,7 @@ use nom::{
     branch::alt, bytes::streaming::tag, combinator, number::Endianness, IResult, Needed, Parser,
 };
 
-use crate::{EntryValue, ExifIter, ExifTag, GPSInfo, ParsedExifEntry};
+use crate::{EntryValue, ExifEntry, ExifIter, ExifTag, GPSInfo, IfdIndex, ParsedExifEntry, TagOrCode};
 
 use super::ifd::ParsedImageFileDirectory;
 
@@ -37,7 +37,7 @@ impl Exif {
     ///
     /// - If you have any custom defined tag which does not exist in
     ///   [`ExifTag`], you can always get the entry value by a raw tag code,
-    ///   see [`Self::get_by_ifd_tag_code`].
+    ///   see [`Self::get_by_code`].
     ///
     ///   ## Example
     ///
@@ -56,23 +56,19 @@ impl Exif {
     ///       Ok(())
     ///   }
     pub fn get(&self, tag: ExifTag) -> Option<&EntryValue> {
-        self.get_by_ifd_tag_code(0, tag.code())
+        self.get_in(IfdIndex::MAIN, tag)
     }
 
     /// Get entry value for the specified `tag` in the specified `ifd`.
-    ///
-    /// `ifd` value range:
-    /// - 0: ifd0 (the main image)
-    /// - 1: ifd1 (thumbnail image)
     ///
     /// *Note*:
     ///
     /// - The parsing error related to this tag won't be reported by this
     ///   method. Either this entry is not parsed successfully, or the tag does
-    ///   not exist in the input data, this method will return None.
+    ///   not exist in the input data, this method will return None. Use
+    ///   [`Self::errors`] to inspect per-entry errors.
     ///
-    /// - If you want to handle parsing error, please consider to use
-    ///   [`ExifIter`].
+    /// - For raw tag codes (e.g. unrecognized tags), use [`Self::get_by_code`].
     ///
     ///   ## Example
     ///
@@ -81,19 +77,41 @@ impl Exif {
     ///
     ///   fn main() -> Result<()> {
     ///       let mut parser = MediaParser::new();
-    ///       
     ///       let ms = MediaSource::open("./testdata/exif.jpg")?;
-    ///       assert_eq!(ms.kind(), MediaKind::Image);
     ///       let iter = parser.parse_exif(ms)?;
     ///       let exif: Exif = iter.into();
     ///
-    ///       assert_eq!(exif.get_by_ifd_tag_code(0, 0x0110).unwrap(), &"vivo X90 Pro+".into());
-    ///       assert_eq!(exif.get_by_ifd_tag_code(1, 0xa002).unwrap(), &240_u32.into());
+    ///       assert_eq!(exif.get_in(IfdIndex::MAIN, ExifTag::Model).unwrap(),
+    ///                  &"vivo X90 Pro+".into());
     ///       Ok(())
     ///   }
     ///   ```
-    pub fn get_by_ifd_tag_code(&self, ifd: usize, tag: u16) -> Option<&EntryValue> {
-        self.ifds.get(ifd).and_then(|ifd| ifd.get(tag))
+    pub fn get_in(&self, ifd: IfdIndex, tag: ExifTag) -> Option<&EntryValue> {
+        self.get_by_code(ifd, tag.code())
+    }
+
+    /// Get entry value for the specified raw `code` in the specified `ifd`.
+    /// Used for tags not in the recognized [`ExifTag`] enum.
+    pub fn get_by_code(&self, ifd: IfdIndex, code: u16) -> Option<&EntryValue> {
+        self.ifds.get(ifd.get()).and_then(|d| d.get(code))
+    }
+
+    /// Iterate every parsed entry in every IFD.
+    ///
+    /// Order is: IFD0 entries first (in `HashMap` order — not stable), then
+    /// IFD1, etc. Filter by IFD with `.iter().filter(|e| e.ifd == IfdIndex::MAIN)`.
+    pub fn iter(&self) -> impl Iterator<Item = ExifEntry<'_>> {
+        self.ifds
+            .iter()
+            .enumerate()
+            .flat_map(|(idx, dir)| {
+                let ifd = IfdIndex::new(idx);
+                dir.iter().map(move |(code, value)| ExifEntry {
+                    ifd,
+                    tag: TagOrCode::from(code),
+                    value,
+                })
+            })
     }
 
     /// Get parsed GPS information.
@@ -344,5 +362,64 @@ mod tests {
             entries.iter().any(|s| s.contains("0x010f")),
             "expected Make tag (0x010f) in snapshot, got {entries:?}"
         );
+    }
+
+    #[test]
+    fn exif_get_in_main_routes_via_ifd_index() {
+        use crate::{ExifTag, IfdIndex, MediaParser, MediaSource};
+        let mut parser = MediaParser::new();
+        let ms = MediaSource::open("testdata/exif.jpg").unwrap();
+        let iter = parser.parse_exif(ms).unwrap();
+        let exif: Exif = iter.into();
+
+        // Main image: same as exif.get(...)
+        let v_via_get = exif.get(ExifTag::Model);
+        let v_via_get_in = exif.get_in(IfdIndex::MAIN, ExifTag::Model);
+        assert_eq!(v_via_get, v_via_get_in);
+        assert!(v_via_get.is_some(), "Model tag expected in testdata/exif.jpg");
+    }
+
+    #[test]
+    fn exif_get_by_code_finds_unrecognized_or_recognized_tag() {
+        use crate::{ExifTag, IfdIndex, MediaParser, MediaSource};
+        let mut parser = MediaParser::new();
+        let ms = MediaSource::open("testdata/exif.jpg").unwrap();
+        let iter = parser.parse_exif(ms).unwrap();
+        let exif: Exif = iter.into();
+        // Make = 0x010f
+        let v = exif.get_by_code(IfdIndex::MAIN, ExifTag::Make.code());
+        assert!(v.is_some());
+    }
+
+    #[test]
+    fn exif_iter_yields_main_ifd_entries() {
+        use crate::{ExifTag, IfdIndex, MediaParser, MediaSource};
+        let mut parser = MediaParser::new();
+        let ms = MediaSource::open("testdata/exif.jpg").unwrap();
+        let iter = parser.parse_exif(ms).unwrap();
+        let exif: Exif = iter.into();
+
+        let main_count = exif.iter().filter(|e| e.ifd == IfdIndex::MAIN).count();
+        assert!(main_count > 1, "expected >1 entries in main IFD, got {main_count}");
+
+        // Ensure each entry is well-formed.
+        for entry in exif.iter() {
+            // value is a real reference to an EntryValue
+            let _: &crate::EntryValue = entry.value;
+            // Tag round-trips
+            let code = entry.tag.code();
+            assert_eq!(
+                exif.get_by_code(entry.ifd, code).unwrap(),
+                entry.value,
+                "iter entry value should match get_by_code lookup"
+            );
+        }
+
+        // Specifically: Model entry is present and matches get().
+        let model_via_iter = exif
+            .iter()
+            .find(|e| e.tag.tag() == Some(ExifTag::Model))
+            .map(|e| e.value);
+        assert_eq!(model_via_iter, exif.get(ExifTag::Model));
     }
 }

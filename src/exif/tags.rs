@@ -70,7 +70,7 @@ impl Display for TagOrCode {
 ///
 /// You can always get the entry value by raw tag code which is an `u16` value.
 /// See [`ParsedExifEntry::tag_code`](crate::ParsedExifEntry::tag_code) and
-/// [`Exif::get_by_ifd_tag_code`](crate::Exif::get_by_ifd_tag_code).
+/// [`Exif::get_by_code`](crate::Exif::get_by_code).
 #[allow(unused)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Eq, PartialEq, Hash, Clone, Copy)]

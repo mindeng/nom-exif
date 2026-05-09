@@ -28,4 +28,8 @@ impl ParsedImageFileDirectory {
     pub(crate) fn put(&mut self, code: u16, v: EntryValue) {
         self.entries.insert(code, ParsedIdfEntry { value: v });
     }
+
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (u16, &EntryValue)> {
+        self.entries.iter().map(|(code, e)| (*code, &e.value))
+    }
 }
