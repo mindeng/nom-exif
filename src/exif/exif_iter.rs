@@ -35,8 +35,8 @@ impl IfdIndex {
         IfdIndex(index)
     }
 
-    /// Underlying raw index.
-    pub const fn get(self) -> usize {
+    /// Underlying raw index as a `usize`.
+    pub const fn as_usize(self) -> usize {
         self.0
     }
 }
@@ -271,7 +271,7 @@ impl ExifIter {
         }
 
         let mut gps_subifd = match IfdIter::try_new(
-            gps.ifd().get(),
+            gps.ifd().as_usize(),
             iter.input.clone(),
             iter.tiff_header,
             offset as usize,
@@ -1080,15 +1080,15 @@ mod tests {
     #[test]
     fn ifd_index_constants() {
         use crate::IfdIndex;
-        assert_eq!(IfdIndex::MAIN.get(), 0);
-        assert_eq!(IfdIndex::THUMBNAIL.get(), 1);
+        assert_eq!(IfdIndex::MAIN.as_usize(), 0);
+        assert_eq!(IfdIndex::THUMBNAIL.as_usize(), 1);
     }
 
     #[test]
-    fn ifd_index_roundtrip_via_new_and_get() {
+    fn ifd_index_roundtrip_via_new_and_as_usize() {
         use crate::IfdIndex;
         for raw in [0, 1, 2, 3, 7, 99] {
-            assert_eq!(IfdIndex::new(raw).get(), raw);
+            assert_eq!(IfdIndex::new(raw).as_usize(), raw);
         }
     }
 

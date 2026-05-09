@@ -97,7 +97,7 @@ impl Exif {
     /// Get entry value for the specified raw `code` in the specified `ifd`.
     /// Used for tags not in the recognized [`ExifTag`] enum.
     pub fn get_by_code(&self, ifd: IfdIndex, code: u16) -> Option<&EntryValue> {
-        self.ifds.get(ifd.get()).and_then(|d| d.get(code))
+        self.ifds.get(ifd.as_usize()).and_then(|d| d.get(code))
     }
 
     /// Iterate every parsed entry in every IFD.
@@ -158,7 +158,7 @@ impl From<ExifIter> for Exif {
             let tag = entry.tag();
             let code = tag.code();
             match entry.into_result() {
-                Ok(v) => exif.put_value(ifd.get(), code, v),
+                Ok(v) => exif.put_value(ifd.as_usize(), code, v),
                 Err(e) => exif.errors.push((ifd, tag, e)),
             }
         }
