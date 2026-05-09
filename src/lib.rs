@@ -19,7 +19,7 @@ pub use video::{TrackInfo, TrackInfoTag};
 #[cfg(feature = "tokio")]
 pub use parser_async::AsyncMediaSource;
 
-pub use exif::{Exif, ExifIter, ExifTag, GPSInfo, IfdIndex, LatLng, ParsedExifEntry, TagOrCode};
+pub use exif::{Exif, ExifEntry, ExifIter, ExifTag, GPSInfo, IfdIndex, LatLng, ParsedExifEntry, TagOrCode};
 pub use exif::gps::{Altitude, LatRef, LonRef, Speed, SpeedUnit};
 pub use values::{EntryValue, ExifDateTime, IRational, URational};
 

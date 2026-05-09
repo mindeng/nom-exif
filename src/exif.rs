@@ -7,7 +7,7 @@ use crate::{cr3, heif, jpeg, MediaParser};
 pub use exif_exif::Exif;
 use exif_exif::TIFF_HEADER_LEN;
 use exif_iter::input_into_iter;
-pub use exif_iter::{ExifIter, IfdIndex, ParsedExifEntry};
+pub use exif_iter::{ExifEntry, ExifIter, IfdIndex, ParsedExifEntry};
 pub use gps::{GPSInfo, LatLng};
 pub use tags::{ExifTag, TagOrCode};
 

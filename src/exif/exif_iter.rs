@@ -47,6 +47,24 @@ impl std::fmt::Display for IfdIndex {
     }
 }
 
+/// Eager view into a single Exif entry. Yielded by [`crate::Exif::iter`] and
+/// designed to be cheap to copy: the `value` is a borrow into the parent
+/// [`crate::Exif`].
+///
+/// # Why pub fields instead of getters?
+///
+/// `ifd`, `tag`, and `value` are independent — there is no cross-field
+/// invariant to enforce. The Rust idiom for plain data carriers (cf.
+/// [`std::ops::Range`]) is `pub` fields. The lazy yield type
+/// [`crate::ExifIterEntry`] uses *private* fields because it carries a
+/// `value xor error` invariant.
+#[derive(Clone, Copy, Debug)]
+pub struct ExifEntry<'a> {
+    pub ifd: IfdIndex,
+    pub tag: TagOrCode,
+    pub value: &'a crate::EntryValue,
+}
+
 /// Represents an additional TIFF data block to be processed after the primary block.
 /// Used for CR3 files with multiple CMT boxes (CMT1, CMT2, CMT3).
 #[derive(Clone)]
@@ -1142,5 +1160,24 @@ mod tests {
         let t: TagOrCode = 0xffff_u16.into();
         assert_eq!(t, TagOrCode::Unknown(0xffff));
         assert_eq!(t.code(), 0xffff);
+    }
+
+    #[test]
+    fn exif_entry_pub_fields_construct_and_destructure() {
+        use crate::{EntryValue, ExifEntry, ExifTag, IfdIndex, TagOrCode};
+        let val = EntryValue::Text("vivo X90 Pro+".into());
+        let e = ExifEntry {
+            ifd: IfdIndex::MAIN,
+            tag: TagOrCode::Tag(ExifTag::Model),
+            value: &val,
+        };
+        // Pub fields: just match.
+        let ExifEntry { ifd, tag, value } = e;
+        assert_eq!(ifd, IfdIndex::MAIN);
+        assert_eq!(tag.code(), ExifTag::Model.code());
+        assert!(matches!(value, EntryValue::Text(_)));
+        // Copy works because EntryValue is borrowed.
+        let _e2 = e;
+        let _e3 = e;
     }
 }
