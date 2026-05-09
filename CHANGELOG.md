@@ -1,22 +1,5 @@
 # Changelog
 
-## nom-exif v3.1.0
-
-### Added
-- `MediaSource::<()>::from_bytes(impl Into<bytes::Bytes>)` — zero-copy
-  in-memory byte source. Accepts `Vec<u8>`, `&'static [u8]`, `Bytes`, and
-  `Bytes::from_owner(...)` outputs.
-- `MediaParser::parse_exif_bytes` / `MediaParser::parse_track_bytes` —
-  parser methods for memory sources. Zero-copy: returned `ExifIter` /
-  sub-IFDs / CR3 CMT blocks share the user's allocation via
-  `bytes::Bytes` reference counting.
-- One-shot helpers: `read_exif_from_bytes`, `read_exif_iter_from_bytes`,
-  `read_track_from_bytes`, `read_metadata_from_bytes`.
-
-### Internal
-- `BufferedParserState` gains a memory mode (no public surface change).
-  Streaming parse path is untouched.
-
 ## nom-exif v3.0.0
 
 **Breaking release.** The public API has been reshaped end-to-end. The
@@ -26,6 +9,7 @@ internal design rationale lives in `docs/V3_API_DESIGN.md`.
 ### Highlights
 
 - One-shot helpers: `read_exif`, `read_exif_iter`, `read_track`, `read_metadata` (and `_async` variants under `feature = "tokio"`).
+- Zero-copy memory input: `MediaSource::<()>::from_bytes(impl Into<bytes::Bytes>)` constructor + `MediaParser::parse_exif_bytes` / `MediaParser::parse_track_bytes` methods + one-shot `read_exif_from_bytes` / `read_exif_iter_from_bytes` / `read_track_from_bytes` / `read_metadata_from_bytes` helpers. Accepts `Vec<u8>`, `&'static [u8]`, `Bytes`, and `Bytes::from_owner(...)`; returned `ExifIter` / sub-IFDs / CR3 CMT blocks share the user's allocation via `bytes::Bytes` refcount.
 - Single `MediaParser` (no separate `AsyncMediaParser`); `MediaSource::open(path)` replaces `MediaSource::file_path(path)`.
 - Structured errors: `Error::Malformed { kind, message }` / `Error::UnexpectedEof` / `Error::UnsupportedFormat` replace the v2 `ParseFailed(Box<dyn Error>)`.
 - `Exif` gains `iter()` / `gps_info()` / `errors()` / `has_embedded_media()` / `get_in()` / `get_by_code()`.
@@ -91,6 +75,7 @@ internal design rationale lives in `docs/V3_API_DESIGN.md`.
 - Sync/async parser logic deduplicated via shared `BufParser` / `AsyncBufParser` traits (P2).
 - `PartialVec` / `AssociatedInput` deleted; all internal byte-views unified on `bytes::Bytes` (P4.5).
 - Multi-slot buffer pool replaced by single `Option<Bytes>` cache + `Bytes::try_into_mut` recycle; `MediaParser::new()` is now zero-alloc (P4.5).
+- `BufferedParserState` gains a memory mode (no public surface change); streaming parse path is untouched (P7).
 
 ## nom-exif v2.8.0
 

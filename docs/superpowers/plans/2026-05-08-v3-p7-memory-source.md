@@ -8,7 +8,7 @@
 
 **Tech Stack:** `bytes` 1.7.1 (already a hard dependency), Rust 1.83.
 
-**Phase position:** lands on `v3` branch after P6 (`v3.0.0-rc.1` already tagged). P7 is *not* part of v3.0.0 cutover; it ships in v3.1 (or v3.0.x point release at the maintainer's discretion). Master plan's phase summary table is updated as the last task to flip the P7 row from `(TBW)` to `done`.
+**Phase position:** lands on `v3` branch after P6 (`v3.0.0-rc.1` already tagged) and **folds into the v3.0.0 release** (decision post-implementation: rc.1 → final without a separate v3.1 cycle). The CHANGELOG entry merges into the v3.0.0 section. Master plan's phase summary table is updated as the last task to flip the P7 row from `(TBW)` to `done`.
 
 **Why now:** P4.5 already converged the internal byte-view onto `bytes::Bytes`, so memory mode's terminal share is just `Bytes::clone()`. The streaming and memory paths now end at the same primitive, which is what makes P7 a small surgery rather than a structural one. P7 is the final piece of the v3 read-side API and the natural close to the redesign.
 

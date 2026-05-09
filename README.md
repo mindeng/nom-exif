@@ -17,6 +17,10 @@ track metadata** through a single unified API. Built on
   cleanly.
 - Streaming-friendly — handles seekable files **and** non-seekable
   readers (network streams, pipes) without buffering the whole file.
+- Zero-copy memory mode — already-in-RAM bytes (WASM, mobile,
+  HTTP proxies) parse without copy via `MediaSource::from_bytes` +
+  `MediaParser::parse_exif_bytes` / `parse_track_bytes`, or one-shot
+  `read_exif_from_bytes` / `read_metadata_from_bytes`.
 - Allocation-frugal — `MediaParser` recycles its parse buffer across
   calls; sub-IFDs share the buffer via `bytes::Bytes` refcount instead
   of deep-copying byte ranges.
