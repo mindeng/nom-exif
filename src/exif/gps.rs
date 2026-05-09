@@ -36,6 +36,39 @@ pub struct GPSInfo {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct LatLng(pub URational, pub URational, pub URational);
 
+impl LatLng {
+    pub const fn new(degrees: URational, minutes: URational, seconds: URational) -> Self {
+        Self(degrees, minutes, seconds)
+    }
+
+    /// Convert to decimal degrees. Returns `None` if any component has a zero
+    /// denominator.
+    pub fn to_decimal_degrees(&self) -> Option<f64> {
+        let d = self.0.to_f64()?;
+        let m = self.1.to_f64()?;
+        let s = self.2.to_f64()?;
+        Some(d + m / 60.0 + s / 3600.0)
+    }
+
+    /// Construct from decimal degrees. Rejects NaN / ±inf and values whose
+    /// magnitude exceeds 180° with `ConvertError::InvalidDecimalDegrees`.
+    pub fn try_from_decimal_degrees(degrees: f64) -> Result<Self, crate::ConvertError> {
+        if !degrees.is_finite() || degrees.abs() > 180.0 {
+            return Err(crate::ConvertError::InvalidDecimalDegrees(degrees));
+        }
+        let abs = degrees.abs();
+        let d = abs.trunc() as u32;
+        let mins_total = (abs - d as f64) * 60.0;
+        let m = mins_total.trunc() as u32;
+        let secs_hundredths = ((mins_total - m as f64) * 60.0 * 100.0).round() as u32;
+        Ok(Self::new(
+            URational::new(d, 1),
+            URational::new(m, 1),
+            URational::new(secs_hundredths, 100),
+        ))
+    }
+}
+
 impl GPSInfo {
     /// Returns an ISO 6709 geographic point location string such as
     /// `+48.8577+002.295/`.
@@ -362,5 +395,50 @@ mod tests {
 
         assert_eq!(iso.altitude_ref, 0);
         assert_eq!(iso.altitude, URational::default());
+    }
+
+    #[test]
+    fn latlng_to_decimal_degrees() {
+        let p = LatLng::new(
+            URational::new(40, 1),
+            URational::new(41, 1),
+            URational::new(21, 1),
+        );
+        let d = p.to_decimal_degrees().unwrap();
+        assert!((d - 40.689_167).abs() < 1e-5);
+    }
+
+    #[test]
+    fn latlng_to_decimal_degrees_zero_denominator() {
+        let p = LatLng::new(
+            URational::new(40, 0),
+            URational::new(41, 1),
+            URational::new(21, 1),
+        );
+        assert_eq!(p.to_decimal_degrees(), None);
+    }
+
+    #[test]
+    fn latlng_try_from_decimal_degrees_ok() {
+        let p = LatLng::try_from_decimal_degrees(43.5).unwrap();
+        let back = p.to_decimal_degrees().unwrap();
+        assert!((back - 43.5).abs() < 1e-3);
+    }
+
+    #[test]
+    fn latlng_try_from_decimal_degrees_rejects_nan_inf_oob() {
+        use crate::ConvertError;
+        assert!(matches!(
+            LatLng::try_from_decimal_degrees(f64::NAN),
+            Err(ConvertError::InvalidDecimalDegrees(_))
+        ));
+        assert!(matches!(
+            LatLng::try_from_decimal_degrees(f64::INFINITY),
+            Err(ConvertError::InvalidDecimalDegrees(_))
+        ));
+        assert!(matches!(
+            LatLng::try_from_decimal_degrees(181.0),
+            Err(ConvertError::InvalidDecimalDegrees(_))
+        ));
     }
 }
