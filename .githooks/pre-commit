@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Reject commits that would fail `cargo fmt --check` in CI.
+#
+# Enable once per clone:
+#   git config core.hooksPath .githooks
+#
+# Bypass for emergencies:
+#   git commit --no-verify
+
+set -euo pipefail
+
+# `cargo fmt --check` is fast (sub-second on this crate). Run it on the
+# whole tree rather than only staged Rust files so partial-stage commits
+# can't sneak through.
+if ! cargo fmt --check >/dev/null 2>&1; then
+    echo "✗ cargo fmt --check failed — please run \`cargo fmt\` and re-stage."
+    echo
+    echo "  Diff preview:"
+    cargo fmt --check 2>&1 | sed 's/^/    /' | head -40
+    echo
+    echo "  Bypass (emergencies only): git commit --no-verify"
+    exit 1
+fi

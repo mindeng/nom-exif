@@ -331,6 +331,18 @@ ModifyDate                      => 2023-07-09T20:36:33+08:00
 ...
 ```
 
+## Contributing
+
+Enable the repository's pre-commit hook once per clone so commits that
+would fail `cargo fmt --check` in CI are rejected locally:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+The hook lives in `.githooks/pre-commit` and runs `cargo fmt --check`
+(sub-second). Bypass with `git commit --no-verify` for emergencies.
+
 ## Fuzz Testing
 
 The project uses [cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz)
