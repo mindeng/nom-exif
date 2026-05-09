@@ -1,5 +1,21 @@
 # Changelog
 
+## nom-exif v3.2.0 (2026-05-09)
+
+### Added
+
+- **AVIF (AV1 Image File Format) support.** Files with `ftyp` major or
+  compatible brands `avif`, `avis`, or `avio` are now recognized and
+  routed through the existing HEIF Exif extractor — AVIF reuses the
+  ISO BMFF `meta` / `Exif` item layout from ISO/IEC 23008-12, so no
+  new parser was needed. New `MediaMimeImage::Avif` variant.
+  AVIF detection runs before the HEIF compatible-brand check because
+  AVIF files commonly include `mif1` / `miaf` in their compatible-brand
+  list. Closes #45.
+
+- New test fixture `testdata/exif.avif` (12 KB; transcoded from
+  `testdata/exif.heic` via ImageMagick with Exif preserved).
+
 ## nom-exif v3.1.1 (2026-05-09)
 
 ### Fixed
