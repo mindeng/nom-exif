@@ -139,14 +139,24 @@ fn container_motion_photo_offset(xmp: &[u8]) -> Option<u64> {
             || extract_attr_value(tag, b"Item:Mime") == Some(b"video/mp4")
     })?;
 
+    // Each item's `Item:Padding` is the gap between this item and the
+    // next one in the container; the last item's padding is therefore
+    // not part of the file (the Galaxy-1 sample has Length=4299299
+    // Padding=80 as the last item, and 80 zero-bytes after the MP4
+    // would push the offset past EOF). Sum all Lengths in [mp_idx..],
+    // plus Padding only for the non-final entries.
     let mut total: u64 = 0;
-    for tag in &items[mp_idx..] {
+    let last = items.len() - 1;
+    for (i, tag) in items.iter().enumerate().skip(mp_idx) {
         let length = extract_attr_value(tag, b"Item:Length")
             .and_then(|s| std::str::from_utf8(s).ok()?.parse::<u64>().ok())?;
-        let padding = extract_attr_value(tag, b"Item:Padding")
-            .and_then(|s| std::str::from_utf8(s).ok()?.parse::<u64>().ok())
-            .unwrap_or(0);
-        total = total.checked_add(length)?.checked_add(padding)?;
+        total = total.checked_add(length)?;
+        if i != last {
+            let padding = extract_attr_value(tag, b"Item:Padding")
+                .and_then(|s| std::str::from_utf8(s).ok()?.parse::<u64>().ok())
+                .unwrap_or(0);
+            total = total.checked_add(padding)?;
+        }
     }
     Some(total)
 }
