@@ -310,20 +310,20 @@ impl ExifIter {
     }
 
     /// Whether the source file is known to embed a paired media track that
-    /// `parse_exif` did *not* surface — currently this means a Pixel/Google
-    /// Motion Photo (JPEG with `GCamera:MotionPhoto` XMP and an MP4 trailer).
-    /// Use [`crate::MediaParser::parse_track`] on the same source to
-    /// extract the embedded track.
+    /// `parse_exif` did *not* surface — a Pixel/Google or Samsung Galaxy
+    /// Motion Photo (JPEG with `GCamera:MotionPhoto` XMP and an MP4
+    /// trailer). Use [`crate::MediaParser::parse_track`] on the same
+    /// source to extract the embedded track.
     ///
-    /// **Content-detected, not MIME-guessed**: returns `true` only when the
-    /// parser observes concrete signals during `parse_exif` (e.g. the XMP
-    /// `GCamera:MotionPhoto="1"` attribute). A plain JPEG or HEIC without
-    /// such signals returns `false`, including iPhone Live Photo HEICs
-    /// (whose video lives in a sibling `.MOV` file, not embedded).
+    /// **Content-detected, not MIME-guessed**: returns `true` only when
+    /// the parser observes concrete signals during `parse_exif`
+    /// (`GCamera:MotionPhoto="1"` plus a `Container:Directory` /
+    /// `MotionPhotoOffset` / `MicroVideoOffset`). A plain JPEG or HEIC
+    /// without such signals returns `false`.
     ///
-    /// **v3.1 coverage**: only Pixel/Google Motion Photo JPEGs.
-    /// Samsung Motion Photos, HEIC Live Photo with embedded `moov`, and
-    /// other formats are v3.x deliverables.
+    /// **Coverage**: Pixel/Google Motion Photos and Samsung Galaxy
+    /// Motion Photos that use the Adobe XMP Container directory format
+    /// (JPEG variants).
     pub fn has_embedded_track(&self) -> bool {
         self.has_embedded_track
     }

@@ -1,16 +1,43 @@
 # Changelog
 
-## nom-exif v3.1.0 (unreleased)
+## nom-exif v3.1.0 (2026-05-09)
 
 ### Added
 
-- **Pixel/Google Motion Photo support.** `parse_exif` now scans JPEG XMP
-  for the `GCamera:MotionPhoto="1"` signal during its existing APP-marker
-  walk; when present, [`Exif::has_embedded_track`] /
-  [`ExifIter::has_embedded_track`] returns `true`. `parse_track` on the
-  same JPEG locates the trailing MP4 (via `GCamera:MotionPhotoOffset`)
-  and parses it as track metadata — previously it returned
-  `Error::TrackNotFound` for any image MIME.
+- **Motion Photo extraction for JPEG.** `parse_exif` now content-detects
+  three XMP layouts during its APP-marker walk and sets
+  [`Exif::has_embedded_track`] / [`ExifIter::has_embedded_track`] to
+  `true` when any is present:
+  1. **Adobe XMP Container directory** — `<Container:Directory>` with
+     a `Container:Item` entry whose `Item:Mime="video/mp4"` and
+     `Item:Semantic="MotionPhoto"`. Used by modern Pixel cameras
+     (including Pixel 9 Pro XL Ultra HDR Motion Photos) and Samsung
+     Galaxy Motion Photos.
+  2. **`GCamera:MotionPhotoOffset="N"`** attribute (mid-era Pixel
+     `PXL_*.MP.jpg`).
+  3. **`GCamera:MicroVideoOffset="N"`** attribute (pre-2018 Pixel
+     `MVIMG_*.jpg`).
+
+  When the flag is `true`, `MediaParser::parse_track` on the same
+  source locates the trailing MP4 (computing the offset from the
+  Container directory or attribute) and returns its `TrackInfo` —
+  previously it returned `Error::TrackNotFound` for any image MIME.
+  Samsung's `Item:Padding` semantics ("padding bytes between this item
+  and the next") are honored: for the final item the padding is
+  ignored (no bytes after it).
+
+  Detection is demand-driven: `parse_exif` only reads bytes past the
+  EXIF segment when the XMP scanner reports it ran out mid-walk
+  (capped at 256 KB extra to bound malformed inputs). Plain JPEGs and
+  the common case where XMP fits inside the EXIF-fill pay zero extra
+  I/O.
+
+- **`rexiftool --no-track` flag.** When the source is an image with an
+  embedded track, the example tool now extracts the track too: under
+  an `-- Embedded Track --` separator in text mode, or a nested
+  `_embedded_track` object in `--json` mode. Pass `--no-track` to
+  suppress.
+
 - New synthetic test fixture `testdata/motion_photo_pixel_synth.jpg`
   built from existing repo files via
   `testdata/scripts/build_motion_photo_fixture.py` (no third-party
@@ -21,40 +48,32 @@
 - `Exif::has_embedded_media()` → `Exif::has_embedded_track()`
 - `ExifIter::has_embedded_media()` → `ExifIter::has_embedded_track()`
 
-The original names implied "any embedded media" but the actual semantics
-target a paired media track. Old names remain as `#[deprecated]`
-aliases.
+The original names implied "any embedded media" but the actual
+semantics target a paired media track. Old names remain as
+`#[deprecated]` aliases that forward to the new methods.
 
 ### Deprecated (no replacement)
 
-- `TrackInfo::has_embedded_media()` is now deprecated and always returns
-  `false`. The 3.0.0 method was reserved for "track source carries
-  another embedded track" detection (e.g. mka with both audio and video)
-  but the detection was never wired up. Without a concrete use case
-  there is no symmetric `TrackInfo::has_embedded_track()` in v3.1; the
-  deprecated method stays as a no-op for source compatibility.
+- `TrackInfo::has_embedded_media()` is now deprecated and always
+  returns `false`. The 3.0.0 method was reserved for "track source
+  carries another embedded track" detection (e.g. mka with both
+  audio and video) but the detection was never wired up. Without a
+  concrete use case there is no symmetric
+  `TrackInfo::has_embedded_track()` in v3.1; the deprecated method
+  stays as a no-op for source compatibility.
 
 ### Changed
 
-- `has_embedded_track` is now **content-detected**, not MIME-guessed. In
-  3.0.0 this flag was `true` for any HEIC/HEIF/RAF source whether or not
-  a track actually existed; in 3.1.0 it returns `true` only when concrete
-  content signals are observed (Pixel Motion Photo XMP for now). Plain
-  HEIC, plain JPEG, and RAF correctly return `false`. iPhone Live Photos
-  remain `false` for the HEIC half (the video is a sibling `.MOV` file).
+- `has_embedded_track` is now **content-detected**, not MIME-guessed.
+  In 3.0.0 this flag was `true` for any HEIC/HEIF/RAF source whether
+  or not a track actually existed; in 3.1.0 it returns `true` only
+  when a real Motion Photo signal is observed in the JPEG's XMP.
+  Plain HEIC, plain JPEG, and RAF correctly return `false`.
 
 ### Fixed
 
-- `MediaMimeImage::Raf` no longer flips `has_embedded_track()` to `true`
-  — RAF's preview is a still JPEG, not a media track.
-
-### v3.x roadmap (not in 3.1)
-
-- Samsung Motion Photo (different XMP namespace + Samsung-specific
-  trailer marker)
-- HEIC Live Photo with embedded `moov` box (rare; common Apple Live
-  Photos already work via paired `.MOV` files)
-- Older Pixel `MicroVideo` format detection
+- `MediaMimeImage::Raf` no longer flips `has_embedded_track()` to
+  `true` — RAF's preview is a still JPEG, not a media track.
 
 ## nom-exif v3.0.0 (2026-05-09)
 

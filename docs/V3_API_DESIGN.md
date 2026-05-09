@@ -1053,7 +1053,7 @@ EXIF 子 IFD 数量是开放的（某些相机有 SubIFD2/3...），用 enum 限
 - **加 `Both` 让所有调用方付出代价**：`match` 需要多一条分支，但 99% 的文件只有一种元数据。便利性反而下降。
 - **正确的解法是 *embedded track extraction***：未来通过独立 API（如 `MediaSource::extract_embedded() -> impl Iterator<Item = MediaSource>`）暴露内嵌流，由用户对每个流单独 `parse_exif` / `parse_track`。这与"当前文件的元数据是什么"是正交问题。
 - **v3.1 的取舍**：`Exif::has_embedded_track()` / `ExifIter::has_embedded_track()` 两个方法返回 bool，告诉用户"图片里还嵌了一段 track 待提取"。`parse_track` 对 image MIME 加 polymorphic 分支，命中即抽出来。
-  > **3.1 升级历程**：(a) v3.0.0 这两个方法叫 `has_embedded_media()`，3.1.0 改名为 `has_embedded_track()`，旧名作为 `#[deprecated]` 别名保留；(b) 实现从"MIME 级猜测"升级为"内容检测"——`parse_exif` 走 JPEG 路径时扫描 XMP，看见 `GCamera:MotionPhoto="1"` 才置位（覆盖 Pixel/Google Motion Photo），其他格式默认 false；(c) `parse_track` 对 image MIME 不再立即 `TrackNotFound`：JPEG 走 polymorphic 路径，扫到 Motion Photo trailer 就解析其内嵌 MP4 返回 `TrackInfo`。Samsung Motion Photo、HEIC + `moov` 留 v3.x。`TrackInfo::has_embedded_media` 在 3.0.0 是预留位（永远 false，从未实装），3.1 维持 deprecated no-op，等真实用例再考虑重新引入。
+  > **3.1 升级历程**：(a) v3.0.0 这两个方法叫 `has_embedded_media()`，3.1.0 改名为 `has_embedded_track()`，旧名作为 `#[deprecated]` 别名保留；(b) 实现从"MIME 级猜测"升级为"内容检测"——`parse_exif` 走 JPEG 路径时扫描 XMP，看见 `GCamera:MotionPhoto="1"` 才置位（覆盖 Pixel/Google Motion Photo 和走 Adobe Container directory 的 Samsung Galaxy Motion Photo），其他格式默认 false；(c) `parse_track` 对 image MIME 不再立即 `TrackNotFound`：JPEG 走 polymorphic 路径，扫到 Motion Photo trailer 就解析其内嵌 MP4 返回 `TrackInfo`。仅依赖 `MotionPhoto_Data` trailer 标记的老 Samsung 文件、HEIC + `moov` 留 v3.x。`TrackInfo::has_embedded_media` 在 3.0.0 是预留位（永远 false，从未实装），3.1 维持 deprecated no-op，等真实用例再考虑重新引入。
 
 如果将来真的有需要同时返回多种元数据的场景，宁可在 v3.x 引入新方法（如 `read_all_metadata`），也不要在 `MediaKind` 上加 `Both`——后者会让所有现有调用方被迫升级。
 

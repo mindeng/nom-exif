@@ -124,13 +124,9 @@
 //! # Ok::<(), nom_exif::Error>(())
 //! ```
 //!
-//! **v3.1 coverage**: Pixel/Google Motion Photo JPEGs only. Samsung
-//! Motion Photos (different XMP namespace + Samsung-specific trailer)
-//! and HEIC Live Photo with embedded `moov` are v3.x deliverables.
-//!
-//! For Apple Live Photos the video lives in a sibling `.MOV` file rather
-//! than embedded in the HEIC, so `has_embedded_track` is `false` for
-//! those — call `parse_track` on the `.MOV` directly.
+//! **Coverage**: Pixel/Google Motion Photos and Samsung Galaxy Motion
+//! Photos that use the Adobe XMP Container directory format (modern
+//! Pixel including Ultra HDR, modern Galaxy JPEGs).
 //!
 //! The pre-3.1 names (`has_embedded_media`) are `#[deprecated]` aliases
 //! that forward to the new methods.

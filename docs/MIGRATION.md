@@ -78,7 +78,7 @@ let meta = nom_exif::read_metadata("file.heic")?;   // returns Metadata::{Exif,T
 | `entry.take_result()` (panic risk) | `entry.into_result()` (consumes `self`) |
 | `iter.clone_and_rewind()` | `iter.clone_rewound()` (or `let mut x = iter.clone(); x.rewind();`) |
 | `iter.parse_gps_info()` | `iter.parse_gps()` |
-| (none) | New: `Exif::has_embedded_track()` / `ExifIter::has_embedded_track()` — content-detected flag set when `parse_exif` sees a Pixel/Google Motion Photo XMP signal (`GCamera:MotionPhoto="1"`). For such files, `parse_track` on the same source extracts the embedded MP4. <br> *Renamed in 3.1.0 from the original `has_embedded_media()`; the old name is a `#[deprecated]` alias. The 3.0.0 implementation was a coarse MIME-level guess (RAF/HEIC always true even when no track was actually present); 3.1 replaces that with content detection. v3.1 covers Pixel/Google Motion Photo JPEGs only — Samsung Motion Photo and HEIC Live Photo with embedded `moov` are v3.x deliverables.* |
+| (none) | New: `Exif::has_embedded_track()` / `ExifIter::has_embedded_track()` — content-detected flag set when `parse_exif` sees a Motion Photo XMP signal (`GCamera:MotionPhoto="1"` plus `Container:Directory` / `MotionPhotoOffset` / `MicroVideoOffset`). For such files, `parse_track` on the same source extracts the embedded MP4. <br> *Renamed in 3.1.0 from the original `has_embedded_media()`; the old name is a `#[deprecated]` alias. The 3.0.0 implementation was a coarse MIME-level guess (RAF/HEIC always true even when no track was actually present); 3.1 replaces that with content detection. v3.1 covers Pixel/Google Motion Photos and Samsung Galaxy Motion Photos that use the Adobe XMP Container directory format (JPEG variants).* |
 
 ## 6. GPSInfo
 

@@ -15,6 +15,9 @@ track metadata** through a single unified API. Built on
   cleanly.
 - Image **and** video / audio in one crate — `MediaParser` dispatches to
   the right backend by detected MIME, no per-format wrappers.
+- **Motion Photo** support — Pixel and Samsung Motion Photos (JPEG with
+  an embedded MP4) are detected automatically; `parse_track` extracts
+  the embedded video's track metadata.
 - RAW format support — Canon CR3, Fujifilm RAF, Phase One IIQ,
   alongside JPEG / HEIC / TIFF.
 - Three input modes — files, arbitrary `Read` / `Read + Seek` (network
@@ -165,12 +168,11 @@ if iter.has_embedded_track() {
 
 `has_embedded_track` is **content-detected**, not a MIME-level guess — a
 plain JPEG without the Motion Photo XMP returns `false` and `parse_track`
-returns `Error::TrackNotFound`. For Apple Live Photos the video lives in
-a sibling `.MOV` file rather than embedded in the HEIC, so the flag is
-`false` for those — call `parse_track` on the `.MOV` directly.
+returns `Error::TrackNotFound`.
 
-**v3.1 coverage**: Pixel/Google Motion Photo JPEGs only. Samsung Motion
-Photos and HEIC Live Photos with embedded `moov` are v3.x deliverables.
+**Coverage**: Pixel/Google Motion Photos and Samsung Galaxy Motion
+Photos that use the Adobe XMP Container directory format (modern Pixel
+including Ultra HDR, modern Galaxy JPEGs).
 
 ## Two API styles for Exif
 

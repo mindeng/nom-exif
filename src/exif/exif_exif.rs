@@ -129,22 +129,21 @@ impl Exif {
         &self.errors
     }
 
-    /// Whether the source file's MIME family is known to potentially carry a
-    /// paired media track (e.g. HEIC Live Photo HEVC) that this parse path
-    /// did *not* surface.
+    /// Whether the source file is known to embed a paired media track
+    /// that this parse path did *not* surface — a Pixel/Google or Samsung
+    /// Galaxy Motion Photo (JPEG with `GCamera:MotionPhoto` XMP and an
+    /// MP4 trailer). Use [`crate::MediaParser::parse_track`] on the same
+    /// source to extract the embedded track.
     ///
-    /// **Conservative**: MIME-level hint, not content detection. A
-    /// non–Live-Photo HEIC will still return `true`. Returns `false` for
-    /// formats whose only "embedded" payloads are still images (e.g. RAF
-    /// JPEG preview).
+    /// **Content-detected, not MIME-guessed**: returns `true` only when
+    /// `parse_exif` observed a concrete content signal
+    /// (`GCamera:MotionPhoto="1"` plus a `Container:Directory` /
+    /// `MotionPhotoOffset` / `MicroVideoOffset`). A plain JPEG or HEIC
+    /// without such signals returns `false`.
     ///
-    /// **Informational only in v3.1**: there is currently no way to
-    /// extract the paired track — calling
-    /// [`crate::MediaParser::parse_track`] on the same source will return
-    /// [`crate::Error::TrackNotFound`] because HEIC dispatches as an
-    /// image. The extraction API is a v3.x deliverable; this flag exists
-    /// so callers can detect "data left behind" rather than silently
-    /// dropping it.
+    /// **Coverage**: Pixel/Google Motion Photos and Samsung Galaxy
+    /// Motion Photos that use the Adobe XMP Container directory format
+    /// (JPEG variants).
     pub fn has_embedded_track(&self) -> bool {
         self.has_embedded_track
     }
