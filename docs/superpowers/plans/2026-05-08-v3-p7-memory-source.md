@@ -920,7 +920,7 @@ git commit -m "feat(lib): add top-level read_*_from_bytes helpers"
 - Modify: `src/lib.rs`
 - Modify: `src/parser.rs` (only the `MediaSource` doc-comment intro at line ~26)
 
-- [ ] **Step 1: Add a Highlights bullet**
+- [x] **Step 1: Add a Highlights bullet**
 
 In `src/lib.rs` `//!` block, inside the `# Highlights` list, after the "Streaming-friendly" bullet:
 
@@ -931,7 +931,7 @@ In `src/lib.rs` `//!` block, inside the `# Highlights` list, after the "Streamin
 //!   or one-shot [`read_exif_from_bytes`] / [`read_metadata_from_bytes`].
 ```
 
-- [ ] **Step 2: Add a "Reading from in-memory bytes" subsection in Quick start**
+- [x] **Step 2: Add a "Reading from in-memory bytes" subsection in Quick start**
 
 In `src/lib.rs` `//!` block, immediately before `# API surface`:
 
@@ -958,7 +958,7 @@ In `src/lib.rs` `//!` block, immediately before `# API surface`:
 //! [`MediaParser::parse_track_bytes`] per payload.
 ```
 
-- [ ] **Step 3: Update the API surface bullet on one-shot helpers**
+- [x] **Step 3: Update the API surface bullet on one-shot helpers**
 
 In the `# API surface` list, expand the first bullet:
 
@@ -968,7 +968,7 @@ In the `# API surface` list, expand the first bullet:
 //!   [`read_track_from_bytes`], [`read_metadata_from_bytes`] for in-memory bytes.
 ```
 
-- [ ] **Step 4: Update `MediaSource` rustdoc with the memory option**
+- [x] **Step 4: Update `MediaSource` rustdoc with the memory option**
 
 In `src/parser.rs`, the `MediaSource<R>` doc-comment block at line ~26-44, before the closing `pub struct MediaSource<R>` declaration:
 
@@ -1000,7 +1000,7 @@ Replace the bulleted list with:
 /// parsing tasks, thus avoiding frequent memory allocations.
 ```
 
-- [ ] **Step 5: Verify all doc examples compile and run**
+- [x] **Step 5: Verify all doc examples compile and run**
 
 Run: `cargo test --all-features --doc 2>&1 | tail -20`
 
@@ -1010,7 +1010,7 @@ Run: `cargo doc --no-deps --all-features 2>&1 | tail -10`
 
 Expected: no warnings, no broken intra-doc links.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/lib.rs src/parser.rs

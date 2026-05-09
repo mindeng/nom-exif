@@ -28,6 +28,10 @@ pub(crate) type SkipBySeekFn<R> = fn(&mut R, u64) -> io::Result<bool>;
 ///
 /// - Use [`MediaSource::open`] to create a MediaSource from a file path.
 ///
+/// - Use [`MediaSource::from_bytes`] for zero-copy in-memory input
+///   (`Vec<u8>`, `&'static [u8]`, [`bytes::Bytes`], …). Pair with
+///   [`MediaParser::parse_exif_bytes`] / [`MediaParser::parse_track_bytes`].
+///
 /// - In other cases:
 ///
 ///   - Use [`MediaSource::seekable`] to create a MediaSource from a `Read + Seek`

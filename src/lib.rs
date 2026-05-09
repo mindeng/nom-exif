@@ -9,6 +9,10 @@
 //!   cleanly.
 //! - Streaming-friendly — handles seekable files **and** non-seekable
 //!   readers (network streams, pipes) without buffering the whole file.
+//! - **Zero-copy memory mode** — already-in-RAM bytes (WASM, mobile,
+//!   HTTP proxies) parse without copy via [`MediaSource::from_bytes`] +
+//!   [`MediaParser::parse_exif_bytes`] / [`MediaParser::parse_track_bytes`],
+//!   or one-shot [`read_exif_from_bytes`] / [`read_metadata_from_bytes`].
 //! - Allocation-frugal — [`MediaParser`] recycles its parse buffer across
 //!   calls; sub-IFDs share the buffer via `bytes::Bytes` refcount instead
 //!   of deep-copying byte ranges.
@@ -53,9 +57,32 @@
 //! [`read_exif_async`], [`read_track_async`], [`read_metadata_async`],
 //! plus [`MediaParser::parse_exif_async`] / [`MediaParser::parse_track_async`].
 //!
+//! # Reading from in-memory bytes
+//!
+//! When the payload is already in RAM (WASM, mobile, HTTP proxy, decoded
+//! response body), use the `*_from_bytes` helpers to skip the `File` /
+//! `Read` round-trip entirely. Memory mode is **zero-copy**: the underlying
+//! allocation is shared with the returned [`Exif`] / [`ExifIter`] /
+//! [`TrackInfo`] via [`bytes::Bytes`] reference counting.
+//!
+//! ```rust
+//! use nom_exif::{read_exif_from_bytes, ExifTag};
+//!
+//! let raw = std::fs::read("./testdata/exif.jpg")?;
+//! let exif = read_exif_from_bytes(raw)?;
+//! assert_eq!(exif.get(ExifTag::Make).and_then(|v| v.as_str()), Some("vivo"));
+//! # Ok::<(), nom_exif::Error>(())
+//! ```
+//!
+//! For batch processing of many in-memory payloads, build a [`MediaParser`]
+//! once and call [`MediaParser::parse_exif_bytes`] /
+//! [`MediaParser::parse_track_bytes`] per payload.
+//!
 //! # API surface
 //!
-//! - **One-shot helpers**: [`read_exif`], [`read_exif_iter`], [`read_track`], [`read_metadata`].
+//! - **One-shot helpers**: [`read_exif`], [`read_exif_iter`], [`read_track`], [`read_metadata`]
+//!   for files; [`read_exif_from_bytes`], [`read_exif_iter_from_bytes`],
+//!   [`read_track_from_bytes`], [`read_metadata_from_bytes`] for in-memory bytes.
 //! - **Reusable parser**: [`MediaParser`] + [`MediaSource`] (or [`AsyncMediaSource`])
 //!   + [`MediaKind`].
 //! - **Image metadata**: [`Exif`] (eager, get-by-tag) or [`ExifIter`]
