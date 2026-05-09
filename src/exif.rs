@@ -40,7 +40,45 @@ pub(crate) fn parse_exif_iter<R: Read>(
         extract_exif_range(mime_img, buf, state)
     })?;
 
-    range_to_iter(parser, mime_img, out)
+    let has_track = match mime_img {
+        MediaMimeImage::Jpeg => detect_motion_photo(parser, reader),
+        _ => false,
+    };
+
+    range_to_iter(parser, out, has_track)
+}
+
+/// Demand-driven scan for a Pixel/Google Motion Photo signal in a JPEG
+/// buffer that may not yet hold all APP segments.
+///
+/// `load_and_parse` only fills enough bytes to read the EXIF segment;
+/// for JPEGs with a large EXIF (Pixel/Galaxy thumbnails routinely push
+/// it past 30 KB) the XMP segment that carries `GCamera:MotionPhoto`
+/// can sit just past the buffer's edge. Try the scan first; if it
+/// reports `NeedMoreBytes`, pull another small chunk and retry. Cap
+/// the total extra reads at `MAX_EXTRA` so a malformed file can't loop
+/// forever.
+fn detect_motion_photo<R: Read>(parser: &mut MediaParser, reader: &mut R) -> bool {
+    use crate::parser::{Buf, BufParser};
+    const CHUNK: usize = 8 * 1024;
+    const MAX_EXTRA: usize = 256 * 1024;
+    let mut extra = 0;
+    loop {
+        match jpeg::scan_motion_photo(parser.buffer()) {
+            jpeg::MotionPhotoScan::Found(_) => return true,
+            jpeg::MotionPhotoScan::NotPresent => return false,
+            jpeg::MotionPhotoScan::NeedMoreBytes => {
+                if extra >= MAX_EXTRA {
+                    return false;
+                }
+                let want = CHUNK.min(MAX_EXTRA - extra);
+                if parser.fill_buf(reader, want).is_err() {
+                    return false;
+                }
+                extra += want;
+            }
+        }
+    }
 }
 
 /// Special parser for CR3 files that extracts all CMT blocks (CMT1, CMT2, CMT3)
@@ -143,8 +181,8 @@ fn extract_exif_range(
 
 fn range_to_iter(
     parser: &mut impl ShareBuf,
-    mime_img: MediaMimeImage,
     out: Option<(Range<usize>, Option<TiffHeader>)>,
+    has_embedded_track: bool,
 ) -> Result<ExifIter, crate::Error> {
     if let Some((range, header)) = out {
         tracing::debug!(?range, ?header, "Got Exif data");
@@ -152,22 +190,11 @@ fn range_to_iter(
         let abs = (range.start + position)..(range.end + position);
         let view = full.slice(abs);
         let mut iter = input_into_iter(view, header)?;
-        iter.set_has_embedded_track(detect_embedded_track(mime_img, &full[position..]));
+        iter.set_has_embedded_track(has_embedded_track);
         Ok(iter)
     } else {
         tracing::debug!("Exif not found");
         Err(crate::Error::ExifNotFound)
-    }
-}
-
-/// Content-detect whether the source carries an embedded media track that
-/// `parse_track` could extract. v3.1 covers Pixel/Google Motion Photo
-/// JPEGs only; Samsung Motion Photo, HEIC Live Photo with embedded `moov`,
-/// and other formats are v3.x deliverables.
-fn detect_embedded_track(mime_img: MediaMimeImage, head: &[u8]) -> bool {
-    match mime_img {
-        MediaMimeImage::Jpeg => jpeg::find_motion_photo_offset(head).is_some(),
-        _ => false,
     }
 }
 
@@ -188,7 +215,40 @@ where
         })
         .await?;
 
-    range_to_iter(parser, mime_img, out)
+    let has_track = match mime_img {
+        MediaMimeImage::Jpeg => detect_motion_photo_async(parser, reader).await,
+        _ => false,
+    };
+
+    range_to_iter(parser, out, has_track)
+}
+
+/// Async twin of [`detect_motion_photo`].
+#[cfg(feature = "tokio")]
+async fn detect_motion_photo_async<P, R>(parser: &mut P, reader: &mut R) -> bool
+where
+    P: crate::parser_async::AsyncBufParser + crate::parser::Buf,
+    R: AsyncRead + Unpin + Send,
+{
+    const CHUNK: usize = 8 * 1024;
+    const MAX_EXTRA: usize = 256 * 1024;
+    let mut extra = 0;
+    loop {
+        match jpeg::scan_motion_photo(parser.buffer()) {
+            jpeg::MotionPhotoScan::Found(_) => return true,
+            jpeg::MotionPhotoScan::NotPresent => return false,
+            jpeg::MotionPhotoScan::NeedMoreBytes => {
+                if extra >= MAX_EXTRA {
+                    return false;
+                }
+                let want = CHUNK.min(MAX_EXTRA - extra);
+                if parser.fill_buf(reader, want).await.is_err() {
+                    return false;
+                }
+                extra += want;
+            }
+        }
+    }
 }
 
 #[tracing::instrument(skip(buf))]

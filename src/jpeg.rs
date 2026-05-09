@@ -8,38 +8,75 @@ use crate::exif::check_exif_header;
 /// XMP APP1 segment payload prefix (29 bytes including the trailing NUL).
 const XMP_NS_HEADER: &[u8] = b"http://ns.adobe.com/xap/1.0/\x00";
 
-/// Find the byte length of a Pixel/Google Motion Photo trailer in a JPEG
-/// buffer.
+/// Outcome of scanning a JPEG buffer for a Pixel/Google Motion Photo
+/// signal.
+pub(crate) enum MotionPhotoScan {
+    /// Saw `GCamera:MotionPhoto="1"` (or `GCamera:MicroVideo="1"`) with a
+    /// trailer-length attribute. The MP4 trailer starts at
+    /// `file_size - N`.
+    Found(u64),
+    /// Walked far enough to be sure no Motion Photo signal is present
+    /// (e.g. reached the SOS marker, or hit a malformed segment).
+    NotPresent,
+    /// The buffer ended mid-walk before reaching SOS — caller should
+    /// load more bytes and retry from the start.
+    NeedMoreBytes,
+}
+
+/// Scan a JPEG buffer for a Pixel/Google Motion Photo signal.
 ///
 /// Walks JPEG markers up to SOS, looking for an APP1 XMP segment that
 /// contains `GCamera:MotionPhoto="1"` together with a
-/// `GCamera:MotionPhotoOffset="N"` attribute. Returns `Some(N)` when both
-/// signals are present — `N` is the trailer length in bytes (i.e. the MP4
-/// starts at `file_size - N`). Returns `None` for plain JPEGs.
+/// `GCamera:MotionPhotoOffset="N"` attribute (or the older
+/// `MicroVideo` / `MicroVideoOffset` pair). Returns
+/// [`MotionPhotoScan::Found(N)`] when both are present, where `N` is the
+/// trailer length in bytes.
 ///
-/// Conservative on error: any malformed-marker or short-buffer condition
-/// yields `None` so callers can treat absence of a Motion Photo as the
-/// default. This is content detection, not validation.
-pub(crate) fn find_motion_photo_offset(input: &[u8]) -> Option<u64> {
+/// The 3-state result lets callers distinguish "definitively no
+/// trailer" (NotPresent — the scanner reached SOS or a malformed marker)
+/// from "ran out of buffer" (NeedMoreBytes — the answer is unknown until
+/// more bytes are loaded).
+pub(crate) fn scan_motion_photo(input: &[u8]) -> MotionPhotoScan {
     let mut remain = input;
     loop {
         let parsed: IResult<&[u8], (&[u8], u8)> =
             (streaming::tag(&[0xFF_u8][..]), number::streaming::u8).parse(remain);
-        let (rem, (_, code)) = parsed.ok()?;
-        let (rem, segment) = parse_segment(code, rem).ok()?;
+        let (rem, (_, code)) = match parsed {
+            Ok(t) => t,
+            Err(nom::Err::Incomplete(_)) => return MotionPhotoScan::NeedMoreBytes,
+            Err(_) => return MotionPhotoScan::NotPresent,
+        };
+        let (rem, segment) = match parse_segment(code, rem) {
+            Ok(t) => t,
+            Err(nom::Err::Incomplete(_)) => return MotionPhotoScan::NeedMoreBytes,
+            Err(_) => return MotionPhotoScan::NotPresent,
+        };
         remain = rem;
 
         if segment.marker_code == MarkerCode::Sos.code() {
-            return None;
+            return MotionPhotoScan::NotPresent;
         }
         if segment.marker_code == MarkerCode::APP1.code()
             && segment.payload.starts_with(XMP_NS_HEADER)
         {
             let xmp = &segment.payload[XMP_NS_HEADER.len()..];
             if let Some(offset) = parse_motion_photo_offset(xmp) {
-                return Some(offset);
+                return MotionPhotoScan::Found(offset);
             }
+            // Some files may carry XMP without a Motion Photo signal, or
+            // split it across multiple APP1 segments — keep walking.
         }
+    }
+}
+
+/// Convenience wrapper: returns the trailer offset if (and only if) the
+/// scan finishes with a definite answer of "found". Used by
+/// `parse_track`'s polymorphic JPEG path which always sees the full
+/// file in memory and therefore can't get `NeedMoreBytes`.
+pub(crate) fn find_motion_photo_offset(input: &[u8]) -> Option<u64> {
+    match scan_motion_photo(input) {
+        MotionPhotoScan::Found(n) => Some(n),
+        MotionPhotoScan::NotPresent | MotionPhotoScan::NeedMoreBytes => None,
     }
 }
 
