@@ -21,9 +21,30 @@ pub use parser_async::AsyncMediaSource;
 
 pub use exif::{Exif, ExifEntry, ExifIter, ExifIterEntry, ExifTag, GPSInfo, IfdIndex, LatLng, TagOrCode};
 pub use exif::gps::{Altitude, LatRef, LonRef, Speed, SpeedUnit};
-pub use values::{EntryValue, ExifDateTime, IRational, URational};
+pub use values::{EntryValue, ExifDateTime, IRational, Rational, URational};
 
 pub use error::{ConvertError, EntryError, Error, MalformedKind};
+
+/// Convenient one-line import of the most common v3 symbols.
+///
+/// ```rust
+/// use nom_exif::prelude::*;
+/// # fn main() -> Result<()> { Ok(()) }
+/// ```
+///
+/// Includes [`Error`] and [`MalformedKind`] so error-matching code does
+/// not need a second import. Cold-path types (e.g. `Rational`,
+/// `LatLng`, `ConvertError`, `ExifDateTime`) are intentionally **not**
+/// in the prelude — import them explicitly via `nom_exif::Type`.
+pub mod prelude {
+    pub use crate::{
+        EntryValue, Error, Exif, ExifIter, ExifTag, GPSInfo, IfdIndex,
+        MalformedKind, MediaKind, MediaParser, MediaSource, Metadata,
+        Result, TrackInfo, TrackInfoTag,
+    };
+    pub use crate::{read_exif, read_metadata, read_track};
+}
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// One-shot result of [`read_metadata`]: either Exif (image) or TrackInfo
@@ -176,5 +197,15 @@ mod v3_top_level_tests {
     async fn read_track_async_mov() {
         let info = read_track_async("testdata/meta.mov").await.unwrap();
         assert!(info.get(TrackInfoTag::Make).is_some());
+    }
+
+    #[test]
+    fn prelude_imports_compile() {
+        use crate::prelude::*;
+        fn _consume(_: Option<Exif>, _: Option<TrackInfo>, _: Option<MediaParser>) {}
+        // Verify the function symbols are in scope (compilation is the test).
+        let _e = read_exif("testdata/exif.jpg");
+        let _t = read_track("testdata/meta.mov");
+        let _m = read_metadata("testdata/exif.jpg");
     }
 }
