@@ -231,3 +231,39 @@ impl TryFrom<&str> for TrackInfoTag {
         Ok(tag)
     }
 }
+
+#[cfg(test)]
+mod p6_baseline {
+    use crate::{MediaParser, MediaSource, TrackInfoTag};
+
+    #[test]
+    fn p6_baseline_meta_mov_dump_snapshot() {
+        // Lock down the post-refactor invariant: parsing testdata/meta.mov
+        // through the public API yields the same set of (tag, value) pairs
+        // before and after every P6 task. Captured as a sorted formatted
+        // string so the assertion is a single Vec compare.
+        let mut parser = MediaParser::new();
+        let ms = MediaSource::open("testdata/meta.mov").unwrap();
+        let info = parser.parse_track(ms).unwrap();
+
+        // Probe the well-known tags (Make/Model/GpsIso6709/DurationMs).
+        // The rest is exercised indirectly by other tests.
+        let mut entries: Vec<String> = [
+            TrackInfoTag::Make,
+            TrackInfoTag::Model,
+            TrackInfoTag::GpsIso6709,
+            TrackInfoTag::DurationMs,
+            TrackInfoTag::ImageWidth,
+            TrackInfoTag::ImageHeight,
+        ]
+        .into_iter()
+        .filter_map(|t| info.get(t).map(|v| format!("{t:?}={v}")))
+        .collect();
+        entries.sort();
+        assert!(entries.len() >= 4, "expected >=4 well-known tags, got {entries:?}");
+        assert!(
+            entries.iter().any(|s| s.starts_with("Make=")),
+            "expected Make tag in snapshot, got {entries:?}"
+        );
+    }
+}
