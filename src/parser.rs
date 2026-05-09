@@ -7,7 +7,6 @@ use std::{
 };
 
 use crate::{
-    buffer::Buffers,
     error::{ParsedError, ParsingError, ParsingErrorState},
     exif::TiffHeader,
     file::MediaMime,
@@ -149,10 +148,22 @@ pub(crate) trait Buf {
     fn position(&self) -> usize;
 }
 
+const MAX_REUSE_BUF_SIZE: usize = 1024 * 1024;
+
 /// Buffer-management state used by `MediaParser` (sync and async paths share it).
+///
+/// Holds at most one *active* `Vec<u8>` (being filled by the current parse) and
+/// one *cached* `Bytes` clone of the most recently shared buffer. When the
+/// next parse starts, the cache is consulted: if `Bytes::try_into_mut`
+/// succeeds the underlying allocation is reused (the previous `ExifIter`
+/// has been dropped); otherwise the clone is discarded and a fresh
+/// `Vec<u8>` is allocated.
+///
+/// This replaces the v2 multi-slot `Buffers` pool — `MediaParser` methods
+/// are `&mut self`, so a single slot is sufficient.
 #[derive(Debug, Default)]
 pub(crate) struct BufferedParserState {
-    bb: Buffers,
+    cached: Option<bytes::Bytes>,
     buf: Option<Vec<u8>>,
     position: usize,
 }
@@ -163,15 +174,29 @@ impl BufferedParserState {
     }
 
     pub(crate) fn reset(&mut self) {
-        if let Some(buf) = self.buf.take() {
-            self.bb.release(buf);
-        }
+        // If a parse failed mid-way the buf may still be present; drop it.
+        // Cache stays — recycle on next acquire if eligible.
+        self.buf = None;
         self.position = 0;
     }
 
     pub(crate) fn acquire_buf(&mut self) {
         debug_assert!(self.buf.is_none());
-        self.buf = Some(self.bb.acquire());
+        let buf = match self.cached.take() {
+            Some(b) => match b.try_into_mut() {
+                Ok(bm) => {
+                    let mut v = Vec::<u8>::from(bm);
+                    v.clear();
+                    if v.capacity() > MAX_REUSE_BUF_SIZE {
+                        v.shrink_to(MAX_REUSE_BUF_SIZE);
+                    }
+                    v
+                }
+                Err(_still_shared) => Vec::with_capacity(INIT_BUF_SIZE),
+            },
+            None => Vec::with_capacity(INIT_BUF_SIZE),
+        };
+        self.buf = Some(buf);
     }
 
     pub(crate) fn buf(&self) -> &Vec<u8> {
@@ -180,6 +205,16 @@ impl BufferedParserState {
 
     pub(crate) fn buf_mut(&mut self) -> &mut Vec<u8> {
         self.buf.as_mut().expect("no buf here")
+    }
+
+    #[cfg(test)]
+    pub(crate) fn cached_ptr_for_test(&self) -> Option<*const u8> {
+        self.cached.as_ref().map(|b| b.as_ptr())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn buf_is_none_for_test(&self) -> bool {
+        self.buf.is_none()
     }
 }
 
@@ -200,9 +235,11 @@ impl Buf for BufferedParserState {
 
 impl ShareBuf for BufferedParserState {
     fn share_buf(&mut self) -> (bytes::Bytes, usize) {
-        let buf = self.buf.take().expect("no buf to share");
-        let bytes = self.bb.release_to_share(buf);
-        (bytes, self.position)
+        let vec = self.buf.take().expect("no buf to share");
+        let bytes = bytes::Bytes::from(vec);
+        let position = self.position;
+        self.cached = Some(bytes.clone());
+        (bytes, position)
     }
 }
 
@@ -877,6 +914,36 @@ mod tests {
         let mut parser = MediaParser::new();
         let ms = AsyncMediaSource::open("testdata/meta.mov").await.unwrap();
         let _: TrackInfo = parser.parse_track_async(ms).await.unwrap();
+    }
+
+    #[test]
+    fn parser_recycles_alloc_when_exif_iter_dropped() {
+        let mut parser = MediaParser::new();
+
+        let ms = MediaSource::open("testdata/exif.jpg").unwrap();
+        let iter = parser.parse_exif(ms).unwrap();
+        let exif: crate::Exif = iter.into();
+        drop(exif);
+        let ptr_after_first = parser.state.cached_ptr_for_test();
+
+        let ms = MediaSource::open("testdata/exif.jpg").unwrap();
+        let iter = parser.parse_exif(ms).unwrap();
+        let _exif: crate::Exif = iter.into();
+        let ptr_after_second = parser.state.cached_ptr_for_test();
+
+        assert!(
+            ptr_after_first.is_some() && ptr_after_first == ptr_after_second,
+            "expected recycled allocation, got {:?} -> {:?}",
+            ptr_after_first,
+            ptr_after_second
+        );
+    }
+
+    #[test]
+    fn parser_new_does_no_upfront_allocation() {
+        let parser = MediaParser::new();
+        assert!(parser.state.cached_ptr_for_test().is_none());
+        assert!(parser.state.buf_is_none_for_test());
     }
 
     #[test]
