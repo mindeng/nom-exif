@@ -303,13 +303,17 @@ impl FromStr for GPSInfo {
     type Err = crate::ConvertError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         iso6709parse::parse::<ISO6709Coord>(s)
-            .map(GPSInfo::from)
+            .map(GPSInfo::from_iso6709_coord)
             .map_err(|_| crate::ConvertError::InvalidIso6709(s.to_string()))
     }
 }
 
-impl From<ISO6709Coord> for GPSInfo {
-    fn from(v: ISO6709Coord) -> Self {
+impl GPSInfo {
+    /// Build a `GPSInfo` from a parsed ISO 6709 coordinate. Crate-internal:
+    /// the public path is [`GPSInfo::from_str`] / `<GPSInfo as FromStr>::from_str`,
+    /// which keeps `iso6709parse::ISO6709Coord` out of the public API surface
+    /// (so an `iso6709parse` major-version bump does not force one here).
+    pub(crate) fn from_iso6709_coord(v: ISO6709Coord) -> Self {
         let latitude_ref = if v.lat >= 0.0 { LatRef::North } else { LatRef::South };
         let longitude_ref = if v.lon >= 0.0 { LonRef::East } else { LonRef::West };
         let latitude = LatLng::try_from_decimal_degrees(v.lat.abs()).unwrap_or_default();
@@ -447,7 +451,7 @@ mod tests {
         assert_eq!(iso.lon, -78.1969);
         assert_eq!(iso.altitude, None);
 
-        let iso: GPSInfo = iso6709parse::parse("+26.5322-078.1969+019.099/").unwrap();
+        let iso: GPSInfo = "+26.5322-078.1969+019.099/".parse().unwrap();
         assert_eq!(iso.latitude_ref, LatRef::North);
         assert_eq!(
             iso.latitude,
