@@ -50,6 +50,7 @@ impl PartialVec {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn partial(&self, subslice: &[u8]) -> AssociatedInput {
         let range = self
             .data
@@ -101,4 +102,5 @@ impl Borrow<[u8]> for PartialVec {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) type AssociatedInput = PartialVec;

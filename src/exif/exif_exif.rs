@@ -234,7 +234,6 @@ mod tests {
     use std::io::Read;
     use std::thread;
 
-    use crate::partial_vec::PartialVec;
     use test_case::test_case;
 
     use crate::exif::input_into_iter;
@@ -265,10 +264,8 @@ mod tests {
     fn exif_iter_gps(path: &str) {
         let buf = read_sample(path).unwrap();
         let (_, data) = extract_exif_data(&buf).unwrap();
-        let data = data
-            .and_then(|x| buf.subslice_in_range(x))
-            .map(|x| PartialVec::from_vec_range(buf, x))
-            .unwrap();
+        let range = data.and_then(|x| buf.subslice_in_range(x)).unwrap();
+        let data = bytes::Bytes::from(buf).slice(range);
         let iter = input_into_iter(data, None).unwrap();
         let gps = iter.parse_gps_info().unwrap().unwrap();
         assert_eq!(gps.to_iso6709(), "+22.53113+114.02148/");
@@ -278,10 +275,8 @@ mod tests {
     fn clone_exif_iter_to_thread(path: &str) {
         let buf = read_sample(path).unwrap();
         let (_, data) = extract_exif_data(&buf).unwrap();
-        let data = data
-            .and_then(|x| buf.subslice_in_range(x))
-            .map(|x| PartialVec::from_vec_range(buf, x))
-            .unwrap();
+        let range = data.and_then(|x| buf.subslice_in_range(x)).unwrap();
+        let data = bytes::Bytes::from(buf).slice(range);
         let iter = input_into_iter(data, None).unwrap();
         let iter2 = iter.clone();
 

@@ -1,11 +1,10 @@
-use std::{collections::HashSet, fmt::Debug, ops::Range, sync::Arc};
+use std::{collections::HashSet, fmt::Debug};
 
 use bytes::Bytes;
 use nom::{number::complete, Parser};
 
 use crate::{
     error::EntryError,
-    partial_vec::PartialVec,
     slice::SliceChecked,
     values::{DataFormat, EntryData, IRational, URational},
     EntryValue, ExifTag,
@@ -20,8 +19,8 @@ pub(crate) struct TiffDataBlock {
     /// Block identifier (e.g., "CMT1", "CMT2", "CMT3")
     #[allow(dead_code)]
     pub block_id: String,
-    /// Data range within the shared buffer
-    pub data_range: Range<usize>,
+    /// Pre-sliced bytes view for this block's data
+    pub data: Bytes,
     /// TIFF header information (optional, if known)
     pub header: Option<TiffHeader>,
 }
@@ -36,10 +35,10 @@ pub(crate) struct TiffDataBlock {
 /// information in subsequent iterates.
 #[tracing::instrument]
 pub(crate) fn input_into_iter(
-    input: impl Into<PartialVec> + Debug,
+    input: impl Into<bytes::Bytes> + Debug,
     state: Option<TiffHeader>,
 ) -> crate::Result<ExifIter> {
-    let input: PartialVec = input.into();
+    let input: bytes::Bytes = input.into();
     let header = match state {
         // header has been parsed, and header has been skipped, input data
         // is the IFD data
@@ -65,7 +64,7 @@ pub(crate) fn input_into_iter(
     }
     tracing::debug!(?header, offset = start);
 
-    let mut ifd0 = IfdIter::try_new(0, input.clone().into_bytes(), header.to_owned(), start, None)?;
+    let mut ifd0 = IfdIter::try_new(0, input.clone(), header.to_owned(), start, None)?;
 
     let tz = ifd0.find_tz_offset();
     ifd0.tz = tz.clone();
@@ -79,8 +78,8 @@ pub(crate) fn input_into_iter(
 /// An iterator version of [`Exif`](crate::Exif). Use [`ParsedExifEntry`] as
 /// iterator items.
 ///
-/// Clone an `ExifIter` is very cheap, the underlying data is shared
-/// through `Arc`.
+/// Clone an `ExifIter` is very cheap; the underlying data is shared
+/// via `bytes::Bytes` reference counting.
 ///
 /// The new cloned `ExifIter`'s iteration index will be reset to the first one.
 ///
@@ -89,8 +88,7 @@ pub(crate) fn input_into_iter(
 /// Since the original's iteration index may have been modified by
 /// `Iterator::next()` calls.
 pub struct ExifIter {
-    // Use Arc to make sure we won't clone the owned data.
-    input: Arc<PartialVec>,
+    input: Bytes,
     tiff_header: TiffHeader,
     tz: Option<String>,
     ifd0: IfdIter,
@@ -130,14 +128,14 @@ impl Clone for ExifIter {
 
 impl ExifIter {
     pub(crate) fn new(
-        input: impl Into<PartialVec>,
+        input: bytes::Bytes,
         tiff_header: TiffHeader,
         tz: Option<String>,
         ifd0: IfdIter,
     ) -> ExifIter {
         let ifds = vec![ifd0.clone()];
         ExifIter {
-            input: Arc::new(input.into()),
+            input,
             tiff_header,
             tz,
             ifd0,
@@ -151,8 +149,8 @@ impl ExifIter {
 
     /// Clone and rewind the iterator's index.
     ///
-    /// Clone an `ExifIter` is very cheap, the underlying data is shared
-    /// through Arc.
+    /// Clone an `ExifIter` is very cheap; the underlying data is shared
+    /// via `bytes::Bytes` reference counting.
     pub fn clone_and_rewind(&self) -> Self {
         let ifd0 = self.ifd0.clone_and_rewind();
         let ifds = vec![ifd0.clone()];
@@ -208,7 +206,7 @@ impl ExifIter {
 
         let mut gps_subifd = match IfdIter::try_new(
             gps.ifd,
-            iter.input.partial(&iter.input[..]).into_bytes(),
+            iter.input.clone(),
             iter.tiff_header,
             offset as usize,
             iter.tz.clone(),
@@ -224,17 +222,17 @@ impl ExifIter {
     ///
     /// # Arguments
     /// * `block_id` - Identifier for this TIFF block (e.g., "CMT2", "CMT3")
-    /// * `data_range` - Range within the shared input buffer containing the TIFF data
+    /// * `data` - Pre-sliced `Bytes` view containing this block's TIFF data
     /// * `header` - Optional TIFF header if already parsed
     pub(crate) fn add_tiff_block(
         &mut self,
         block_id: String,
-        data_range: Range<usize>,
+        data: bytes::Bytes,
         header: Option<TiffHeader>,
     ) {
         self.additional_blocks.push(TiffDataBlock {
             block_id,
-            data_range,
+            data,
             header,
         });
     }
@@ -395,11 +393,8 @@ impl ExifIter {
         );
 
         // Get the data for this block from the shared input
-        let data_range = block.data_range.clone();
+        let block_data = block.data.clone();
         let header = block.header.clone();
-
-        // Create a PartialVec for the block data
-        let block_data = PartialVec::new(self.input.data.clone(), data_range);
 
         // Try to create an ExifIter for this block
         match input_into_iter(block_data, header) {
@@ -1047,8 +1042,8 @@ mod tests {
     fn exif_iter_tz(path: &str, tz: &str, time: &str, img_type: MediaMimeImage) {
         let buf = read_sample(path).unwrap();
         let (data, _) = extract_exif_with_mime(img_type, &buf, None).unwrap();
-        let subslice_in_range = data.and_then(|x| buf.subslice_in_range(x)).unwrap();
-        let iter = input_into_iter((buf, subslice_in_range), None).unwrap();
+        let range = data.and_then(|x| buf.subslice_in_range(x)).unwrap();
+        let iter = input_into_iter(bytes::Bytes::from(buf).slice(range), None).unwrap();
         let expect = if tz == "-" {
             None
         } else {

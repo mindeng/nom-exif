@@ -4,7 +4,6 @@ use crate::parser::{BufParser, ParsingState, ShareBuf};
 use crate::raf::RafInfo;
 use crate::slice::SubsliceRange;
 use crate::{cr3, heif, jpeg, MediaParser};
-use crate::partial_vec::PartialVec;
 pub use exif_exif::Exif;
 use exif_exif::TIFF_HEADER_LEN;
 use exif_iter::input_into_iter;
@@ -89,14 +88,16 @@ fn parse_cr3_exif_iter<R: Read>(
         "Creating primary ExifIter from first CMT block"
     );
 
-    // Share the buffer and create the primary ExifIter
-    // Note: share_buf adds position_offset to the range internally
-    let input: PartialVec = parser.share_buf(first_range.clone());
-    let mut iter = input_into_iter(input, None)?;
+    // Share the buffer and create the primary ExifIter.
+    // Temporarily reach into pv.data for the full backing Bytes so we can
+    // slice additional CMT ranges out of it. Task 5 will clean this up by
+    // changing share_buf to return (Bytes, usize) directly.
+    let pv = parser.share_buf(first_range.clone());
+    let full_bytes = pv.data.clone(); // full parser buffer (Bytes) — Task 5 prep
+    let primary_view = pv.into_bytes(); // first_range view
+    let mut iter = input_into_iter(primary_view, None)?;
 
-    // Add remaining CMT blocks as additional TIFF blocks
-    // We need to adjust the ranges by position_offset since the PartialVec.data
-    // contains the full buffer and ranges need to be absolute
+    // Add remaining CMT blocks as additional TIFF blocks.
     // Note: We skip CMT3 (MakerNotes) as it has a proprietary format that requires
     // special handling and would produce garbage data if parsed as standard EXIF
     for (block_id, range) in cmt_ranges.ranges.iter().skip(1) {
@@ -113,7 +114,11 @@ fn parse_cr3_exif_iter<R: Read>(
             adjusted_range = ?adjusted_range,
             "Adding additional CMT block"
         );
-        iter.add_tiff_block(block_id.to_string(), adjusted_range, None);
+        iter.add_tiff_block(
+            block_id.to_string(),
+            full_bytes.slice(adjusted_range),
+            None,
+        );
     }
 
     Ok(iter)
@@ -139,7 +144,7 @@ fn range_to_iter(
 ) -> Result<ExifIter, crate::Error> {
     if let Some((range, header)) = out {
         tracing::debug!(?range, ?header, "Got Exif data");
-        let input: PartialVec = parser.share_buf(range);
+        let input = parser.share_buf(range).into_bytes();
         let iter = input_into_iter(input, header)?;
 
         Ok(iter)
@@ -278,7 +283,7 @@ mod tests {
         let data = data.unwrap();
 
         let subslice_in_range = buf.subslice_in_range(data).unwrap();
-        let iter = input_into_iter((buf, subslice_in_range), None).unwrap();
+        let iter = input_into_iter(bytes::Bytes::from(buf).slice(subslice_in_range), None).unwrap();
         let exif: Exif = iter.into();
 
         let gps = exif.get_gps_info().unwrap().unwrap();
