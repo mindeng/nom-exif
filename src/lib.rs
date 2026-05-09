@@ -1,5 +1,22 @@
-//! `nom-exif` — Exif and track metadata parser for image, video, and audio
-//! files.
+//! `nom-exif` is a pure Rust library for **both image EXIF and
+//! video / audio track metadata** through a single unified API.
+//!
+//! # Highlights
+//!
+//! - Image **and** video / audio in one crate — [`MediaParser`] dispatches
+//!   to the right backend by detected MIME, no per-format wrappers.
+//! - Pure Rust — no FFmpeg, no libexif, no system deps; cross-compiles
+//!   cleanly.
+//! - Streaming-friendly — handles seekable files **and** non-seekable
+//!   readers (network streams, pipes) without buffering the whole file.
+//! - Allocation-frugal — [`MediaParser`] recycles its parse buffer across
+//!   calls; sub-IFDs share the buffer via `bytes::Bytes` refcount instead
+//!   of deep-copying byte ranges.
+//! - Both eager ([`Exif`]) and lazy ([`ExifIter`], with per-entry errors).
+//! - Sync and async unified under one [`MediaParser`].
+//! - RAW format support — Canon CR3, Fujifilm RAF, Phase One IIQ,
+//!   alongside JPEG / HEIC / TIFF.
+//! - Fuzz-tested with `cargo-fuzz` against malformed and adversarial input.
 //!
 //! # Quick start
 //!
@@ -49,8 +66,8 @@
 //!   IFD errors, [`ConvertError`] for type-conversion peer errors.
 //! - **Convenience**: [`prelude`] re-exports the symbols you most often need.
 //!
-//! See `docs/V3_API_DESIGN.md` for the full design contract and the
-//! v2 → v3 migration table.
+//! See `docs/MIGRATION.md` for the v2 → v3 migration guide and
+//! `docs/V3_API_DESIGN.md` for the internal design contract.
 //!
 //! # Cargo features
 //!
