@@ -10,7 +10,6 @@ repository = "https://github.com/mindeng/nom-exif"
 exclude = [
   "testdata/*",
   "AGENTS.md",
-  "README.org",
   "docs/V3_API_DESIGN.md",
   "docs/superpowers/**",
 ]
