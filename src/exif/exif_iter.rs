@@ -12,6 +12,40 @@ use crate::{
 
 use super::{exif_exif::IFD_ENTRY_SIZE, tags::ExifTagCode, GPSInfo, LatLng, TiffHeader};
 
+/// Index of an IFD (Image File Directory) within an EXIF blob.
+///
+/// `0` = main image (`IfdIndex::MAIN`), `1` = thumbnail (`IfdIndex::THUMBNAIL`),
+/// `>=2` = sub-IFDs in the order encountered. Use the constants for the common
+/// cases and [`IfdIndex::new`] for raw indexing.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct IfdIndex(usize);
+
+impl IfdIndex {
+    /// Index of the main image IFD (always `0`).
+    pub const MAIN: Self = IfdIndex(0);
+
+    /// Index of the thumbnail IFD (`1` when present).
+    pub const THUMBNAIL: Self = IfdIndex(1);
+
+    /// Construct from a raw index. `0`/`1` correspond to [`Self::MAIN`] /
+    /// [`Self::THUMBNAIL`]; values `>= 2` are sub-IFDs.
+    pub const fn new(index: usize) -> Self {
+        IfdIndex(index)
+    }
+
+    /// Underlying raw index.
+    pub const fn get(self) -> usize {
+        self.0
+    }
+}
+
+impl std::fmt::Display for IfdIndex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ifd{}", self.0)
+    }
+}
+
 /// Represents an additional TIFF data block to be processed after the primary block.
 /// Used for CR3 files with multiple CMT boxes (CMT1, CMT2, CMT3).
 #[derive(Clone)]
@@ -1058,5 +1092,38 @@ mod tests {
             let value = value.unwrap();
             assert_eq!(value.to_string(), time);
         }
+    }
+
+    #[test]
+    fn ifd_index_constants() {
+        use crate::IfdIndex;
+        assert_eq!(IfdIndex::MAIN.get(), 0);
+        assert_eq!(IfdIndex::THUMBNAIL.get(), 1);
+    }
+
+    #[test]
+    fn ifd_index_roundtrip_via_new_and_get() {
+        use crate::IfdIndex;
+        for raw in [0, 1, 2, 3, 7, 99] {
+            assert_eq!(IfdIndex::new(raw).get(), raw);
+        }
+    }
+
+    #[test]
+    fn ifd_index_equality_and_hash() {
+        use crate::IfdIndex;
+        use std::collections::HashSet;
+        let mut set: HashSet<IfdIndex> = HashSet::new();
+        set.insert(IfdIndex::MAIN);
+        set.insert(IfdIndex::new(0)); // duplicate
+        set.insert(IfdIndex::THUMBNAIL);
+        assert_eq!(set.len(), 2);
+    }
+
+    #[test]
+    fn ifd_index_display_format() {
+        use crate::IfdIndex;
+        assert_eq!(format!("{}", IfdIndex::MAIN), "ifd0");
+        assert_eq!(format!("{}", IfdIndex::new(7)), "ifd7");
     }
 }
