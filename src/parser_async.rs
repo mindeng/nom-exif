@@ -14,7 +14,7 @@ use crate::{
     error::{ParsedError, ParsingErrorState},
     parser::{
         clear_and_skip_decide, parse_loop_step, Buf, LoopAction, ParsingState, SkipPlan,
-        MAX_ALLOC_SIZE, MIN_GROW_SIZE,
+        MAX_PARSE_BUF_SIZE, MIN_GROW_SIZE,
     },
 };
 
@@ -192,7 +192,7 @@ pub(crate) trait AsyncBufParser: Buf + Debug {
                     let mut skipped = 0;
                     while skipped < skip_n {
                         let mut to_skip = skip_n - skipped;
-                        to_skip = min(to_skip, MAX_ALLOC_SIZE);
+                        to_skip = min(to_skip, MAX_PARSE_BUF_SIZE);
                         let n = self.fill_buf(reader, to_skip).await?;
                         skipped += n;
                         if skipped <= skip_n {
@@ -306,10 +306,10 @@ mod tests {
         use crate::parser::check_fill_size;
         // The combined size guard used by both sync and async fill_buf.
         // existing=MAX-1024, requested=2*1024 => existing+requested > MAX => Err.
-        let res = check_fill_size(MAX_ALLOC_SIZE - 1024, 2 * 1024);
+        let res = check_fill_size(MAX_PARSE_BUF_SIZE - 1024, 2 * 1024);
         assert!(res.is_err(), "expected Err, got Ok");
         // Below the threshold passes.
-        let res = check_fill_size(MAX_ALLOC_SIZE - 4096, 1024);
+        let res = check_fill_size(MAX_PARSE_BUF_SIZE - 4096, 1024);
         assert!(res.is_ok());
     }
 

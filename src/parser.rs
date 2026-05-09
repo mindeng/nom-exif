@@ -191,18 +191,29 @@ impl MediaSource<()> {
     }
 }
 
-// Page-aligned. `INIT_BUF_SIZE` is the first fill request after header
-// detection (and the initial `Vec::with_capacity` for fresh allocations) —
-// kept modest so cold one-shot helpers don't over-commit. `MIN_GROW_SIZE`
-// floors subsequent fills inside the parse loop, where we're already
-// committed to deep parsing and want to amortize syscalls (or async
-// blocking-pool dispatches) aggressively.
+// ----- Parse-time buffer policy -----
+//
+// Layered by lifecycle:
+//
+// - `INIT_BUF_SIZE` — first fill into the parse loop and the initial
+//   `Vec::with_capacity` for fresh allocations. Modest so cold one-shot
+//   helpers don't over-commit.
+// - `MIN_GROW_SIZE` — floor for every subsequent fill once we're in deep
+//   parse. Larger than `INIT_BUF_SIZE` to amortize syscalls / async
+//   blocking-pool dispatches.
+// - `MAX_PARSE_BUF_SIZE` — hard cap on cumulative buffer growth during a
+//   single parse. Anything that would push past this is rejected as
+//   `io::ErrorKind::Unsupported`; defense against crafted box/IFD headers
+//   that declare absurd sizes.
+// - `MAX_REUSE_BUF_SIZE` — soft cap on the buffer kept between parses for
+//   recycling. After a parse whose buffer ended above this, `shrink_to`
+//   gives the excess back to the allocator. Tuned for typical metadata
+//   sizes (HEIC Live Photo / large CR3 / IIQ all fit under 4 MB) so the
+//   recycle path stays warm for batch workloads.
 pub(crate) const INIT_BUF_SIZE: usize = 8 * 1024;
 pub(crate) const MIN_GROW_SIZE: usize = 16 * 1024;
-// Max size of APP1 is 0xFFFF
-// pub(crate) const MAX_GROW_SIZE: usize = 63 * 1024;
-// Set a reasonable upper limit for single buffer allocation.
-pub(crate) const MAX_ALLOC_SIZE: usize = 1024 * 1024 * 1024;
+pub(crate) const MAX_PARSE_BUF_SIZE: usize = 1024 * 1024 * 1024;
+const MAX_REUSE_BUF_SIZE: usize = 4 * 1024 * 1024;
 
 pub(crate) trait Buf {
     fn buffer(&self) -> &[u8];
@@ -212,8 +223,6 @@ pub(crate) trait Buf {
     #[allow(unused)]
     fn position(&self) -> usize;
 }
-
-const MAX_REUSE_BUF_SIZE: usize = 1024 * 1024;
 
 /// Buffer-management state used by `MediaParser` (sync and async paths share it).
 ///
@@ -369,7 +378,7 @@ pub(crate) fn clear_and_skip_decide(buffer_len: usize, n: usize) -> SkipPlan {
 }
 
 pub(crate) fn check_fill_size(existing_len: usize, requested: usize) -> io::Result<()> {
-    if requested.saturating_add(existing_len) > MAX_ALLOC_SIZE {
+    if requested.saturating_add(existing_len) > MAX_PARSE_BUF_SIZE {
         tracing::error!(?requested, "the requested buffer size is too big");
         return Err(io::ErrorKind::Unsupported.into());
     }
@@ -502,7 +511,7 @@ pub(crate) trait BufParser: Buf + Debug {
                     let mut skipped = 0;
                     while skipped < skip_n {
                         let mut to_skip = skip_n - skipped;
-                        to_skip = min(to_skip, MAX_ALLOC_SIZE);
+                        to_skip = min(to_skip, MAX_PARSE_BUF_SIZE);
                         let n = self.fill_buf(reader, to_skip)?;
                         skipped += n;
                         if skipped <= skip_n {
@@ -536,7 +545,7 @@ impl BufParser for MediaParser {
         check_fill_size(self.state.buf().len(), size)?;
 
         // Do not pre-allocate `size` bytes: a crafted box header can declare a
-        // huge extended size (up to MAX_ALLOC_SIZE) that far exceeds the actual
+        // huge extended size (up to MAX_PARSE_BUF_SIZE) that far exceeds the actual
         // stream length. reserve_exact would allocate that memory immediately
         // even when the reader has only a few bytes left. read_to_end grows the
         // buffer from the reader's actual size hint instead.
@@ -1036,7 +1045,7 @@ mod tests {
     }
 
     // Regression: a crafted ISOBMFF file declares an extended 64-bit box size
-    // just under MAX_ALLOC_SIZE (~1 GB). Pre-fix, the unseekable parser called
+    // just under MAX_PARSE_BUF_SIZE (~1 GB). Pre-fix, the unseekable parser called
     // reserve_exact() with that size before reading, allocating ~1 GB even when
     // the actual stream contained only a few KB. See commit 81f9e8a.
     #[test]
