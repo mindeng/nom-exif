@@ -182,6 +182,49 @@ pub fn read_metadata(path: impl AsRef<Path>) -> Result<Metadata> {
     }
 }
 
+/// Read EXIF metadata from an in-memory byte payload in a single call.
+/// Zero-copy: the underlying allocation is shared with the returned
+/// [`Exif`] via [`bytes::Bytes`] reference counting.
+///
+/// Accepts anything convertible into [`bytes::Bytes`] — `Vec<u8>`,
+/// `&'static [u8]`, an existing `Bytes`, or HTTP-body types that implement
+/// `Into<Bytes>` directly.
+///
+/// For batch processing or multiple parses against the same buffer, prefer
+/// constructing a [`MediaParser`] once and reusing it via
+/// [`MediaParser::parse_exif_bytes`].
+pub fn read_exif_from_bytes(bytes: impl Into<bytes::Bytes>) -> Result<Exif> {
+    let iter = read_exif_iter_from_bytes(bytes)?;
+    Ok(iter.into())
+}
+
+/// Read EXIF metadata from an in-memory byte payload as a lazy iterator.
+/// Like [`read_exif_from_bytes`] but returns an [`ExifIter`].
+pub fn read_exif_iter_from_bytes(bytes: impl Into<bytes::Bytes>) -> Result<ExifIter> {
+    let ms = MediaSource::from_bytes(bytes)?;
+    let mut parser = MediaParser::new();
+    parser.parse_exif_bytes(ms)
+}
+
+/// Read track metadata from an in-memory video/audio payload.
+pub fn read_track_from_bytes(bytes: impl Into<bytes::Bytes>) -> Result<TrackInfo> {
+    let ms = MediaSource::from_bytes(bytes)?;
+    let mut parser = MediaParser::new();
+    parser.parse_track_bytes(ms)
+}
+
+/// Read metadata from an in-memory payload, dispatching by detected
+/// [`MediaKind`]: images return [`Metadata::Exif`], video/audio containers
+/// return [`Metadata::Track`].
+pub fn read_metadata_from_bytes(bytes: impl Into<bytes::Bytes>) -> Result<Metadata> {
+    let ms = MediaSource::from_bytes(bytes)?;
+    let mut parser = MediaParser::new();
+    match ms.kind() {
+        MediaKind::Image => parser.parse_exif_bytes(ms).map(|i| Metadata::Exif(i.into())),
+        MediaKind::Track => parser.parse_track_bytes(ms).map(Metadata::Track),
+    }
+}
+
 #[cfg(feature = "tokio")]
 mod tokio_top_level {
     use super::*;
@@ -285,6 +328,52 @@ mod v3_top_level_tests {
     async fn read_track_async_mov() {
         let info = read_track_async("testdata/meta.mov").await.unwrap();
         assert!(info.get(TrackInfoTag::Make).is_some());
+    }
+
+    #[test]
+    fn read_exif_from_bytes_jpg() {
+        let raw = std::fs::read("testdata/exif.jpg").unwrap();
+        let exif = read_exif_from_bytes(raw).unwrap();
+        assert!(exif.get(ExifTag::Make).is_some());
+    }
+
+    #[test]
+    fn read_exif_iter_from_bytes_jpg() {
+        let raw = std::fs::read("testdata/exif.jpg").unwrap();
+        let iter = read_exif_iter_from_bytes(raw).unwrap();
+        assert!(iter.into_iter().count() > 0);
+    }
+
+    #[test]
+    fn read_track_from_bytes_mov() {
+        let raw = std::fs::read("testdata/meta.mov").unwrap();
+        let info = read_track_from_bytes(raw).unwrap();
+        assert!(info.get(TrackInfoTag::Make).is_some());
+    }
+
+    #[test]
+    fn read_metadata_from_bytes_dispatches_image() {
+        let raw = std::fs::read("testdata/exif.jpg").unwrap();
+        match read_metadata_from_bytes(raw).unwrap() {
+            Metadata::Exif(_) => {}
+            Metadata::Track(_) => panic!("expected Exif variant"),
+        }
+    }
+
+    #[test]
+    fn read_metadata_from_bytes_dispatches_track() {
+        let raw = std::fs::read("testdata/meta.mov").unwrap();
+        match read_metadata_from_bytes(raw).unwrap() {
+            Metadata::Track(_) => {}
+            Metadata::Exif(_) => panic!("expected Track variant"),
+        }
+    }
+
+    #[test]
+    fn read_exif_from_bytes_static_slice() {
+        let raw: &'static [u8] = include_bytes!("../testdata/exif.jpg");
+        let exif = read_exif_from_bytes(raw).unwrap();
+        assert!(exif.get(ExifTag::Make).is_some());
     }
 
     #[test]

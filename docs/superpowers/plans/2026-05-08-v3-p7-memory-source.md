@@ -792,7 +792,7 @@ git commit -m "feat(parser): add MediaParser::parse_track_bytes for memory sourc
 **Files:**
 - Modify: `src/lib.rs`
 
-- [ ] **Step 1: Add the four helpers**
+- [x] **Step 1: Add the four helpers**
 
 After the existing path-based helpers (after `read_metadata` definition, before `#[cfg(feature = "tokio")] mod tokio_top_level`):
 
@@ -841,7 +841,7 @@ pub fn read_metadata_from_bytes(bytes: impl Into<bytes::Bytes>) -> Result<Metada
 }
 ```
 
-- [ ] **Step 2: Add smoke tests in `v3_top_level_tests`**
+- [x] **Step 2: Add smoke tests in `v3_top_level_tests`**
 
 Inside `mod v3_top_level_tests`:
 
@@ -893,7 +893,7 @@ fn read_exif_from_bytes_static_slice() {
 }
 ```
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 Run: `cargo test --all-features v3_top_level_tests::read_`
 
@@ -903,7 +903,7 @@ Run: `cargo doc --no-deps --all-features 2>&1 | tail -10`
 
 Expected: no warnings.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/lib.rs
