@@ -98,6 +98,7 @@ pub mod prelude {
     pub use crate::{read_exif, read_metadata, read_track};
 }
 
+/// Crate-wide convenience alias for `std::result::Result<T, Error>`.
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// One-shot result of [`read_metadata`]: either Exif (image) or TrackInfo
@@ -123,6 +124,12 @@ pub fn read_exif(path: impl AsRef<Path>) -> Result<Exif> {
     Ok(iter.into())
 }
 
+/// Read EXIF metadata from a file as a lazy iterator. Like [`read_exif`]
+/// but returns an [`ExifIter`] so per-entry errors can be inspected and
+/// values fetched without materializing the full [`Exif`] map.
+///
+/// Wraps the `File` in a `BufReader` internally. For batch processing,
+/// reuse a [`MediaParser`] via [`MediaParser::parse_exif`].
 pub fn read_exif_iter(path: impl AsRef<Path>) -> Result<ExifIter> {
     let file = std::fs::File::open(path)?;
     let ms = MediaSource::seekable(BufReader::new(file))?;
@@ -130,6 +137,10 @@ pub fn read_exif_iter(path: impl AsRef<Path>) -> Result<ExifIter> {
     parser.parse_exif(ms)
 }
 
+/// Read track metadata from a video / audio file in a single call. Wraps
+/// the `File` in a `BufReader` internally.
+///
+/// For batch processing, reuse a [`MediaParser`] via [`MediaParser::parse_track`].
 pub fn read_track(path: impl AsRef<Path>) -> Result<TrackInfo> {
     let file = std::fs::File::open(path)?;
     let ms = MediaSource::seekable(BufReader::new(file))?;
@@ -137,6 +148,13 @@ pub fn read_track(path: impl AsRef<Path>) -> Result<TrackInfo> {
     parser.parse_track(ms)
 }
 
+/// Read metadata from a file, dispatching by detected [`MediaKind`]:
+/// images return [`Metadata::Exif`], video / audio containers return
+/// [`Metadata::Track`]. Wraps the `File` in a `BufReader` internally.
+///
+/// Use this when the caller does not know up-front whether the file is an
+/// image or a track. For batch processing, reuse a [`MediaParser`] and
+/// branch on [`MediaSource::kind`] manually.
 pub fn read_metadata(path: impl AsRef<Path>) -> Result<Metadata> {
     let file = std::fs::File::open(path)?;
     let ms = MediaSource::seekable(BufReader::new(file))?;
