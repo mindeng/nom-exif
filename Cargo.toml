@@ -17,6 +17,11 @@ categories = [
 ]
 keywords = ["metadata", "exif"]
 
+[package.metadata.docs.rs]
+# Build docs with all features so async helpers (tokio) and serde-derived
+# impls render with resolved rustdoc links on docs.rs.
+all-features = true
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
