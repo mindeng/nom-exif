@@ -32,21 +32,25 @@ pub struct GPSInfo {
     pub speed: Option<URational>,
 }
 
-/// degree, minute, second,
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct LatLng(pub URational, pub URational, pub URational);
+/// Latitude or longitude expressed as degrees / minutes / seconds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct LatLng {
+    pub degrees: URational,
+    pub minutes: URational,
+    pub seconds: URational,
+}
 
 impl LatLng {
     pub const fn new(degrees: URational, minutes: URational, seconds: URational) -> Self {
-        Self(degrees, minutes, seconds)
+        Self { degrees, minutes, seconds }
     }
 
     /// Convert to decimal degrees. Returns `None` if any component has a zero
     /// denominator.
     pub fn to_decimal_degrees(&self) -> Option<f64> {
-        let d = self.0.to_f64()?;
-        let m = self.1.to_f64()?;
-        let s = self.2.to_f64()?;
+        let d = self.degrees.to_f64()?;
+        let m = self.minutes.to_f64()?;
+        let s = self.seconds.to_f64()?;
         Some(d + m / 60.0 + s / 3600.0)
     }
 
@@ -73,12 +77,8 @@ impl GPSInfo {
     /// Returns an ISO 6709 geographic point location string such as
     /// `+48.8577+002.295/`.
     pub fn format_iso6709(&self) -> String {
-        let latitude = self.latitude.0.to_f64().unwrap_or(0.0)
-            + self.latitude.1.to_f64().unwrap_or(0.0) / 60.0
-            + self.latitude.2.to_f64().unwrap_or(0.0) / 3600.0;
-        let longitude = self.longitude.0.to_f64().unwrap_or(0.0)
-            + self.longitude.1.to_f64().unwrap_or(0.0) / 60.0
-            + self.longitude.2.to_f64().unwrap_or(0.0) / 3600.0;
+        let latitude = self.latitude.to_decimal_degrees().unwrap_or(0.0);
+        let longitude = self.longitude.to_decimal_degrees().unwrap_or(0.0);
         let altitude = self.altitude.to_f64().unwrap_or(0.0);
         format!(
             "{}{latitude:08.5}{}{longitude:09.5}{}/",
@@ -103,96 +103,56 @@ impl GPSInfo {
             format!("{f:.3}")
         }
     }
-
 }
 
-impl From<[(u32, u32); 3]> for LatLng {
-    fn from(value: [(u32, u32); 3]) -> Self {
-        let res: [URational; 3] = value.map(|x| x.into());
-        res.into()
-
-        // value
-        //     .into_iter()
-        //     .map(|x| x.into())
-        //     .collect::<Vec<URational>>()
-        //     .try_into()
-        //     .unwrap()
-    }
-}
-
-impl From<[URational; 3]> for LatLng {
-    fn from(value: [URational; 3]) -> Self {
-        Self(value[0], value[1], value[2])
-    }
-}
-
-impl FromIterator<(u32, u32)> for LatLng {
-    fn from_iter<T: IntoIterator<Item = (u32, u32)>>(iter: T) -> Self {
-        let rationals: Vec<URational> = iter.into_iter().take(3).map(|x| x.into()).collect();
-        assert!(rationals.len() >= 3);
-        rationals.try_into().unwrap()
-    }
-}
-
-impl TryFrom<Vec<URational>> for LatLng {
+impl TryFrom<&[URational]> for LatLng {
     type Error = crate::Error;
-
-    fn try_from(value: Vec<URational>) -> Result<Self, Self::Error> {
-        if value.len() < 3 {
-            Err(crate::Error::Malformed {
-                kind: crate::error::MalformedKind::IfdEntry,
-                message: "need at least 3 URational components for LatLng".into(),
-            })
-        } else {
-            Ok(Self(value[0], value[1], value[2]))
-        }
-    }
-}
-
-impl FromIterator<URational> for LatLng {
-    fn from_iter<T: IntoIterator<Item = URational>>(iter: T) -> Self {
-        let mut values = iter.into_iter();
-        Self(
-            values.next().unwrap(),
-            values.next().unwrap(),
-            values.next().unwrap(),
-        )
-    }
-}
-
-impl TryFrom<&Vec<URational>> for LatLng {
-    type Error = crate::Error;
-    fn try_from(value: &Vec<URational>) -> Result<Self, Self::Error> {
-        if value.len() < 3 {
-            Err(crate::Error::Malformed {
-                kind: crate::error::MalformedKind::IfdEntry,
-                message: "invalid URational data".into(),
-            })
-        } else {
-            Ok(Self(value[0], value[1], value[2]))
-        }
-    }
-}
-impl TryFrom<&Vec<IRational>> for LatLng {
-    type Error = crate::Error;
-    fn try_from(value: &Vec<IRational>) -> Result<Self, Self::Error> {
+    fn try_from(value: &[URational]) -> Result<Self, Self::Error> {
         if value.len() < 3 {
             return Err(crate::Error::Malformed {
                 kind: crate::error::MalformedKind::IfdEntry,
-                message: "invalid URational data".into(),
+                message: "need at least 3 URational components for LatLng".into(),
+            });
+        }
+        Ok(Self { degrees: value[0], minutes: value[1], seconds: value[2] })
+    }
+}
+
+impl TryFrom<&[IRational]> for LatLng {
+    type Error = crate::Error;
+    fn try_from(value: &[IRational]) -> Result<Self, Self::Error> {
+        if value.len() < 3 {
+            return Err(crate::Error::Malformed {
+                kind: crate::error::MalformedKind::IfdEntry,
+                message: "need at least 3 IRational components for LatLng".into(),
             });
         }
         let map_negative = |_| crate::Error::Malformed {
             kind: crate::error::MalformedKind::IfdEntry,
             message: "negative LatLng component".into(),
         };
-        Ok(Self(
-            URational::try_from(value[0]).map_err(map_negative)?,
-            URational::try_from(value[1]).map_err(map_negative)?,
-            URational::try_from(value[2]).map_err(map_negative)?,
-        ))
+        Ok(Self {
+            degrees: URational::try_from(value[0]).map_err(map_negative)?,
+            minutes: URational::try_from(value[1]).map_err(map_negative)?,
+            seconds: URational::try_from(value[2]).map_err(map_negative)?,
+        })
     }
 }
+
+impl TryFrom<&Vec<URational>> for LatLng {
+    type Error = crate::Error;
+    fn try_from(value: &Vec<URational>) -> Result<Self, Self::Error> {
+        Self::try_from(value.as_slice())
+    }
+}
+
+impl TryFrom<&Vec<IRational>> for LatLng {
+    type Error = crate::Error;
+    fn try_from(value: &Vec<IRational>) -> Result<Self, Self::Error> {
+        Self::try_from(value.as_slice())
+    }
+}
+
 pub struct InvalidISO6709Coord;
 
 impl FromStr for GPSInfo {
@@ -205,54 +165,23 @@ impl FromStr for GPSInfo {
 
 impl From<ISO6709Coord> for GPSInfo {
     fn from(v: ISO6709Coord) -> Self {
-        // let latitude = self.latitude.0.as_float()
-        //     + self.latitude.1.as_float() / 60.0
-        //     + self.latitude.2.as_float() / 3600.0;
-
         Self {
             latitude_ref: if v.lat >= 0.0 { 'N' } else { 'S' },
-            latitude: v.lat.abs().into(),
+            latitude: LatLng::try_from_decimal_degrees(v.lat.abs()).unwrap_or_default(),
             longitude_ref: if v.lon >= 0.0 { 'E' } else { 'W' },
-            longitude: v.lon.abs().into(),
+            longitude: LatLng::try_from_decimal_degrees(v.lon.abs()).unwrap_or_default(),
             altitude_ref: v
                 .altitude
                 .map(|x| if x >= 0.0 { 0 } else { 1 })
                 .unwrap_or(0),
             altitude: v
                 .altitude
-                .map(|x| ((x.abs() * 1000.0).trunc() as u32, 1000).into())
+                .map(|x| URational::new((x.abs() * 1000.0).trunc() as u32, 1000))
                 .unwrap_or_default(),
             ..Default::default()
         }
     }
 }
-
-impl From<f64> for LatLng {
-    fn from(v: f64) -> Self {
-        let mins = v.fract() * 60.0;
-        [
-            (v.trunc() as u32, 1),
-            (mins.trunc() as u32, 1),
-            ((mins.fract() * 100.0).trunc() as u32, 100),
-        ]
-        .into()
-    }
-}
-
-// impl<T: AsRef<[(u32, u32)]>> From<T> for LatLng {
-//     fn from(value: T) -> Self {
-//         assert!(value.as_ref().len() >= 3);
-//         value.as_ref().iter().take(3).map(|x| x.into()).collect()
-//     }
-// }
-
-// impl<T: AsRef<[URational]>> From<T> for LatLng {
-//     fn from(value: T) -> Self {
-//         assert!(value.as_ref().len() >= 3);
-//         let s = value.as_ref();
-//         Self(s[0], s[1], s[2])
-//     }
-// }
 
 #[cfg(test)]
 mod tests {
@@ -266,16 +195,16 @@ mod tests {
 
         let palace = GPSInfo {
             latitude_ref: 'N',
-            latitude: LatLng(
-                Rational::<u32>::new(39, 1),
-                Rational::<u32>::new(55, 1),
-                Rational::<u32>::new(0, 1),
+            latitude: LatLng::new(
+                URational::new(39, 1),
+                URational::new(55, 1),
+                URational::new(0, 1),
             ),
             longitude_ref: 'E',
-            longitude: LatLng(
-                Rational::<u32>::new(116, 1),
-                Rational::<u32>::new(23, 1),
-                Rational::<u32>::new(27, 1),
+            longitude: LatLng::new(
+                URational::new(116, 1),
+                URational::new(23, 1),
+                URational::new(27, 1),
             ),
             altitude_ref: 0,
             altitude: Rational::<u32>::new(0, 1),
@@ -285,16 +214,16 @@ mod tests {
 
         let liberty = GPSInfo {
             latitude_ref: 'N',
-            latitude: LatLng(
-                Rational::<u32>::new(40, 1),
-                Rational::<u32>::new(41, 1),
-                Rational::<u32>::new(21, 1),
+            latitude: LatLng::new(
+                URational::new(40, 1),
+                URational::new(41, 1),
+                URational::new(21, 1),
             ),
             longitude_ref: 'W',
-            longitude: LatLng(
-                Rational::<u32>::new(74, 1),
-                Rational::<u32>::new(2, 1),
-                Rational::<u32>::new(40, 1),
+            longitude: LatLng::new(
+                URational::new(74, 1),
+                URational::new(2, 1),
+                URational::new(40, 1),
             ),
             altitude_ref: 0,
             altitude: Rational::<u32>::new(0, 1),
@@ -304,16 +233,16 @@ mod tests {
 
         let above = GPSInfo {
             latitude_ref: 'N',
-            latitude: LatLng(
-                Rational::<u32>::new(40, 1),
-                Rational::<u32>::new(41, 1),
-                Rational::<u32>::new(21, 1),
+            latitude: LatLng::new(
+                URational::new(40, 1),
+                URational::new(41, 1),
+                URational::new(21, 1),
             ),
             longitude_ref: 'W',
-            longitude: LatLng(
-                Rational::<u32>::new(74, 1),
-                Rational::<u32>::new(2, 1),
-                Rational::<u32>::new(40, 1),
+            longitude: LatLng::new(
+                URational::new(74, 1),
+                URational::new(2, 1),
+                URational::new(40, 1),
             ),
             altitude_ref: 0,
             altitude: Rational::<u32>::new(123, 1),
@@ -323,16 +252,16 @@ mod tests {
 
         let below = GPSInfo {
             latitude_ref: 'N',
-            latitude: LatLng(
-                Rational::<u32>::new(40, 1),
-                Rational::<u32>::new(41, 1),
-                Rational::<u32>::new(21, 1),
+            latitude: LatLng::new(
+                URational::new(40, 1),
+                URational::new(41, 1),
+                URational::new(21, 1),
             ),
             longitude_ref: 'W',
-            longitude: LatLng(
-                Rational::<u32>::new(74, 1),
-                Rational::<u32>::new(2, 1),
-                Rational::<u32>::new(40, 1),
+            longitude: LatLng::new(
+                URational::new(74, 1),
+                URational::new(2, 1),
+                URational::new(40, 1),
             ),
             altitude_ref: 1,
             altitude: Rational::<u32>::new(123, 1),
@@ -342,16 +271,16 @@ mod tests {
 
         let below = GPSInfo {
             latitude_ref: 'N',
-            latitude: LatLng(
-                Rational::<u32>::new(40, 1),
-                Rational::<u32>::new(41, 1),
-                Rational::<u32>::new(21, 1),
+            latitude: LatLng::new(
+                URational::new(40, 1),
+                URational::new(41, 1),
+                URational::new(21, 1),
             ),
             longitude_ref: 'W',
-            longitude: LatLng(
-                Rational::<u32>::new(74, 1),
-                Rational::<u32>::new(2, 1),
-                Rational::<u32>::new(40, 1),
+            longitude: LatLng::new(
+                URational::new(74, 1),
+                URational::new(2, 1),
+                URational::new(40, 1),
             ),
             altitude_ref: 1,
             altitude: Rational::<u32>::new(100, 3),
@@ -376,20 +305,20 @@ mod tests {
         assert_eq!(iso.latitude_ref, 'N');
         assert_eq!(
             iso.latitude,
-            LatLng(
-                Rational::<u32>::new(26, 1),
-                Rational::<u32>::new(31, 1),
-                Rational::<u32>::new(93, 100),
+            LatLng::new(
+                URational::new(26, 1),
+                URational::new(31, 1),
+                URational::new(5592, 100),
             )
         );
 
         assert_eq!(iso.longitude_ref, 'W');
         assert_eq!(
             iso.longitude,
-            LatLng(
-                Rational::<u32>::new(78, 1),
-                Rational::<u32>::new(11, 1),
-                Rational::<u32>::new(81, 100),
+            LatLng::new(
+                URational::new(78, 1),
+                URational::new(11, 1),
+                URational::new(4884, 100),
             )
         );
 

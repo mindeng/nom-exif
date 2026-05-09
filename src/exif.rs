@@ -255,11 +255,11 @@ mod tests {
     #[test_case(
         "exif.jpg",
         'N',
-        [(22, 1), (31, 1), (5208, 100)].into(),
+        LatLng::new(URational::new(22, 1), URational::new(31, 1), URational::new(5208, 100)),
         'E',
-        [(114, 1), (1, 1), (1733, 100)].into(),
+        LatLng::new(URational::new(114, 1), URational::new(1, 1), URational::new(1733, 100)),
         0u8,
-        (0, 1).into(),
+        URational::new(0, 1),
         None,
         None
     )]
