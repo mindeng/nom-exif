@@ -16,7 +16,7 @@ use crate::{
 #[tracing::instrument(skip_all)]
 pub(crate) fn parse_isobmff(
     moov_body: &[u8],
-) -> Result<BTreeMap<TrackInfoTag, EntryValue>, ParsingError> {
+) -> Result<crate::TrackInfo, ParsingError> {
     let (_, entries) = match parse_moov_body(moov_body) {
         Ok((remain, Some(entries))) => (remain, entries),
         Ok((remain, None)) => (remain, Vec::new()),
@@ -32,7 +32,11 @@ pub(crate) fn parse_isobmff(
     }
     entries.extend(extras);
 
-    Ok(entries)
+    let mut info = crate::TrackInfo::default();
+    for (k, v) in entries {
+        info.put(k, v);
+    }
+    Ok(info)
 }
 
 fn parse_mvhd_tkhd(moov_body: &[u8]) -> BTreeMap<TrackInfoTag, EntryValue> {

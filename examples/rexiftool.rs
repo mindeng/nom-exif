@@ -126,8 +126,8 @@ fn parse_file<P: AsRef<Path>>(
         }
         MediaKind::Track => {
             let info: TrackInfo = parser.parse_track(ms)?;
-            info.into_iter()
-                .map(|x| (x.0.to_string(), x.1))
+            info.iter()
+                .map(|(tag, val)| (tag.to_string(), val.clone()))
                 .collect::<Vec<_>>()
         }
     };

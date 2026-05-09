@@ -1,4 +1,4 @@
-use std::collections::{btree_map::IntoIter, BTreeMap};
+use std::collections::BTreeMap;
 
 use crate::{
     ebml::webm::parse_webm,
@@ -170,7 +170,7 @@ pub(crate) fn parse_track_info(
         | crate::file::MediaMimeTrack::Mp4 => {
             let range = extract_moov_body_from_buf(input)?;
             let moov_body = &input[range];
-            parse_isobmff(moov_body)?.into()
+            parse_isobmff(moov_body)?
         }
         crate::file::MediaMimeTrack::Webm | crate::file::MediaMimeTrack::Matroska => {
             parse_webm(input)?.into()
@@ -184,24 +184,6 @@ pub(crate) fn parse_track_info(
     Ok(info)
 }
 
-impl IntoIterator for TrackInfo {
-    type Item = (TrackInfoTag, EntryValue);
-    type IntoIter = IntoIter<TrackInfoTag, EntryValue>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.entries.into_iter()
-    }
-}
-
-impl From<BTreeMap<TrackInfoTag, EntryValue>> for TrackInfo {
-    fn from(entries: BTreeMap<TrackInfoTag, EntryValue>) -> Self {
-        Self {
-            entries,
-            gps_info: None,
-            has_embedded_media: false,
-        }
-    }
-}
 
 impl TrackInfoTag {
     /// Stable, programmatic name of this tag (matches the `Display` output).
