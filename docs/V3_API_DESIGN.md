@@ -856,15 +856,16 @@ impl fmt::Display for TrackInfoTag { /* ... */ }
 
 /// 读取文件的 Exif 数据，按需要 eager 解析为 Exif。
 ///
-/// 内部对 `File` 套 `BufReader` 以避免每次 read 都触发 syscall——单文件
-/// 调用点的 hot path（`for path in paths { read_exif(path)? }`）由此免疫
-/// 朴素未缓冲的性能陷阱。批量场景仍建议直接用 `MediaParser` 复用 buffer。
+/// 不在内部套 `BufReader`——`MediaParser` 的 `fill_buf` 已经按
+/// `MIN_GROW_SIZE`（16 KB）批量读取，再加一层 8 KB 默认缓冲只会增加
+/// 一次 memcpy 而 syscall 节省微乎其微。批量场景仍建议直接用
+/// `MediaParser` 复用 buffer。
 pub fn read_exif(path: impl AsRef<Path>) -> Result<Exif>;
 
-/// 读取文件的 Exif 数据为 lazy 迭代器。同样内部包 BufReader。
+/// 读取文件的 Exif 数据为 lazy 迭代器。
 pub fn read_exif_iter(path: impl AsRef<Path>) -> Result<ExifIter>;
 
-/// 读取视频/音频文件的 track 元数据。同样内部包 BufReader。
+/// 读取视频/音频文件的 track 元数据。
 pub fn read_track(path: impl AsRef<Path>) -> Result<TrackInfo>;
 
 /// 自动判别 image / video 并返回统一结果。

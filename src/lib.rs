@@ -22,8 +22,7 @@
 //!
 //! # Quick start
 //!
-//! For a one-shot read, use the helpers — they wrap the file in a
-//! [`std::io::BufReader`] internally:
+//! For a one-shot read, use the helpers:
 //!
 //! ```rust
 //! use nom_exif::{read_exif, ExifTag};
@@ -152,12 +151,9 @@ pub enum Metadata {
     Track(TrackInfo),
 }
 
-use std::io::BufReader;
 use std::path::Path;
 
-/// Read EXIF metadata from a file in a single call. Wraps the `File` in a
-/// `BufReader` internally so the hot path (`for path in paths { read_exif(path)? }`)
-/// is immune to per-syscall overhead.
+/// Read EXIF metadata from a file in a single call.
 ///
 /// For batch processing, prefer constructing a [`MediaParser`] once and
 /// reusing its parse buffer via [`MediaParser::parse_exif`].
@@ -170,36 +166,34 @@ pub fn read_exif(path: impl AsRef<Path>) -> Result<Exif> {
 /// but returns an [`ExifIter`] so per-entry errors can be inspected and
 /// values fetched without materializing the full [`Exif`] map.
 ///
-/// Wraps the `File` in a `BufReader` internally. For batch processing,
-/// reuse a [`MediaParser`] via [`MediaParser::parse_exif`].
+/// For batch processing, reuse a [`MediaParser`] via [`MediaParser::parse_exif`].
 pub fn read_exif_iter(path: impl AsRef<Path>) -> Result<ExifIter> {
     let file = std::fs::File::open(path)?;
-    let ms = MediaSource::seekable(BufReader::new(file))?;
+    let ms = MediaSource::seekable(file)?;
     let mut parser = MediaParser::new();
     parser.parse_exif(ms)
 }
 
-/// Read track metadata from a video / audio file in a single call. Wraps
-/// the `File` in a `BufReader` internally.
+/// Read track metadata from a video / audio file in a single call.
 ///
 /// For batch processing, reuse a [`MediaParser`] via [`MediaParser::parse_track`].
 pub fn read_track(path: impl AsRef<Path>) -> Result<TrackInfo> {
     let file = std::fs::File::open(path)?;
-    let ms = MediaSource::seekable(BufReader::new(file))?;
+    let ms = MediaSource::seekable(file)?;
     let mut parser = MediaParser::new();
     parser.parse_track(ms)
 }
 
 /// Read metadata from a file, dispatching by detected [`MediaKind`]:
 /// images return [`Metadata::Exif`], video / audio containers return
-/// [`Metadata::Track`]. Wraps the `File` in a `BufReader` internally.
+/// [`Metadata::Track`].
 ///
 /// Use this when the caller does not know up-front whether the file is an
 /// image or a track. For batch processing, reuse a [`MediaParser`] and
 /// branch on [`MediaSource::kind`] manually.
 pub fn read_metadata(path: impl AsRef<Path>) -> Result<Metadata> {
     let file = std::fs::File::open(path)?;
-    let ms = MediaSource::seekable(BufReader::new(file))?;
+    let ms = MediaSource::seekable(file)?;
     let mut parser = MediaParser::new();
     match ms.kind() {
         MediaKind::Image => parser.parse_exif(ms).map(|i| Metadata::Exif(i.into())),
@@ -253,7 +247,6 @@ pub fn read_metadata_from_bytes(bytes: impl Into<bytes::Bytes>) -> Result<Metada
 #[cfg(feature = "tokio")]
 mod tokio_top_level {
     use super::*;
-    use tokio::io::BufReader as TokioBufReader;
 
     pub async fn read_exif_async(path: impl AsRef<std::path::Path>) -> Result<Exif> {
         let iter = read_exif_iter_async(path).await?;
@@ -262,21 +255,21 @@ mod tokio_top_level {
 
     pub async fn read_exif_iter_async(path: impl AsRef<std::path::Path>) -> Result<ExifIter> {
         let file = tokio::fs::File::open(path).await?;
-        let ms = parser_async::AsyncMediaSource::seekable(TokioBufReader::new(file)).await?;
+        let ms = parser_async::AsyncMediaSource::seekable(file).await?;
         let mut parser = MediaParser::new();
         parser.parse_exif_async(ms).await
     }
 
     pub async fn read_track_async(path: impl AsRef<std::path::Path>) -> Result<TrackInfo> {
         let file = tokio::fs::File::open(path).await?;
-        let ms = parser_async::AsyncMediaSource::seekable(TokioBufReader::new(file)).await?;
+        let ms = parser_async::AsyncMediaSource::seekable(file).await?;
         let mut parser = MediaParser::new();
         parser.parse_track_async(ms).await
     }
 
     pub async fn read_metadata_async(path: impl AsRef<std::path::Path>) -> Result<Metadata> {
         let file = tokio::fs::File::open(path).await?;
-        let ms = parser_async::AsyncMediaSource::seekable(TokioBufReader::new(file)).await?;
+        let ms = parser_async::AsyncMediaSource::seekable(file).await?;
         let mut parser = MediaParser::new();
         match ms.kind() {
             MediaKind::Image => parser.parse_exif_async(ms).await.map(|i| Metadata::Exif(i.into())),

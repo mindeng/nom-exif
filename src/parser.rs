@@ -191,9 +191,14 @@ impl MediaSource<()> {
     }
 }
 
-// Keep align with 4K
-pub(crate) const INIT_BUF_SIZE: usize = 4096;
-pub(crate) const MIN_GROW_SIZE: usize = 4096;
+// Page-aligned. `INIT_BUF_SIZE` is the first fill request after header
+// detection (and the initial `Vec::with_capacity` for fresh allocations) —
+// kept modest so cold one-shot helpers don't over-commit. `MIN_GROW_SIZE`
+// floors subsequent fills inside the parse loop, where we're already
+// committed to deep parsing and want to amortize syscalls (or async
+// blocking-pool dispatches) aggressively.
+pub(crate) const INIT_BUF_SIZE: usize = 8 * 1024;
+pub(crate) const MIN_GROW_SIZE: usize = 16 * 1024;
 // Max size of APP1 is 0xFFFF
 // pub(crate) const MAX_GROW_SIZE: usize = 63 * 1024;
 // Set a reasonable upper limit for single buffer allocation.
