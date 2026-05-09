@@ -80,21 +80,75 @@ pub(crate) fn find_motion_photo_offset(input: &[u8]) -> Option<u64> {
     }
 }
 
-/// Parse a Motion Photo offset value from an XMP packet body.
+/// Parse a Motion Photo trailer length from an XMP packet body.
 ///
-/// Looks for `GCamera:MotionPhoto="1"` and `GCamera:MotionPhotoOffset="N"`
-/// (or the older `GCamera:MicroVideo="1"` / `GCamera:MicroVideoOffset="N"`
-/// pair used on pre-2018 Pixels). Returns `None` if either signal is
-/// missing or the offset value is unparseable.
+/// Pixel cameras have used three layouts over time; this function tries
+/// them in order:
+///
+/// 1. **Adobe XMP Container directory** (modern Pixel, including Ultra
+///    HDR Motion Photos). The XMP carries a `<Container:Directory>`
+///    with an item whose `Item:Mime="video/mp4"` and
+///    `Item:Semantic="MotionPhoto"`; trailer length is the sum of
+///    `Item:Length` (+ optional `Item:Padding`) for that item plus all
+///    items after it in directory order.
+/// 2. **`GCamera:MotionPhotoOffset`** attribute (older Pixel
+///    `PXL_*.MP.jpg`).
+/// 3. **`GCamera:MicroVideoOffset`** attribute (pre-2018 Pixel
+///    `MVIMG_*.jpg`).
+///
+/// Requires `GCamera:MotionPhoto="1"` or `GCamera:MicroVideo="1"` as a
+/// gate so plain Ultra HDR JPEGs (Container directory present, no
+/// motion photo) don't false-positive.
 fn parse_motion_photo_offset(xmp: &[u8]) -> Option<u64> {
     let has_motion_photo = contains_attr_eq(xmp, b"GCamera:MotionPhoto", b"1")
         || contains_attr_eq(xmp, b"GCamera:MicroVideo", b"1");
     if !has_motion_photo {
         return None;
     }
-    extract_attr_value(xmp, b"GCamera:MotionPhotoOffset")
-        .or_else(|| extract_attr_value(xmp, b"GCamera:MicroVideoOffset"))
-        .and_then(|s| std::str::from_utf8(s).ok()?.parse::<u64>().ok())
+    container_motion_photo_offset(xmp)
+        .or_else(|| {
+            extract_attr_value(xmp, b"GCamera:MotionPhotoOffset")
+                .or_else(|| extract_attr_value(xmp, b"GCamera:MicroVideoOffset"))
+                .and_then(|s| std::str::from_utf8(s).ok()?.parse::<u64>().ok())
+        })
+}
+
+/// Walk `<Container:Directory>` and return the trailer length of the
+/// `MotionPhoto` item: its `Item:Length` plus optional `Item:Padding`,
+/// plus the same for every item that follows it in directory order.
+///
+/// Returns `None` if no Container directory is present or if no item
+/// matches the MotionPhoto signature.
+fn container_motion_photo_offset(xmp: &[u8]) -> Option<u64> {
+    let dir_start = memchr_subslice(xmp, b"<Container:Directory")?;
+    let dir_end_rel = memchr_subslice(&xmp[dir_start..], b"</Container:Directory>")?;
+    let dir = &xmp[dir_start..dir_start + dir_end_rel];
+
+    // Collect every <Container:Item ...> tag in directory order.
+    let mut items: Vec<&[u8]> = Vec::new();
+    let mut pos = 0;
+    while let Some(idx) = memchr_subslice(&dir[pos..], b"<Container:Item") {
+        let abs = pos + idx;
+        let tag_end_rel = dir[abs..].iter().position(|&b| b == b'>')?;
+        items.push(&dir[abs..abs + tag_end_rel]);
+        pos = abs + tag_end_rel;
+    }
+
+    let mp_idx = items.iter().position(|tag| {
+        extract_attr_value(tag, b"Item:Semantic") == Some(b"MotionPhoto")
+            || extract_attr_value(tag, b"Item:Mime") == Some(b"video/mp4")
+    })?;
+
+    let mut total: u64 = 0;
+    for tag in &items[mp_idx..] {
+        let length = extract_attr_value(tag, b"Item:Length")
+            .and_then(|s| std::str::from_utf8(s).ok()?.parse::<u64>().ok())?;
+        let padding = extract_attr_value(tag, b"Item:Padding")
+            .and_then(|s| std::str::from_utf8(s).ok()?.parse::<u64>().ok())
+            .unwrap_or(0);
+        total = total.checked_add(length)?.checked_add(padding)?;
+    }
+    Some(total)
 }
 
 /// True if `xmp` contains an attribute `name="value"`.
