@@ -98,7 +98,7 @@ Expected: clean commit. Working tree clean afterward.
 **Files:**
 - Modify: `src/parser.rs`
 
-- [ ] **Step 1: Add the `memory` slot**
+- [x] **Step 1: Add the `memory` slot**
 
 In `src/parser.rs`, change `BufferedParserState`:
 
@@ -116,7 +116,7 @@ pub(crate) struct BufferedParserState {
 }
 ```
 
-- [ ] **Step 2: Add `set_memory` / `is_memory_mode` accessors**
+- [x] **Step 2: Add `set_memory` / `is_memory_mode` accessors**
 
 Inside `impl BufferedParserState`, alongside `acquire_buf`:
 
@@ -139,7 +139,7 @@ pub(crate) fn is_memory_mode(&self) -> bool {
 }
 ```
 
-- [ ] **Step 3: Update `reset` to clear memory mode**
+- [x] **Step 3: Update `reset` to clear memory mode**
 
 ```rust
 pub(crate) fn reset(&mut self) {
@@ -151,7 +151,7 @@ pub(crate) fn reset(&mut self) {
 }
 ```
 
-- [ ] **Step 4: Update `acquire_buf` to no-op in memory mode**
+- [x] **Step 4: Update `acquire_buf` to no-op in memory mode**
 
 ```rust
 pub(crate) fn acquire_buf(&mut self) {
@@ -178,7 +178,7 @@ pub(crate) fn acquire_buf(&mut self) {
 }
 ```
 
-- [ ] **Step 5: Update `Buf` impl to read from `memory` when set**
+- [x] **Step 5: Update `Buf` impl to read from `memory` when set**
 
 ```rust
 impl Buf for BufferedParserState {
@@ -207,7 +207,7 @@ impl Buf for BufferedParserState {
 }
 ```
 
-- [ ] **Step 6: Update `ShareBuf` impl to clone `memory` in memory mode**
+- [x] **Step 6: Update `ShareBuf` impl to clone `memory` in memory mode**
 
 ```rust
 impl ShareBuf for BufferedParserState {
@@ -227,7 +227,7 @@ impl ShareBuf for BufferedParserState {
 }
 ```
 
-- [ ] **Step 7: Update `MediaParser::fill_buf` (sync) to short-circuit**
+- [x] **Step 7: Update `MediaParser::fill_buf` (sync) to short-circuit**
 
 In the `impl BufParser for MediaParser` block at `src/parser.rs:419`:
 
@@ -255,7 +255,7 @@ impl BufParser for MediaParser {
 
 Note: `tracing::instrument`'s `buf_len` field source changes from `self.state.buf().len()` (which panics in memory mode because `buf` is `None`) to `self.state.buffer().len()` (which works in both modes). This is the only externally visible change to the trace event.
 
-- [ ] **Step 8: Add unit tests for the new state transitions**
+- [x] **Step 8: Add unit tests for the new state transitions**
 
 Append inside the existing `mod tests` in `src/parser.rs`:
 
@@ -305,7 +305,7 @@ fn buffered_state_acquire_buf_skips_in_memory_mode() {
 }
 ```
 
-- [ ] **Step 9: Verify**
+- [x] **Step 9: Verify**
 
 Run: `cargo test --all-features parser::tests::buffered_state_`
 
@@ -313,7 +313,7 @@ Expected: 4 new tests pass.
 
 Run: `cargo test --all-features` to confirm no regressions.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add src/parser.rs

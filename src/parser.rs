@@ -165,6 +165,11 @@ const MAX_REUSE_BUF_SIZE: usize = 1024 * 1024;
 pub(crate) struct BufferedParserState {
     cached: Option<bytes::Bytes>,
     buf: Option<Vec<u8>>,
+    /// P7: memory-mode storage. When `Some`, the parser is feeding from a
+    /// caller-owned `Bytes` instead of streaming via a reader. `buf` and
+    /// `cached` are unused in this mode — the user owns the allocation,
+    /// so there is nothing to recycle.
+    memory: Option<bytes::Bytes>,
     position: usize,
 }
 
@@ -177,10 +182,32 @@ impl BufferedParserState {
         // If a parse failed mid-way the buf may still be present; drop it.
         // Cache stays — recycle on next acquire if eligible.
         self.buf = None;
+        self.memory = None;
         self.position = 0;
     }
 
+    /// Switch the parser state into memory mode, owning `bytes` directly.
+    /// Caller must have already called `reset()` (asserted in debug). Subsequent
+    /// `share_buf` returns a clone of `bytes` (zero-copy: `Bytes::clone` is a
+    /// refcount bump). Subsequent `Buf::buffer()` returns `&bytes[position..]`.
+    pub(crate) fn set_memory(&mut self, bytes: bytes::Bytes) {
+        debug_assert!(
+            self.buf.is_none() && self.memory.is_none(),
+            "set_memory called on non-clean state"
+        );
+        self.memory = Some(bytes);
+        self.position = 0;
+    }
+
+    pub(crate) fn is_memory_mode(&self) -> bool {
+        self.memory.is_some()
+    }
+
     pub(crate) fn acquire_buf(&mut self) {
+        if self.memory.is_some() {
+            // Memory mode: nothing to acquire — `buffer()` reads from `memory`.
+            return;
+        }
         debug_assert!(self.buf.is_none());
         let buf = match self.cached.take() {
             Some(b) => match b.try_into_mut() {
@@ -220,9 +247,19 @@ impl BufferedParserState {
 
 impl Buf for BufferedParserState {
     fn buffer(&self) -> &[u8] {
+        if let Some(m) = &self.memory {
+            return &m[self.position..];
+        }
         &self.buf()[self.position..]
     }
     fn clear(&mut self) {
+        // In memory mode `clear` is a no-op: there is no scratch buffer to
+        // truncate, and the caller's bytes must remain available for further
+        // parse_loop_step iterations. clear_and_skip's AdvanceOnly path is
+        // what advances `position` in memory mode.
+        if self.memory.is_some() {
+            return;
+        }
         self.buf_mut().clear();
     }
     fn set_position(&mut self, pos: usize) {
@@ -235,6 +272,12 @@ impl Buf for BufferedParserState {
 
 impl ShareBuf for BufferedParserState {
     fn share_buf(&mut self) -> (bytes::Bytes, usize) {
+        if let Some(m) = self.memory.take() {
+            // Zero-copy share: caller already owns the allocation. No cache
+            // write — recycle is irrelevant when the user holds the alloc.
+            let position = self.position;
+            return (m, position);
+        }
         let vec = self.buf.take().expect("no buf to share");
         let bytes = bytes::Bytes::from(vec);
         let position = self.position;
@@ -417,8 +460,14 @@ pub(crate) trait BufParser: Buf + Debug {
 }
 
 impl BufParser for MediaParser {
-    #[tracing::instrument(skip(self, reader), fields(buf_len=self.state.buf().len()))]
+    #[tracing::instrument(skip(self, reader), fields(buf_len=self.state.buffer().len()))]
     fn fill_buf<R: Read>(&mut self, reader: &mut R, size: usize) -> io::Result<usize> {
+        if self.state.is_memory_mode() {
+            // Memory mode owns every byte it will ever have. A request for
+            // more is "the parser walked off the end of the input"; surface
+            // it the same way the streaming path surfaces a 0-byte read.
+            return Err(std::io::ErrorKind::UnexpectedEof.into());
+        }
         check_fill_size(self.state.buf().len(), size)?;
 
         // Do not pre-allocate `size` bytes: a crafted box header can declare a
@@ -965,6 +1014,50 @@ mod tests {
         let parser = MediaParser::new();
         assert!(parser.state.cached_ptr_for_test().is_none());
         assert!(parser.state.buf_is_none_for_test());
+    }
+
+    #[test]
+    fn buffered_state_memory_mode_sets_and_reads() {
+        let mut s = BufferedParserState::new();
+        s.set_memory(bytes::Bytes::from_static(b"abcdefgh"));
+        assert!(s.is_memory_mode());
+        assert_eq!(s.buffer(), b"abcdefgh");
+        s.set_position(3);
+        assert_eq!(s.buffer(), b"defgh");
+    }
+
+    #[test]
+    fn buffered_state_share_buf_memory_mode_is_zero_copy() {
+        let original = bytes::Bytes::from_static(b"the parser owns nothing here");
+        let original_ptr = original.as_ptr();
+        let mut s = BufferedParserState::new();
+        s.set_memory(original);
+        let (shared, position) = s.share_buf();
+        assert_eq!(position, 0);
+        assert_eq!(shared.as_ptr(), original_ptr, "memory share must be a Bytes::clone, not a Vec round-trip");
+        // After share_buf, the parser's memory slot is taken — leaving the state
+        // ready for the next `reset()` cycle.
+        assert!(!s.is_memory_mode());
+    }
+
+    #[test]
+    fn buffered_state_reset_clears_memory() {
+        let mut s = BufferedParserState::new();
+        s.set_memory(bytes::Bytes::from_static(b"x"));
+        s.reset();
+        assert!(!s.is_memory_mode());
+        assert_eq!(s.position, 0);
+    }
+
+    #[test]
+    fn buffered_state_acquire_buf_skips_in_memory_mode() {
+        let mut s = BufferedParserState::new();
+        s.set_memory(bytes::Bytes::from_static(b"data"));
+        s.acquire_buf();
+        // No streaming buf was allocated.
+        assert!(s.buf.is_none());
+        // Memory still readable.
+        assert_eq!(s.buffer(), b"data");
     }
 
     #[test]
