@@ -97,7 +97,7 @@ let make = exif.get(ExifTag::Make).and_then(|v| v.as_str());
 let iter = read_exif_iter("./testdata/exif.jpg")?;
 for entry in iter {
     let _tag = entry.tag();          // TagOrCode (Tag(...) or Unknown(code))
-    let _ifd = entry.ifd_index();    // IfdIndex
+    let _ifd = entry.ifd();          // IfdIndex
     let _ = entry.into_result();      // Result<EntryValue, EntryError>
 }
 # Ok::<(), nom_exif::Error>(())
