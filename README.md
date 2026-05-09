@@ -275,6 +275,11 @@ Pass `--debug` to enable tracing logs:
 
 `cargo run --example rexiftool -- --debug ./testdata/meta.mov`
 
+When the source carries an embedded media track (e.g. a Pixel Motion
+Photo MP4 trailer), its metadata is appended after the EXIF entries
+under an `-- Embedded Track --` separator. Pass `--no-track` to skip
+this and show only EXIF.
+
 ### JSON Dump
 
 `cargo run --features serde --example rexiftool testdata/meta.mov -j`:
@@ -291,6 +296,10 @@ Pass `--debug` to enable tracing logs:
   "DurationMs": "500"
 }
 ```
+
+For images with embedded tracks (Pixel Motion Photo etc.), the track's
+metadata appears under a nested `_embedded_track` key. Pass `--no-track`
+to omit it.
 
 ### Parsing Files in a Directory
 
