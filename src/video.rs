@@ -185,6 +185,23 @@ impl From<BTreeMap<TrackInfoTag, EntryValue>> for TrackInfo {
     }
 }
 
+impl TrackInfoTag {
+    /// Stable, programmatic name of this tag (matches the `Display` output).
+    pub const fn name(self) -> &'static str {
+        match self {
+            TrackInfoTag::Make => "Make",
+            TrackInfoTag::Model => "Model",
+            TrackInfoTag::Software => "Software",
+            TrackInfoTag::CreateDate => "CreateDate",
+            TrackInfoTag::DurationMs => "DurationMs",
+            TrackInfoTag::ImageWidth => "ImageWidth",
+            TrackInfoTag::ImageHeight => "ImageHeight",
+            TrackInfoTag::GpsIso6709 => "GpsIso6709",
+            TrackInfoTag::Author => "Author",
+        }
+    }
+}
+
 impl Display for TrackInfoTag {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s: &str = (*self).into();
@@ -205,6 +222,25 @@ impl From<TrackInfoTag> for &str {
             TrackInfoTag::GpsIso6709 => "GpsIso6709",
             TrackInfoTag::Author => "Author",
         }
+    }
+}
+
+impl std::str::FromStr for TrackInfoTag {
+    type Err = crate::ConvertError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
+            "Make" => TrackInfoTag::Make,
+            "Model" => TrackInfoTag::Model,
+            "Software" => TrackInfoTag::Software,
+            "CreateDate" => TrackInfoTag::CreateDate,
+            "DurationMs" => TrackInfoTag::DurationMs,
+            "ImageWidth" => TrackInfoTag::ImageWidth,
+            "ImageHeight" => TrackInfoTag::ImageHeight,
+            "GpsIso6709" => TrackInfoTag::GpsIso6709,
+            "Author" => TrackInfoTag::Author,
+            other => return Err(crate::ConvertError::UnknownTagName(other.to_owned())),
+        })
     }
 }
 
@@ -265,5 +301,39 @@ mod p6_baseline {
             entries.iter().any(|s| s.starts_with("Make=")),
             "expected Make tag in snapshot, got {entries:?}"
         );
+    }
+
+    #[test]
+    fn track_info_tag_name_is_const_str() {
+        const _: &str = TrackInfoTag::Make.name();
+        assert_eq!(TrackInfoTag::Make.name(), "Make");
+        assert_eq!(TrackInfoTag::GpsIso6709.name(), "GpsIso6709");
+        assert_eq!(TrackInfoTag::DurationMs.name(), "DurationMs");
+    }
+
+    #[test]
+    fn track_info_tag_from_str_round_trip() {
+        use std::str::FromStr;
+        for t in [
+            TrackInfoTag::Make,
+            TrackInfoTag::Model,
+            TrackInfoTag::Software,
+            TrackInfoTag::CreateDate,
+            TrackInfoTag::DurationMs,
+            TrackInfoTag::ImageWidth,
+            TrackInfoTag::ImageHeight,
+            TrackInfoTag::GpsIso6709,
+            TrackInfoTag::Author,
+        ] {
+            assert_eq!(TrackInfoTag::from_str(t.name()).unwrap(), t);
+        }
+    }
+
+    #[test]
+    fn track_info_tag_from_str_unknown_returns_convert_error() {
+        use crate::ConvertError;
+        use std::str::FromStr;
+        let err = TrackInfoTag::from_str("Bogus").unwrap_err();
+        assert!(matches!(err, ConvertError::UnknownTagName(s) if s == "Bogus"));
     }
 }
