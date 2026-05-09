@@ -332,7 +332,7 @@ The async patch is needed *now* (rather than at constructor time) because `parse
 - Modify: `src/parser.rs`
 - Modify: `src/parser_async.rs`
 
-- [ ] **Step 1: Add `memory: Option<Bytes>` to `MediaSource<R>`**
+- [x] **Step 1: Add `memory: Option<Bytes>` to `MediaSource<R>`**
 
 ```rust
 pub struct MediaSource<R> {
@@ -347,7 +347,7 @@ pub struct MediaSource<R> {
 }
 ```
 
-- [ ] **Step 2: Update `MediaSource::build` to default `memory` to `None`**
+- [x] **Step 2: Update `MediaSource::build` to default `memory` to `None`**
 
 ```rust
 fn build(mut reader: R, skip_by_seek: SkipBySeekFn<R>) -> crate::Result<Self> {
@@ -358,13 +358,13 @@ fn build(mut reader: R, skip_by_seek: SkipBySeekFn<R>) -> crate::Result<Self> {
 }
 ```
 
-- [ ] **Step 3: Verify sync compile**
+- [x] **Step 3: Verify sync compile**
 
 Run: `cargo build --all-features 2>&1 | tail -20`
 
 Expected: no errors. Existing tests still pass (`cargo test --all-features parser::tests::media_source_open`).
 
-- [ ] **Step 4: Patch the async `fill_buf` in `tokio_impl`**
+- [x] **Step 4: Patch the async `fill_buf` in `tokio_impl`**
 
 In `src/parser.rs`, the `#[cfg(feature = "tokio")] mod tokio_impl` block:
 
@@ -388,7 +388,7 @@ impl AsyncBufParser for MediaParser {
 }
 ```
 
-- [ ] **Step 5: Verify async compile + tests**
+- [x] **Step 5: Verify async compile + tests**
 
 Run: `cargo build --all-features 2>&1 | tail -20`
 
@@ -396,7 +396,7 @@ Run: `cargo test --all-features parser_async::tests::`
 
 Expected: no errors; existing async tests still pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/parser.rs src/parser_async.rs

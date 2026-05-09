@@ -47,6 +47,10 @@ pub struct MediaSource<R> {
     pub(crate) buf: Vec<u8>,
     pub(crate) mime: MediaMime,
     pub(crate) skip_by_seek: SkipBySeekFn<R>,
+    /// P7: zero-copy memory-mode payload. `Some` only when the source was
+    /// built via [`MediaSource::<()>::from_bytes`]; `reader`, `buf`, and
+    /// `skip_by_seek` are placeholders (and never consulted) in that mode.
+    pub(crate) memory: Option<bytes::Bytes>,
 }
 
 /// Top-level classification of a media source.
@@ -85,6 +89,7 @@ impl<R: Read> MediaSource<R> {
             buf,
             mime,
             skip_by_seek,
+            memory: None,
         })
     }
 
@@ -668,6 +673,12 @@ mod tokio_impl {
             reader: &mut R,
             size: usize,
         ) -> std::io::Result<usize> {
+            if self.state.is_memory_mode() {
+                // Memory mode owns every byte it will ever have. Surface
+                // "walked off end of input" the same way the streaming path
+                // surfaces a 0-byte read.
+                return Err(std::io::ErrorKind::UnexpectedEof.into());
+            }
             check_fill_size(self.state.buf().len(), size)?;
             // Same rationale as the sync version: do not pre-allocate `size` bytes.
             let n = reader
