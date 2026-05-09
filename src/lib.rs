@@ -3,23 +3,21 @@
 //!
 //! # Highlights
 //!
-//! - Image **and** video / audio in one crate — [`MediaParser`] dispatches
-//!   to the right backend by detected MIME, no per-format wrappers.
 //! - Pure Rust — no FFmpeg, no libexif, no system deps; cross-compiles
 //!   cleanly.
-//! - Streaming-friendly — handles seekable files **and** non-seekable
-//!   readers (network streams, pipes) without buffering the whole file.
-//! - **Zero-copy memory mode** — already-in-RAM bytes (WASM, mobile,
-//!   HTTP proxies) parse without copy via [`MediaSource::from_bytes`] +
-//!   [`MediaParser::parse_exif_bytes`] / [`MediaParser::parse_track_bytes`],
-//!   or one-shot [`read_exif_from_bytes`] / [`read_metadata_from_bytes`].
-//! - Allocation-frugal — [`MediaParser`] recycles its parse buffer across
-//!   calls; sub-IFDs share the buffer via `bytes::Bytes` refcount instead
-//!   of deep-copying byte ranges.
-//! - Both eager ([`Exif`]) and lazy ([`ExifIter`], with per-entry errors).
-//! - Sync and async unified under one [`MediaParser`].
+//! - Image **and** video / audio in one crate — [`MediaParser`] dispatches
+//!   to the right backend by detected MIME, no per-format wrappers.
 //! - RAW format support — Canon CR3, Fujifilm RAF, Phase One IIQ,
 //!   alongside JPEG / HEIC / TIFF.
+//! - Three input modes — files, arbitrary `Read` / `Read + Seek`
+//!   (network streams, pipes), or in-RAM bytes (WASM, mobile, HTTP
+//!   proxies).
+//! - Sync and async unified under one [`MediaParser`].
+//! - Eager ([`Exif`], get-by-tag) or lazy ([`ExifIter`], parse-on-demand)
+//!   — per-entry errors surface in both modes ([`Exif::errors`] /
+//!   per-iter `Result`), so one bad tag doesn't poison the parse.
+//! - Allocation-frugal — parser buffer is recycled across calls;
+//!   sub-IFDs share the same allocation (no deep copies).
 //! - Fuzz-tested with `cargo-fuzz` against malformed and adversarial input.
 //!
 //! # Quick start
@@ -75,8 +73,8 @@
 //! ```
 //!
 //! For batch processing of many in-memory payloads, build a [`MediaParser`]
-//! once and call [`MediaParser::parse_exif_bytes`] /
-//! [`MediaParser::parse_track_bytes`] per payload.
+//! once and call [`MediaParser::parse_exif_from_bytes`] /
+//! [`MediaParser::parse_track_from_bytes`] per payload.
 //!
 //! # API surface
 //!
@@ -219,7 +217,7 @@ pub fn read_metadata(path: impl AsRef<Path>) -> Result<Metadata> {
 ///
 /// For batch processing or multiple parses against the same buffer, prefer
 /// constructing a [`MediaParser`] once and reusing it via
-/// [`MediaParser::parse_exif_bytes`].
+/// [`MediaParser::parse_exif_from_bytes`].
 pub fn read_exif_from_bytes(bytes: impl Into<bytes::Bytes>) -> Result<Exif> {
     let iter = read_exif_iter_from_bytes(bytes)?;
     Ok(iter.into())
@@ -230,14 +228,14 @@ pub fn read_exif_from_bytes(bytes: impl Into<bytes::Bytes>) -> Result<Exif> {
 pub fn read_exif_iter_from_bytes(bytes: impl Into<bytes::Bytes>) -> Result<ExifIter> {
     let ms = MediaSource::from_bytes(bytes)?;
     let mut parser = MediaParser::new();
-    parser.parse_exif_bytes(ms)
+    parser.parse_exif_from_bytes(ms)
 }
 
 /// Read track metadata from an in-memory video/audio payload.
 pub fn read_track_from_bytes(bytes: impl Into<bytes::Bytes>) -> Result<TrackInfo> {
     let ms = MediaSource::from_bytes(bytes)?;
     let mut parser = MediaParser::new();
-    parser.parse_track_bytes(ms)
+    parser.parse_track_from_bytes(ms)
 }
 
 /// Read metadata from an in-memory payload, dispatching by detected
@@ -247,8 +245,8 @@ pub fn read_metadata_from_bytes(bytes: impl Into<bytes::Bytes>) -> Result<Metada
     let ms = MediaSource::from_bytes(bytes)?;
     let mut parser = MediaParser::new();
     match ms.kind() {
-        MediaKind::Image => parser.parse_exif_bytes(ms).map(|i| Metadata::Exif(i.into())),
-        MediaKind::Track => parser.parse_track_bytes(ms).map(Metadata::Track),
+        MediaKind::Image => parser.parse_exif_from_bytes(ms).map(|i| Metadata::Exif(i.into())),
+        MediaKind::Track => parser.parse_track_from_bytes(ms).map(Metadata::Track),
     }
 }
 

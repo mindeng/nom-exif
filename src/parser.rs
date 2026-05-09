@@ -30,7 +30,7 @@ pub(crate) type SkipBySeekFn<R> = fn(&mut R, u64) -> io::Result<bool>;
 ///
 /// - Use [`MediaSource::from_bytes`] for zero-copy in-memory input
 ///   (`Vec<u8>`, `&'static [u8]`, [`bytes::Bytes`], …). Pair with
-///   [`MediaParser::parse_exif_bytes`] / [`MediaParser::parse_track_bytes`].
+///   [`MediaParser::parse_exif_from_bytes`] / [`MediaParser::parse_track_from_bytes`].
 ///
 /// - In other cases:
 ///
@@ -153,12 +153,12 @@ impl MediaSource<()> {
     /// The header (first up to 128 bytes) is sniffed for media kind, the
     /// same way [`MediaSource::open`] does it for files. The full payload is
     /// stored zero-copy: subsequent parsing through
-    /// [`MediaParser::parse_exif_bytes`] / [`MediaParser::parse_track_bytes`]
+    /// [`MediaParser::parse_exif_from_bytes`] / [`MediaParser::parse_track_from_bytes`]
     /// shares this `Bytes` directly with the returned `ExifIter` / sub-IFDs
     /// via reference counting.
     ///
     /// The returned source is parsed by the dedicated
-    /// [`MediaParser::parse_exif_bytes`] / [`MediaParser::parse_track_bytes`]
+    /// [`MediaParser::parse_exif_from_bytes`] / [`MediaParser::parse_track_from_bytes`]
     /// methods. The streaming `parse_exif` / `parse_track` methods do not
     /// accept `MediaSource<()>` (their `R: Read` bound is unsatisfiable).
     ///
@@ -172,7 +172,7 @@ impl MediaSource<()> {
     /// assert_eq!(ms.kind(), MediaKind::Image);
     ///
     /// let mut parser = MediaParser::new();
-    /// let _iter = parser.parse_exif_bytes(ms)?;
+    /// let _iter = parser.parse_exif_from_bytes(ms)?;
     /// # Ok::<(), nom_exif::Error>(())
     /// ```
     pub fn from_bytes(bytes: impl Into<bytes::Bytes>) -> crate::Result<Self> {
@@ -704,12 +704,12 @@ impl MediaParser {
 
     /// Parse Exif metadata from an in-memory byte payload built via
     /// [`MediaSource::<()>::from_bytes`]. Returns `Error::ExifNotFound` if the
-    /// payload is a `Track` (use [`Self::parse_track_bytes`] instead).
+    /// payload is a `Track` (use [`Self::parse_track_from_bytes`] instead).
     ///
     /// Memory-mode parsing is **zero-copy**: the underlying `Bytes` is shared
     /// with the returned [`ExifIter`] (and its sub-IFDs / CR3 CMT blocks) via
     /// reference counting. No `Vec<u8>` is allocated for the parse buffer.
-    pub fn parse_exif_bytes(&mut self, mut ms: MediaSource<()>) -> crate::Result<ExifIter> {
+    pub fn parse_exif_from_bytes(&mut self, mut ms: MediaSource<()>) -> crate::Result<ExifIter> {
         self.reset();
         let memory = ms
             .memory
@@ -737,11 +737,11 @@ impl MediaParser {
 
     /// Parse track info from an in-memory video/audio byte payload built via
     /// [`MediaSource::<()>::from_bytes`]. Returns `Error::TrackNotFound` if the
-    /// payload is an `Image` (use [`Self::parse_exif_bytes`] instead).
+    /// payload is an `Image` (use [`Self::parse_exif_from_bytes`] instead).
     ///
-    /// Like [`Self::parse_exif_bytes`], the parse is zero-copy with respect to
+    /// Like [`Self::parse_exif_from_bytes`], the parse is zero-copy with respect to
     /// the user-supplied `Bytes`.
-    pub fn parse_track_bytes(&mut self, mut ms: MediaSource<()>) -> crate::Result<TrackInfo> {
+    pub fn parse_track_from_bytes(&mut self, mut ms: MediaSource<()>) -> crate::Result<TrackInfo> {
         self.reset();
         let memory = ms
             .memory
@@ -1263,21 +1263,21 @@ mod tests {
     }
 
     #[test]
-    fn parse_exif_bytes_jpg_basic() {
+    fn parse_exif_from_bytes_jpg_basic() {
         let mut parser = MediaParser::new();
         let raw = std::fs::read("testdata/exif.jpg").unwrap();
         let ms = MediaSource::from_bytes(raw).unwrap();
-        let iter = parser.parse_exif_bytes(ms).unwrap();
+        let iter = parser.parse_exif_from_bytes(ms).unwrap();
         let exif: crate::Exif = iter.into();
         assert!(exif.get(crate::ExifTag::Make).is_some());
     }
 
     #[test]
-    fn parse_exif_bytes_heic_basic() {
+    fn parse_exif_from_bytes_heic_basic() {
         let mut parser = MediaParser::new();
         let raw = std::fs::read("testdata/exif.heic").unwrap();
         let ms = MediaSource::from_bytes(raw).unwrap();
-        let iter = parser.parse_exif_bytes(ms).unwrap();
+        let iter = parser.parse_exif_from_bytes(ms).unwrap();
         let exif: crate::Exif = iter.into();
         assert_eq!(
             exif.get(crate::ExifTag::Make).and_then(|v| v.as_str()),
@@ -1286,7 +1286,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_exif_bytes_zero_copy_shared_bytes() {
+    fn parse_exif_from_bytes_zero_copy_shared_bytes() {
         // Build a Bytes whose pointer we can compare. The ExifIter's underlying
         // share must point to the same allocation — proving Bytes::clone path.
         let raw = std::fs::read("testdata/exif.jpg").unwrap();
@@ -1295,7 +1295,7 @@ mod tests {
 
         let mut parser = MediaParser::new();
         let ms = MediaSource::from_bytes(bytes).unwrap();
-        let iter = parser.parse_exif_bytes(ms).unwrap();
+        let iter = parser.parse_exif_from_bytes(ms).unwrap();
 
         // The cached pointer in parser state should be None in memory mode
         // (memory mode does not write to cache — the user owns the alloc).
@@ -1311,23 +1311,23 @@ mod tests {
         // anywhere along the parse path.
         let bytes2 = bytes::Bytes::from(std::fs::read("testdata/exif.jpg").unwrap());
         let ms2 = MediaSource::from_bytes(bytes2.clone()).unwrap();
-        let _iter2 = parser.parse_exif_bytes(ms2).unwrap();
+        let _iter2 = parser.parse_exif_from_bytes(ms2).unwrap();
         // (We cannot assert pointer-equality across distinct user Bytes; the
         // assertion above on the first parse is the load-bearing one.)
         let _ = original_ptr; // explicit: original_ptr is the assertion target.
     }
 
     #[test]
-    fn parse_exif_bytes_on_track_returns_exif_not_found() {
+    fn parse_exif_from_bytes_on_track_returns_exif_not_found() {
         let mut parser = MediaParser::new();
         let raw = std::fs::read("testdata/meta.mov").unwrap();
         let ms = MediaSource::from_bytes(raw).unwrap();
-        let res = parser.parse_exif_bytes(ms);
+        let res = parser.parse_exif_from_bytes(ms);
         assert!(matches!(res, Err(crate::Error::ExifNotFound)));
     }
 
     #[test]
-    fn parse_exif_bytes_on_truncated_returns_io_error() {
+    fn parse_exif_from_bytes_on_truncated_returns_io_error() {
         // Truncate exif.jpg to just enough for mime detection but too short
         // for the full EXIF block. Memory-mode fill_buf must surface
         // UnexpectedEof when the parser walks off the end.
@@ -1335,35 +1335,35 @@ mod tests {
         raw.truncate(200);
         let mut parser = MediaParser::new();
         let ms = MediaSource::from_bytes(raw).unwrap();
-        let res = parser.parse_exif_bytes(ms);
+        let res = parser.parse_exif_from_bytes(ms);
         assert!(res.is_err(), "expected error on truncated bytes, got {:?}", res);
     }
 
     #[test]
-    fn parse_track_bytes_mov_basic() {
+    fn parse_track_from_bytes_mov_basic() {
         let mut parser = MediaParser::new();
         let raw = std::fs::read("testdata/meta.mov").unwrap();
         let ms = MediaSource::from_bytes(raw).unwrap();
-        let info = parser.parse_track_bytes(ms).unwrap();
+        let info = parser.parse_track_from_bytes(ms).unwrap();
         assert_eq!(info.get(crate::TrackInfoTag::Make), Some(&"Apple".into()));
         assert_eq!(info.get(crate::TrackInfoTag::Model), Some(&"iPhone X".into()));
     }
 
     #[test]
-    fn parse_track_bytes_mp4_basic() {
+    fn parse_track_from_bytes_mp4_basic() {
         let mut parser = MediaParser::new();
         let raw = std::fs::read("testdata/meta.mp4").unwrap();
         let ms = MediaSource::from_bytes(raw).unwrap();
-        let info = parser.parse_track_bytes(ms).unwrap();
+        let info = parser.parse_track_from_bytes(ms).unwrap();
         assert!(info.get(crate::TrackInfoTag::CreateDate).is_some());
     }
 
     #[test]
-    fn parse_track_bytes_mkv_basic() {
+    fn parse_track_from_bytes_mkv_basic() {
         let mut parser = MediaParser::new();
         let raw = std::fs::read("testdata/mkv_640x360.mkv").unwrap();
         let ms = MediaSource::from_bytes(raw).unwrap();
-        let info = parser.parse_track_bytes(ms).unwrap();
+        let info = parser.parse_track_from_bytes(ms).unwrap();
         assert_eq!(
             info.get(crate::TrackInfoTag::ImageWidth),
             Some(&(640_u32.into()))
@@ -1371,11 +1371,11 @@ mod tests {
     }
 
     #[test]
-    fn parse_track_bytes_on_image_returns_track_not_found() {
+    fn parse_track_from_bytes_on_image_returns_track_not_found() {
         let mut parser = MediaParser::new();
         let raw = std::fs::read("testdata/exif.jpg").unwrap();
         let ms = MediaSource::from_bytes(raw).unwrap();
-        let res = parser.parse_track_bytes(ms);
+        let res = parser.parse_track_from_bytes(ms);
         assert!(matches!(res, Err(crate::Error::TrackNotFound)));
     }
 }

@@ -9,7 +9,7 @@ internal design rationale lives in `docs/V3_API_DESIGN.md`.
 ### Highlights
 
 - One-shot helpers: `read_exif`, `read_exif_iter`, `read_track`, `read_metadata` (and `_async` variants under `feature = "tokio"`).
-- Zero-copy memory input: `MediaSource::<()>::from_bytes(impl Into<bytes::Bytes>)` constructor + `MediaParser::parse_exif_bytes` / `MediaParser::parse_track_bytes` methods + one-shot `read_exif_from_bytes` / `read_exif_iter_from_bytes` / `read_track_from_bytes` / `read_metadata_from_bytes` helpers. Accepts `Vec<u8>`, `&'static [u8]`, `Bytes`, and `Bytes::from_owner(...)`; returned `ExifIter` / sub-IFDs / CR3 CMT blocks share the user's allocation via `bytes::Bytes` refcount.
+- Zero-copy memory input: `MediaSource::<()>::from_bytes(impl Into<bytes::Bytes>)` constructor + `MediaParser::parse_exif_from_bytes` / `MediaParser::parse_track_from_bytes` methods + one-shot `read_exif_from_bytes` / `read_exif_iter_from_bytes` / `read_track_from_bytes` / `read_metadata_from_bytes` helpers. Accepts `Vec<u8>`, `&'static [u8]`, `Bytes`, and `Bytes::from_owner(...)`; returned `ExifIter` / sub-IFDs / CR3 CMT blocks share the user's allocation via `bytes::Bytes` refcount.
 - Single `MediaParser` (no separate `AsyncMediaParser`); `MediaSource::open(path)` replaces `MediaSource::file_path(path)`.
 - Structured errors: `Error::Malformed { kind, message }` / `Error::UnexpectedEof` / `Error::UnsupportedFormat` replace the v2 `ParseFailed(Box<dyn Error>)`.
 - `Exif` gains `iter()` / `gps_info()` / `errors()` / `has_embedded_media()` / `get_in()` / `get_by_code()`.

@@ -11,23 +11,20 @@ track metadata** through a single unified API. Built on
 
 ## Highlights
 
-- Image **and** video / audio in one crate — `MediaParser` dispatches to
-  the right backend by detected MIME, no per-format wrappers.
 - Pure Rust — no FFmpeg, no libexif, no system deps; cross-compiles
   cleanly.
-- Streaming-friendly — handles seekable files **and** non-seekable
-  readers (network streams, pipes) without buffering the whole file.
-- Zero-copy memory mode — already-in-RAM bytes (WASM, mobile,
-  HTTP proxies) parse without copy via `MediaSource::from_bytes` +
-  `MediaParser::parse_exif_bytes` / `parse_track_bytes`, or one-shot
-  `read_exif_from_bytes` / `read_metadata_from_bytes`.
-- Allocation-frugal — `MediaParser` recycles its parse buffer across
-  calls; sub-IFDs share the buffer via `bytes::Bytes` refcount instead
-  of deep-copying byte ranges.
-- Both eager (`Exif`) and lazy (`ExifIter`, with per-entry errors).
-- Sync and async unified under one `MediaParser`.
+- Image **and** video / audio in one crate — `MediaParser` dispatches to
+  the right backend by detected MIME, no per-format wrappers.
 - RAW format support — Canon CR3, Fujifilm RAF, Phase One IIQ,
   alongside JPEG / HEIC / TIFF.
+- Three input modes — files, arbitrary `Read` / `Read + Seek` (network
+  streams, pipes), or in-RAM bytes (WASM, mobile, HTTP proxies).
+- Sync and async unified under one `MediaParser`.
+- Eager (`Exif`, get-by-tag) or lazy (`ExifIter`, parse-on-demand) —
+  per-entry errors surface in both modes (`Exif::errors()` /
+  per-iter `Result`), so one bad tag doesn't poison the parse.
+- Allocation-frugal — parser buffer is recycled across calls; sub-IFDs
+  share the same allocation (no deep copies).
 - Fuzz-tested with `cargo-fuzz` against malformed and adversarial input.
 
 ## Supported File Types
@@ -103,6 +100,39 @@ for f in files {
 - `MediaSource::unseekable(reader)` — `Read`-only source (e.g. a network
   stream); slower for formats that store metadata at the end of the file
   (such as `.mov`).
+
+## In-Memory Bytes
+
+When the payload is already in RAM (decoded HTTP body, WASM-loaded
+asset, mobile-cached blob), use the `*_from_bytes` helpers to skip the
+`File` / `Read` round-trip. Memory mode is **zero-copy**: the underlying
+allocation is shared with the returned `Exif` / `ExifIter` / `TrackInfo`
+via `bytes::Bytes` reference counting.
+
+```rust
+use nom_exif::{read_exif_from_bytes, ExifTag};
+
+let raw: Vec<u8> = std::fs::read("./testdata/exif.jpg")?;
+let exif = read_exif_from_bytes(raw)?;
+let make = exif.get(ExifTag::Make).and_then(|v| v.as_str());
+# let _ = make; Ok::<(), nom_exif::Error>(())
+```
+
+For batch processing many in-memory payloads, reuse a `MediaParser`:
+
+```rust
+use nom_exif::{MediaParser, MediaSource};
+
+let mut parser = MediaParser::new();
+let raw = std::fs::read("./testdata/exif.jpg")?;
+let ms = MediaSource::from_bytes(raw)?;
+let iter = parser.parse_exif_from_bytes(ms)?;
+# let _ = iter; Ok::<(), nom_exif::Error>(())
+```
+
+`MediaSource::from_bytes` accepts anything convertible into
+`bytes::Bytes`: `Vec<u8>`, `&'static [u8]`, `Bytes`, and HTTP-body types
+that implement `Into<Bytes>` directly.
 
 ## Two API styles for Exif
 
