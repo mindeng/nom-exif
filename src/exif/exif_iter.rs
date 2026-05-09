@@ -157,6 +157,7 @@ pub struct ExifIter {
     current_block_index: usize,
     /// Tags encountered so far for duplicate filtering (ifd_index, tag_code)
     encountered_tags: HashSet<(usize, u16)>,
+    has_embedded_media: bool,
 }
 
 impl Debug for ExifIter {
@@ -197,6 +198,7 @@ impl ExifIter {
             additional_blocks: Vec::new(),
             current_block_index: 0,
             encountered_tags: HashSet::new(),
+            has_embedded_media: false,
         }
     }
 
@@ -217,6 +219,7 @@ impl ExifIter {
             additional_blocks: self.additional_blocks.clone(),
             current_block_index: 0,
             encountered_tags: HashSet::new(),
+            has_embedded_media: self.has_embedded_media,
         }
     }
 
@@ -288,6 +291,19 @@ impl ExifIter {
             data,
             header,
         });
+    }
+
+    /// Internal-only setter used by [`crate::MediaParser::parse_exif`] to
+    /// stamp the iterator with format-derived embedded-media information.
+    pub(crate) fn set_has_embedded_media(&mut self, v: bool) {
+        self.has_embedded_media = v;
+    }
+
+    /// Whether the source file carries additional embedded media that this
+    /// parse path does *not* extract — e.g. HEIC Live Photo MOV, RAF JPEG
+    /// preview. Computed from the file format alone (no iteration required).
+    pub fn has_embedded_media(&self) -> bool {
+        self.has_embedded_media
     }
 }
 

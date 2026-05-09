@@ -15,14 +15,16 @@ pub struct Exif {
     ifds: Vec<ParsedImageFileDirectory>,
     gps_info: Option<GPSInfo>,
     errors: Vec<(IfdIndex, TagOrCode, crate::EntryError)>,
+    has_embedded_media: bool,
 }
 
 impl Exif {
-    fn new(gps_info: Option<GPSInfo>) -> Exif {
+    fn new(gps_info: Option<GPSInfo>, has_embedded_media: bool) -> Exif {
         Exif {
             ifds: Vec::new(),
             gps_info,
             errors: Vec::new(),
+            has_embedded_media,
         }
     }
 
@@ -130,6 +132,13 @@ impl Exif {
         &self.errors
     }
 
+    /// Whether the source file carries additional embedded media that this
+    /// parse path did *not* extract — e.g. HEIC Live Photo MOV, RAF JPEG
+    /// preview.
+    pub fn has_embedded_media(&self) -> bool {
+        self.has_embedded_media
+    }
+
     fn put_value(&mut self, ifd: usize, code: u16, v: EntryValue) {
         while self.ifds.len() < ifd + 1 {
             self.ifds.push(ParsedImageFileDirectory::new());
@@ -141,15 +150,13 @@ impl Exif {
 impl From<ExifIter> for Exif {
     fn from(iter: ExifIter) -> Self {
         let gps_info = iter.parse_gps_info().ok().flatten();
-        let mut exif = Exif::new(gps_info);
+        let has_embedded_media = iter.has_embedded_media();
+        let mut exif = Exif::new(gps_info, has_embedded_media);
 
         for entry in iter {
             let ifd_idx = entry.ifd_index();
             let code = entry.tag_code();
             let tag: TagOrCode = code.into();
-            // Use a transitional pub(crate) accessor that consumes the entry
-            // without panic. Task 9 deletes this in favor of the public
-            // `into_result` once `ExifIterEntry` lands.
             match entry.into_inner_result() {
                 Ok(v) => exif.put_value(ifd_idx, code, v),
                 Err(e) => exif.errors.push((IfdIndex::new(ifd_idx), tag, e)),
@@ -478,5 +485,29 @@ mod tests {
         // (Note: if broken.jpg's particular breakage doesn't surface as a per-entry
         // error, this assertion may be `>= 0`. Adjust as needed.)
         let _ = exif.errors();
+    }
+
+    #[test]
+    fn has_embedded_media_true_for_heic() {
+        use crate::{MediaParser, MediaSource};
+        let mut parser = MediaParser::new();
+        let ms = MediaSource::open("testdata/exif.heic").unwrap();
+        let iter = parser.parse_exif(ms).unwrap();
+        assert!(iter.has_embedded_media(),
+            "HEIC files may carry an embedded MOV (Live Photo)");
+        let exif: Exif = iter.into();
+        assert!(exif.has_embedded_media(), "flag survives From<ExifIter>");
+    }
+
+    #[test]
+    fn has_embedded_media_false_for_plain_jpeg() {
+        use crate::{MediaParser, MediaSource};
+        let mut parser = MediaParser::new();
+        let ms = MediaSource::open("testdata/exif.jpg").unwrap();
+        let iter = parser.parse_exif(ms).unwrap();
+        assert!(!iter.has_embedded_media(),
+            "plain JPEG does not carry embedded media");
+        let exif: Exif = iter.into();
+        assert!(!exif.has_embedded_media());
     }
 }
