@@ -91,11 +91,6 @@ pub(crate) struct EntryData<'a> {
     pub components_num: u32,
 }
 
-impl From<chrono::ParseError> for EntryError {
-    fn from(_: chrono::ParseError) -> Self {
-        EntryError::InvalidValue("invalid time format")
-    }
-}
 
 impl EntryData<'_> {
     // Ensure that the returned Vec is not empty.
@@ -490,8 +485,8 @@ impl From<(NaiveDateTime, Option<FixedOffset>)> for EntryValue {
 }
 
 fn parse_naive_time(s: String) -> Result<NaiveDateTime, EntryError> {
-    let t = NaiveDateTime::parse_from_str(&s, "%Y:%m:%d %H:%M:%S")?;
-    Ok(t)
+    NaiveDateTime::parse_from_str(&s, "%Y:%m:%d %H:%M:%S")
+        .map_err(|_| EntryError::InvalidValue("invalid time format"))
 }
 
 fn repair_tz_str(tz: &str) -> String {
