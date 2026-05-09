@@ -112,7 +112,6 @@ mod tokio_top_level {
 pub use tokio_top_level::{read_exif_async, read_exif_iter_async, read_metadata_async, read_track_async};
 
 mod bbox;
-mod buffer;
 mod cr3;
 mod ebml;
 mod error;
