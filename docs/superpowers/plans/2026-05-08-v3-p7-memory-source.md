@@ -412,7 +412,7 @@ git commit -m "feat(parser): add memory slot to MediaSource and async fill_buf s
 **Files:**
 - Modify: `src/parser.rs`
 
-- [ ] **Step 1: Add the constructor block**
+- [x] **Step 1: Add the constructor block**
 
 After the `impl MediaSource<File> { open }` block, add:
 
@@ -466,7 +466,7 @@ impl MediaSource<()> {
 }
 ```
 
-- [ ] **Step 2: Add unit tests for the constructor**
+- [x] **Step 2: Add unit tests for the constructor**
 
 Append in `mod tests`:
 
@@ -513,7 +513,7 @@ fn media_source_from_bytes_rejects_unknown_mime() {
 }
 ```
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 Run: `cargo test --all-features parser::tests::media_source_from_bytes_`
 
@@ -523,7 +523,7 @@ Run: `cargo doc --no-deps --all-features 2>&1 | tail -10`
 
 Expected: no warnings (the new doctest under the constructor compiles).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/parser.rs

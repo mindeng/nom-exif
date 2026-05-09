@@ -76,6 +76,16 @@ impl<R> Debug for MediaSource<R> {
 // Should be enough for parsing header
 const HEADER_PARSE_BUF_SIZE: usize = 128;
 
+impl<R> MediaSource<R> {
+    /// Top-level classification of this media source.
+    pub fn kind(&self) -> MediaKind {
+        match self.mime {
+            MediaMime::Image(_) => MediaKind::Image,
+            MediaMime::Track(_) => MediaKind::Track,
+        }
+    }
+}
+
 impl<R: Read> MediaSource<R> {
     fn build(mut reader: R, skip_by_seek: SkipBySeekFn<R>) -> crate::Result<Self> {
         let mut buf = Vec::with_capacity(HEADER_PARSE_BUF_SIZE);
@@ -91,13 +101,6 @@ impl<R: Read> MediaSource<R> {
             skip_by_seek,
             memory: None,
         })
-    }
-
-    pub fn kind(&self) -> MediaKind {
-        match self.mime {
-            MediaMime::Image(_) => MediaKind::Image,
-            MediaMime::Track(_) => MediaKind::Track,
-        }
     }
 
     /// Use [`MediaSource::unseekable`] to create a MediaSource from a
@@ -133,6 +136,54 @@ impl MediaSource<File> {
     /// path on disk". For an already-open `File` use [`Self::seekable`].
     pub fn open<P: AsRef<Path>>(path: P) -> crate::Result<Self> {
         Self::seekable(File::open(path)?)
+    }
+}
+
+impl MediaSource<()> {
+    /// Build a [`MediaSource`] from an in-memory byte payload.
+    ///
+    /// Accepts any type convertible into [`bytes::Bytes`] — `Bytes`,
+    /// `Vec<u8>`, `&'static [u8]`, [`bytes::Bytes::from_owner`] outputs, and
+    /// HTTP-stack body types that implement `Into<Bytes>` directly.
+    ///
+    /// The header (first up to 128 bytes) is sniffed for media kind, the
+    /// same way [`MediaSource::open`] does it for files. The full payload is
+    /// stored zero-copy: subsequent parsing through
+    /// `MediaParser::parse_exif_bytes` / `MediaParser::parse_track_bytes`
+    /// shares this `Bytes` directly with the returned `ExifIter` / sub-IFDs
+    /// via reference counting.
+    ///
+    /// The returned source is parsed by the dedicated
+    /// `MediaParser::parse_exif_bytes` / `MediaParser::parse_track_bytes`
+    /// methods. The streaming `parse_exif` / `parse_track` methods do not
+    /// accept `MediaSource<()>` (their `R: Read` bound is unsatisfiable).
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use nom_exif::{MediaSource, MediaParser, MediaKind};
+    ///
+    /// let bytes = std::fs::read("./testdata/exif.jpg")?;
+    /// let ms = MediaSource::from_bytes(bytes)?;
+    /// assert_eq!(ms.kind(), MediaKind::Image);
+    ///
+    /// let mut parser = MediaParser::new();
+    /// let _iter = parser.parse_exif_bytes(ms)?;
+    /// # Ok::<(), nom_exif::Error>(())
+    /// ```
+    pub fn from_bytes(bytes: impl Into<bytes::Bytes>) -> crate::Result<Self> {
+        let bytes = bytes.into();
+        let head_end = bytes.len().min(HEADER_PARSE_BUF_SIZE);
+        let mime: MediaMime = bytes[..head_end].try_into()?;
+        Ok(Self {
+            reader: (),
+            buf: Vec::new(),
+            mime,
+            // Placeholder: never invoked in memory mode (clear_and_skip's
+            // AdvanceOnly path is the only one taken).
+            skip_by_seek: |_, _| Ok(false),
+            memory: Some(bytes),
+        })
     }
 }
 
@@ -1069,6 +1120,47 @@ mod tests {
         assert!(s.buf.is_none());
         // Memory still readable.
         assert_eq!(s.buffer(), b"data");
+    }
+
+    #[test]
+    fn media_source_from_bytes_image_jpg() {
+        let raw = std::fs::read("testdata/exif.jpg").unwrap();
+        let ms = MediaSource::from_bytes(raw).unwrap();
+        assert_eq!(ms.kind(), MediaKind::Image);
+        assert!(ms.memory.is_some());
+    }
+
+    #[test]
+    fn media_source_from_bytes_track_mov() {
+        let raw = std::fs::read("testdata/meta.mov").unwrap();
+        let ms = MediaSource::from_bytes(raw).unwrap();
+        assert_eq!(ms.kind(), MediaKind::Track);
+    }
+
+    #[test]
+    fn media_source_from_bytes_static_slice() {
+        // &'static [u8] should work via Into<Bytes> because the file is read
+        // into a Vec at compile-time-friendly size; here we use include_bytes.
+        let raw: &'static [u8] = include_bytes!("../testdata/exif.jpg");
+        let ms = MediaSource::from_bytes(raw).unwrap();
+        assert_eq!(ms.kind(), MediaKind::Image);
+    }
+
+    #[test]
+    fn media_source_from_bytes_rejects_too_short() {
+        // Below the smallest mime signature length: should fail mime detection.
+        let raw = vec![0u8; 4];
+        let res = MediaSource::from_bytes(raw);
+        assert!(res.is_err(), "expected mime-detection error");
+    }
+
+    #[test]
+    fn media_source_from_bytes_rejects_unknown_mime() {
+        // Random bytes long enough to trigger detection but not match any
+        // signature.
+        let raw = vec![0xAAu8; 256];
+        let res = MediaSource::from_bytes(raw);
+        assert!(res.is_err(), "expected mime-detection error for unknown bytes");
     }
 
     #[test]
