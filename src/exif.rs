@@ -244,6 +244,7 @@ use tokio::io::AsyncRead;
 #[cfg(test)]
 mod tests {
     use crate::{
+        exif::gps::{Altitude, LatRef, LonRef, Speed},
         file::MediaMimeImage,
         testkit::read_sample,
         values::URational,
@@ -254,26 +255,21 @@ mod tests {
 
     #[test_case(
         "exif.jpg",
-        'N',
+        LatRef::North,
         LatLng::new(URational::new(22, 1), URational::new(31, 1), URational::new(5208, 100)),
-        'E',
+        LonRef::East,
         LatLng::new(URational::new(114, 1), URational::new(1, 1), URational::new(1733, 100)),
-        0u8,
-        URational::new(0, 1),
-        None,
+        Altitude::AboveSeaLevel(URational::new(0, 1)),
         None
     )]
-    #[allow(clippy::too_many_arguments)]
     fn gps_info(
         path: &str,
-        latitude_ref: char,
+        latitude_ref: LatRef,
         latitude: LatLng,
-        longitude_ref: char,
+        longitude_ref: LonRef,
         longitude: LatLng,
-        altitude_ref: u8,
-        altitude: URational,
-        speed_ref: Option<char>,
-        speed: Option<URational>,
+        altitude: Altitude,
+        speed: Option<Speed>,
     ) {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 
@@ -293,12 +289,9 @@ mod tests {
                 latitude,
                 longitude_ref,
                 longitude,
-                altitude_ref,
                 altitude,
-                speed_ref,
                 speed,
             }
         )
     }
-
 }

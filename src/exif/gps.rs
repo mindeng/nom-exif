@@ -4,32 +4,28 @@ use iso6709parse::ISO6709Coord;
 
 use crate::values::{IRational, URational};
 
-/// Represents gps information stored in [`GPSInfo`](crate::ExifTag::GPSInfo)
-/// subIFD.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+/// Parsed GPS information from the GPSInfo subIFD.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GPSInfo {
-    /// N, S
-    pub latitude_ref: char,
-    /// degree, minute, second,
+    pub latitude_ref: LatRef,
     pub latitude: LatLng,
-
-    /// E, W
-    pub longitude_ref: char,
-    /// degree, minute, second,
+    pub longitude_ref: LonRef,
     pub longitude: LatLng,
+    pub altitude: Altitude,
+    pub speed: Option<Speed>,
+}
 
-    /// 0: Above Sea Level
-    /// 1: Below Sea Level
-    pub altitude_ref: u8,
-    /// meters
-    pub altitude: URational,
-
-    /// Speed unit
-    /// - K: kilometers per hour
-    /// - M: miles per hour
-    /// - N: knots
-    pub speed_ref: Option<char>,
-    pub speed: Option<URational>,
+impl Default for GPSInfo {
+    fn default() -> Self {
+        Self {
+            latitude_ref: LatRef::North,
+            latitude: LatLng::default(),
+            longitude_ref: LonRef::East,
+            longitude: LatLng::default(),
+            altitude: Altitude::Unknown,
+            speed: None,
+        }
+    }
 }
 
 /// Latitude or longitude expressed as degrees / minutes / seconds.
@@ -209,19 +205,24 @@ impl GPSInfo {
     pub fn format_iso6709(&self) -> String {
         let latitude = self.latitude.to_decimal_degrees().unwrap_or(0.0);
         let longitude = self.longitude.to_decimal_degrees().unwrap_or(0.0);
-        let altitude = self.altitude.to_f64().unwrap_or(0.0);
+        let altitude_meters = self.altitude.meters();
         format!(
             "{}{latitude:08.5}{}{longitude:09.5}{}/",
-            if self.latitude_ref == 'N' { '+' } else { '-' },
-            if self.longitude_ref == 'E' { '+' } else { '-' },
-            if self.altitude.numerator() == 0 {
-                "".to_string()
-            } else {
-                format!(
+            match self.latitude_ref {
+                LatRef::North => '+',
+                LatRef::South => '-',
+            },
+            match self.longitude_ref {
+                LonRef::East => '+',
+                LonRef::West => '-',
+            },
+            match altitude_meters {
+                None | Some(0.0) => String::new(),
+                Some(m) => format!(
                     "{}{}CRSWGS_84",
-                    if self.altitude_ref == 0 { "+" } else { "-" },
-                    Self::format_float(altitude)
-                )
+                    if m >= 0.0 { "+" } else { "-" },
+                    Self::format_float(m.abs())
+                ),
             }
         )
     }
@@ -295,28 +296,34 @@ impl FromStr for GPSInfo {
 
 impl From<ISO6709Coord> for GPSInfo {
     fn from(v: ISO6709Coord) -> Self {
+        let latitude_ref = if v.lat >= 0.0 { LatRef::North } else { LatRef::South };
+        let longitude_ref = if v.lon >= 0.0 { LonRef::East } else { LonRef::West };
+        let latitude = LatLng::try_from_decimal_degrees(v.lat.abs()).unwrap_or_default();
+        let longitude = LatLng::try_from_decimal_degrees(v.lon.abs()).unwrap_or_default();
+        let altitude = match v.altitude {
+            None => Altitude::Unknown,
+            Some(x) => {
+                let mag = URational::new((x.abs() * 1000.0).trunc() as u32, 1000);
+                if x >= 0.0 {
+                    Altitude::AboveSeaLevel(mag)
+                } else {
+                    Altitude::BelowSeaLevel(mag)
+                }
+            }
+        };
         Self {
-            latitude_ref: if v.lat >= 0.0 { 'N' } else { 'S' },
-            latitude: LatLng::try_from_decimal_degrees(v.lat.abs()).unwrap_or_default(),
-            longitude_ref: if v.lon >= 0.0 { 'E' } else { 'W' },
-            longitude: LatLng::try_from_decimal_degrees(v.lon.abs()).unwrap_or_default(),
-            altitude_ref: v
-                .altitude
-                .map(|x| if x >= 0.0 { 0 } else { 1 })
-                .unwrap_or(0),
-            altitude: v
-                .altitude
-                .map(|x| URational::new((x.abs() * 1000.0).trunc() as u32, 1000))
-                .unwrap_or_default(),
-            ..Default::default()
+            latitude_ref,
+            latitude,
+            longitude_ref,
+            longitude,
+            altitude,
+            speed: None,
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::values::Rational;
-
     use super::*;
 
     #[test]
@@ -324,97 +331,92 @@ mod tests {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 
         let palace = GPSInfo {
-            latitude_ref: 'N',
+            latitude_ref: LatRef::North,
             latitude: LatLng::new(
                 URational::new(39, 1),
                 URational::new(55, 1),
                 URational::new(0, 1),
             ),
-            longitude_ref: 'E',
+            longitude_ref: LonRef::East,
             longitude: LatLng::new(
                 URational::new(116, 1),
                 URational::new(23, 1),
                 URational::new(27, 1),
             ),
-            altitude_ref: 0,
-            altitude: Rational::<u32>::new(0, 1),
-            ..Default::default()
+            altitude: Altitude::AboveSeaLevel(URational::new(0, 1)),
+            speed: None,
         };
         assert_eq!(palace.format_iso6709(), "+39.91667+116.39083/");
 
         let liberty = GPSInfo {
-            latitude_ref: 'N',
+            latitude_ref: LatRef::North,
             latitude: LatLng::new(
                 URational::new(40, 1),
                 URational::new(41, 1),
                 URational::new(21, 1),
             ),
-            longitude_ref: 'W',
+            longitude_ref: LonRef::West,
             longitude: LatLng::new(
                 URational::new(74, 1),
                 URational::new(2, 1),
                 URational::new(40, 1),
             ),
-            altitude_ref: 0,
-            altitude: Rational::<u32>::new(0, 1),
-            ..Default::default()
+            altitude: Altitude::AboveSeaLevel(URational::new(0, 1)),
+            speed: None,
         };
         assert_eq!(liberty.format_iso6709(), "+40.68917-074.04444/");
 
         let above = GPSInfo {
-            latitude_ref: 'N',
+            latitude_ref: LatRef::North,
             latitude: LatLng::new(
                 URational::new(40, 1),
                 URational::new(41, 1),
                 URational::new(21, 1),
             ),
-            longitude_ref: 'W',
+            longitude_ref: LonRef::West,
             longitude: LatLng::new(
                 URational::new(74, 1),
                 URational::new(2, 1),
                 URational::new(40, 1),
             ),
-            altitude_ref: 0,
-            altitude: Rational::<u32>::new(123, 1),
-            ..Default::default()
+            altitude: Altitude::AboveSeaLevel(URational::new(123, 1)),
+            speed: None,
         };
         assert_eq!(above.format_iso6709(), "+40.68917-074.04444+123CRSWGS_84/");
 
         let below = GPSInfo {
-            latitude_ref: 'N',
+            latitude_ref: LatRef::North,
             latitude: LatLng::new(
                 URational::new(40, 1),
                 URational::new(41, 1),
                 URational::new(21, 1),
             ),
-            longitude_ref: 'W',
+            longitude_ref: LonRef::West,
             longitude: LatLng::new(
                 URational::new(74, 1),
                 URational::new(2, 1),
                 URational::new(40, 1),
             ),
-            altitude_ref: 1,
-            altitude: Rational::<u32>::new(123, 1),
-            ..Default::default()
+            altitude: Altitude::BelowSeaLevel(URational::new(123, 1)),
+            speed: None,
         };
         assert_eq!(below.format_iso6709(), "+40.68917-074.04444-123CRSWGS_84/");
 
         let below = GPSInfo {
-            latitude_ref: 'N',
+            latitude_ref: LatRef::North,
             latitude: LatLng::new(
                 URational::new(40, 1),
                 URational::new(41, 1),
                 URational::new(21, 1),
             ),
-            longitude_ref: 'W',
+            longitude_ref: LonRef::West,
             longitude: LatLng::new(
                 URational::new(74, 1),
                 URational::new(2, 1),
                 URational::new(40, 1),
             ),
-            altitude_ref: 1,
-            altitude: Rational::<u32>::new(100, 3),
-            ..Default::default()
+            altitude: Altitude::BelowSeaLevel(URational::new(100, 3)),
+            speed: None,
         };
         assert_eq!(
             below.format_iso6709(),
@@ -432,7 +434,7 @@ mod tests {
         assert_eq!(iso.altitude, None);
 
         let iso: GPSInfo = iso6709parse::parse("+26.5322-078.1969+019.099/").unwrap();
-        assert_eq!(iso.latitude_ref, 'N');
+        assert_eq!(iso.latitude_ref, LatRef::North);
         assert_eq!(
             iso.latitude,
             LatLng::new(
@@ -442,7 +444,7 @@ mod tests {
             )
         );
 
-        assert_eq!(iso.longitude_ref, 'W');
+        assert_eq!(iso.longitude_ref, LonRef::West);
         assert_eq!(
             iso.longitude,
             LatLng::new(
@@ -452,8 +454,7 @@ mod tests {
             )
         );
 
-        assert_eq!(iso.altitude_ref, 0);
-        assert_eq!(iso.altitude, URational::default());
+        assert_eq!(iso.altitude, Altitude::Unknown);
     }
 
     #[test]

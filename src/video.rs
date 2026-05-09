@@ -136,7 +136,7 @@ impl TrackInfo {
 /// assert_eq!(info.get(TrackInfoTag::Make), Some(&"Apple".into()));
 /// assert_eq!(info.get(TrackInfoTag::Model), Some(&"iPhone X".into()));
 /// assert_eq!(info.get(TrackInfoTag::GpsIso6709), Some(&"+27.1281+100.2508+000.000/".into()));
-/// assert_eq!(info.get_gps_info().unwrap().latitude_ref, 'N');
+/// assert_eq!(info.get_gps_info().unwrap().latitude_ref, LatRef::North);
 /// assert_eq!(
 ///     info.get_gps_info().unwrap().latitude,
 ///     LatLng::new(URational::new(27, 1), URational::new(7, 1), URational::new(4116, 100)),

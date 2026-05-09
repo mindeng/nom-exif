@@ -10,7 +10,7 @@ use crate::{
     EntryValue, ExifTag,
 };
 
-use super::{exif_exif::IFD_ENTRY_SIZE, tags::ExifTagCode, GPSInfo, TiffHeader};
+use super::{exif_exif::IFD_ENTRY_SIZE, tags::ExifTagCode, GPSInfo, LatLng, TiffHeader};
 
 /// Represents an additional TIFF data block to be processed after the primary block.
 /// Used for CR3 files with multiple CMT boxes (CMT1, CMT2, CMT3).
@@ -799,63 +799,63 @@ impl IfdIter {
 
     // Assume the current ifd is GPSInfo subifd.
     pub fn parse_gps_info(&mut self) -> Option<GPSInfo> {
-        let mut gps = GPSInfo::default();
+        use crate::exif::gps::{Altitude, LatRef, LonRef, Speed, SpeedUnit};
+
+        let mut latitude_ref = None;
+        let mut latitude = None;
+        let mut longitude_ref = None;
+        let mut longitude = None;
+        let mut altitude_ref = None;
+        let mut altitude_value = None;
+        let mut speed_unit = None;
+        let mut speed_value = None;
         let mut has_data = false;
+
         for (tag, entry) in self {
-            let Some(tag) = tag.and_then(|x| x.tag()) else {
-                continue;
-            };
+            let Some(tag) = tag.and_then(|x| x.tag()) else { continue };
             has_data = true;
             match tag {
                 ExifTag::GPSLatitudeRef => {
-                    if let Some(c) = entry.as_char() {
-                        gps.latitude_ref = c;
-                    }
+                    latitude_ref = entry.as_char().and_then(LatRef::from_char);
                 }
                 ExifTag::GPSLongitudeRef => {
-                    if let Some(c) = entry.as_char() {
-                        gps.longitude_ref = c;
-                    }
+                    longitude_ref = entry.as_char().and_then(LonRef::from_char);
                 }
                 ExifTag::GPSAltitudeRef => {
-                    if let Some(c) = entry.as_u8() {
-                        gps.altitude_ref = c;
-                    }
+                    altitude_ref = entry.as_u8();
                 }
                 ExifTag::GPSLatitude => {
                     if let Some(v) = entry.as_urational_slice() {
-                        gps.latitude = v.try_into().ok()?;
+                        latitude = LatLng::try_from(v).ok();
                     } else if let Some(v) = entry.as_irational_slice() {
-                        gps.latitude = v.try_into().ok()?;
+                        latitude = LatLng::try_from(v).ok();
                     }
                 }
                 ExifTag::GPSLongitude => {
                     if let Some(v) = entry.as_urational_slice() {
-                        gps.longitude = v.try_into().ok()?;
+                        longitude = LatLng::try_from(v).ok();
                     } else if let Some(v) = entry.as_irational_slice() {
-                        gps.longitude = v.try_into().ok()?;
+                        longitude = LatLng::try_from(v).ok();
                     }
                 }
                 ExifTag::GPSAltitude => {
                     if let Some(v) = entry.as_urational() {
-                        gps.altitude = *v;
+                        altitude_value = Some(*v);
                     } else if let Some(v) = entry.as_irational() {
                         if let Ok(u) = URational::try_from(*v) {
-                            gps.altitude = u;
+                            altitude_value = Some(u);
                         }
                     }
                 }
                 ExifTag::GPSSpeedRef => {
-                    if let Some(c) = entry.as_char() {
-                        gps.speed_ref = Some(c);
-                    }
+                    speed_unit = entry.as_char().and_then(SpeedUnit::from_char);
                 }
                 ExifTag::GPSSpeed => {
                     if let Some(v) = entry.as_urational() {
-                        gps.speed = Some(*v);
+                        speed_value = Some(*v);
                     } else if let Some(v) = entry.as_irational() {
                         if let Ok(u) = URational::try_from(*v) {
-                            gps.speed = Some(u);
+                            speed_value = Some(u);
                         }
                     }
                 }
@@ -863,12 +863,30 @@ impl IfdIter {
             }
         }
 
-        if has_data {
-            Some(gps)
-        } else {
+        if !has_data {
             tracing::warn!("GPSInfo data not found");
-            None
+            return None;
         }
+
+        let altitude = match (altitude_ref, altitude_value) {
+            (Some(0), Some(v)) => Altitude::AboveSeaLevel(v),
+            (Some(1), Some(v)) => Altitude::BelowSeaLevel(v),
+            _ => Altitude::Unknown,
+        };
+
+        let speed = match (speed_unit, speed_value) {
+            (Some(unit), Some(value)) => Some(Speed { unit, value }),
+            _ => None,
+        };
+
+        Some(GPSInfo {
+            latitude_ref: latitude_ref.unwrap_or(LatRef::North),
+            latitude: latitude.unwrap_or_default(),
+            longitude_ref: longitude_ref.unwrap_or(LonRef::East),
+            longitude: longitude.unwrap_or_default(),
+            altitude,
+            speed,
+        })
     }
 
     fn clone_with_state(&self) -> IfdIter {
