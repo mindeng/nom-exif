@@ -625,18 +625,6 @@ impl std::str::FromStr for ExifTag {
     }
 }
 
-#[allow(unused)]
-pub enum Orientation {
-    Horizontal,
-    MirrorHorizontal,
-    Rotate,
-    MirrorVertical,
-    MirrorHorizontalRotate270,
-    Rotate90,
-    MirrorHorizontalRotate90,
-    Rotate270,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
