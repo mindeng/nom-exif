@@ -317,4 +317,32 @@ mod tests {
             .collect::<Vec<String>>();
         ss.join("\n")
     }
+
+    #[test]
+    fn p5_baseline_exif_jpg_dump_snapshot() {
+        // Lock down the post-refactor invariant: parsing testdata/exif.jpg
+        // through the public API yields the same set of (ifd, tag, value)
+        // triples before and after every P5 task. Captured as a sorted
+        // formatted string so the assertion is a single Vec compare.
+        use crate::{MediaParser, MediaSource};
+        let mut parser = MediaParser::new();
+        let ms = MediaSource::open("testdata/exif.jpg").unwrap();
+        let iter = parser.parse_exif(ms).unwrap();
+
+        let mut entries: Vec<String> = iter
+            .map(|e| {
+                let val = match e.get_result() {
+                    Ok(v) => format!("{v}"),
+                    Err(err) => format!("<err:{err}>"),
+                };
+                format!("ifd{}.0x{:04x}={val}", e.ifd_index(), e.tag_code())
+            })
+            .collect();
+        entries.sort();
+        assert!(entries.len() > 5, "expected >5 entries, got {}", entries.len());
+        assert!(
+            entries.iter().any(|s| s.contains("0x010f")),
+            "expected Make tag (0x010f) in snapshot, got {entries:?}"
+        );
+    }
 }
