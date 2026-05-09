@@ -468,9 +468,10 @@ impl Iterator for ExifIter {
             }
 
             if self.ifds.len() > MAX_IFD_DEPTH {
+                let depth = self.ifds.len();
                 self.ifds.clear();
                 tracing::error!(
-                    ifds_depth = self.ifds.len(),
+                    ifds_depth = depth,
                     "ifd depth is too deep, just go back to ifd0"
                 );
                 self.ifds.push(self.ifd0.clone_with_state());
