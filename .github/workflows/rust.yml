@@ -32,3 +32,26 @@ jobs:
       run: cargo clippy -- -D warnings
     - name: Build documentation
       run: cargo doc --all-features
+
+  fuzz:
+    name: Fuzz smoke test
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install nightly toolchain
+      run: rustup toolchain install nightly --profile minimal
+    - name: Install cargo-fuzz
+      run: cargo install cargo-fuzz --locked
+    - name: Run fuzz target (60s, seeded with testdata/)
+      run: |
+        mkdir -p fuzz/ci-corpus
+        cargo +nightly fuzz run media_parser \
+          fuzz/ci-corpus testdata \
+          -- -max_total_time=60 -timeout=30
+    - name: Upload crash artifacts on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: fuzz-crash
+        path: fuzz/artifacts/
+        if-no-files-found: ignore
