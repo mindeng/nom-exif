@@ -685,7 +685,7 @@ git commit -m "feat(parser): add MediaParser::parse_exif_bytes for memory source
 **Files:**
 - Modify: `src/parser.rs`
 
-- [ ] **Step 1: Add the method**
+- [x] **Step 1: Add the method**
 
 Inside the same `impl MediaParser` block, after `parse_exif_bytes`:
 
@@ -720,7 +720,7 @@ pub fn parse_track_bytes(&mut self, mut ms: MediaSource<()>) -> crate::Result<Tr
 }
 ```
 
-- [ ] **Step 2: Add tests**
+- [x] **Step 2: Add tests**
 
 Append:
 
@@ -766,7 +766,7 @@ fn parse_track_bytes_on_image_returns_track_not_found() {
 }
 ```
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 Run: `cargo test --all-features parser::tests::parse_track_bytes_`
 
@@ -776,7 +776,7 @@ Run: `cargo test --all-features`
 
 Expected: full suite green.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/parser.rs

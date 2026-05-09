@@ -149,12 +149,12 @@ impl MediaSource<()> {
     /// The header (first up to 128 bytes) is sniffed for media kind, the
     /// same way [`MediaSource::open`] does it for files. The full payload is
     /// stored zero-copy: subsequent parsing through
-    /// [`MediaParser::parse_exif_bytes`] / `MediaParser::parse_track_bytes`
+    /// [`MediaParser::parse_exif_bytes`] / [`MediaParser::parse_track_bytes`]
     /// shares this `Bytes` directly with the returned `ExifIter` / sub-IFDs
     /// via reference counting.
     ///
     /// The returned source is parsed by the dedicated
-    /// [`MediaParser::parse_exif_bytes`] / `MediaParser::parse_track_bytes`
+    /// [`MediaParser::parse_exif_bytes`] / [`MediaParser::parse_track_bytes`]
     /// methods. The streaming `parse_exif` / `parse_track` methods do not
     /// accept `MediaSource<()>` (their `R: Read` bound is unsatisfiable).
     ///
@@ -726,6 +726,35 @@ impl MediaParser {
                 // Placeholder skip-by-seek: never invoked.
                 |_, _| Ok(false),
             )
+        })();
+        self.reset();
+        res
+    }
+
+    /// Parse track info from an in-memory video/audio byte payload built via
+    /// [`MediaSource::<()>::from_bytes`]. Returns `Error::TrackNotFound` if the
+    /// payload is an `Image` (use [`Self::parse_exif_bytes`] instead).
+    ///
+    /// Like [`Self::parse_exif_bytes`], the parse is zero-copy with respect to
+    /// the user-supplied `Bytes`.
+    pub fn parse_track_bytes(&mut self, mut ms: MediaSource<()>) -> crate::Result<TrackInfo> {
+        self.reset();
+        let memory = ms
+            .memory
+            .take()
+            .expect("MediaSource<()> must have memory (only constructor is from_bytes)");
+        self.state.set_memory(memory);
+        let res: crate::Result<TrackInfo> = (|| {
+            let mime_track = match ms.mime {
+                crate::file::MediaMime::Image(_) => return Err(crate::Error::TrackNotFound),
+                crate::file::MediaMime::Track(t) => t,
+            };
+            let mut empty = std::io::empty();
+            let out = self.load_and_parse(&mut empty, |_, _| Ok(false), |data, _| {
+                crate::video::parse_track_info(data, mime_track)
+                    .map_err(|e| ParsingErrorState::new(e, None))
+            })?;
+            Ok(out)
         })();
         self.reset();
         res
@@ -1304,5 +1333,45 @@ mod tests {
         let ms = MediaSource::from_bytes(raw).unwrap();
         let res = parser.parse_exif_bytes(ms);
         assert!(res.is_err(), "expected error on truncated bytes, got {:?}", res);
+    }
+
+    #[test]
+    fn parse_track_bytes_mov_basic() {
+        let mut parser = MediaParser::new();
+        let raw = std::fs::read("testdata/meta.mov").unwrap();
+        let ms = MediaSource::from_bytes(raw).unwrap();
+        let info = parser.parse_track_bytes(ms).unwrap();
+        assert_eq!(info.get(crate::TrackInfoTag::Make), Some(&"Apple".into()));
+        assert_eq!(info.get(crate::TrackInfoTag::Model), Some(&"iPhone X".into()));
+    }
+
+    #[test]
+    fn parse_track_bytes_mp4_basic() {
+        let mut parser = MediaParser::new();
+        let raw = std::fs::read("testdata/meta.mp4").unwrap();
+        let ms = MediaSource::from_bytes(raw).unwrap();
+        let info = parser.parse_track_bytes(ms).unwrap();
+        assert!(info.get(crate::TrackInfoTag::CreateDate).is_some());
+    }
+
+    #[test]
+    fn parse_track_bytes_mkv_basic() {
+        let mut parser = MediaParser::new();
+        let raw = std::fs::read("testdata/mkv_640x360.mkv").unwrap();
+        let ms = MediaSource::from_bytes(raw).unwrap();
+        let info = parser.parse_track_bytes(ms).unwrap();
+        assert_eq!(
+            info.get(crate::TrackInfoTag::ImageWidth),
+            Some(&(640_u32.into()))
+        );
+    }
+
+    #[test]
+    fn parse_track_bytes_on_image_returns_track_not_found() {
+        let mut parser = MediaParser::new();
+        let raw = std::fs::read("testdata/exif.jpg").unwrap();
+        let ms = MediaSource::from_bytes(raw).unwrap();
+        let res = parser.parse_track_bytes(ms);
+        assert!(matches!(res, Err(crate::Error::TrackNotFound)));
     }
 }
