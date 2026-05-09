@@ -115,8 +115,11 @@ impl Exif {
     }
 
     /// Get parsed GPS information.
-    pub fn get_gps_info(&self) -> crate::Result<Option<GPSInfo>> {
-        Ok(self.gps_info.clone())
+    ///
+    /// Returns `None` if the source had no `GPSInfo` IFD or if its parse
+    /// failed (failures land in [`Self::errors`]).
+    pub fn gps_info(&self) -> Option<&GPSInfo> {
+        self.gps_info.as_ref()
     }
 
     fn put(&mut self, res: &mut ParsedExifEntry) {
@@ -389,6 +392,19 @@ mod tests {
         // Make = 0x010f
         let v = exif.get_by_code(IfdIndex::MAIN, ExifTag::Make.code());
         assert!(v.is_some());
+    }
+
+    #[test]
+    fn exif_gps_info_returns_borrow_no_result_wrap() {
+        use crate::{MediaParser, MediaSource};
+        let mut parser = MediaParser::new();
+        let ms = MediaSource::open("testdata/exif.jpg").unwrap();
+        let iter = parser.parse_exif(ms).unwrap();
+        let exif: Exif = iter.into();
+        // gps_info returns Option<&GPSInfo> directly (no Result wrap).
+        let g: Option<&crate::GPSInfo> = exif.gps_info();
+        assert!(g.is_some(), "testdata/exif.jpg has GPS info");
+        assert_eq!(g.unwrap().to_iso6709(), "+22.53113+114.02148/");
     }
 
     #[test]

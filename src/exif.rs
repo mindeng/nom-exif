@@ -285,9 +285,9 @@ mod tests {
         let iter = input_into_iter(bytes::Bytes::from(buf).slice(subslice_in_range), None).unwrap();
         let exif: Exif = iter.into();
 
-        let gps = exif.get_gps_info().unwrap().unwrap();
+        let gps = exif.gps_info().unwrap();
         assert_eq!(
-            gps,
+            *gps,
             GPSInfo {
                 latitude_ref,
                 latitude,
