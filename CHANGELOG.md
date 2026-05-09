@@ -1,5 +1,22 @@
 # Changelog
 
+## nom-exif v3.1.0
+
+### Added
+- `MediaSource::<()>::from_bytes(impl Into<bytes::Bytes>)` — zero-copy
+  in-memory byte source. Accepts `Vec<u8>`, `&'static [u8]`, `Bytes`, and
+  `Bytes::from_owner(...)` outputs.
+- `MediaParser::parse_exif_bytes` / `MediaParser::parse_track_bytes` —
+  parser methods for memory sources. Zero-copy: returned `ExifIter` /
+  sub-IFDs / CR3 CMT blocks share the user's allocation via
+  `bytes::Bytes` reference counting.
+- One-shot helpers: `read_exif_from_bytes`, `read_exif_iter_from_bytes`,
+  `read_track_from_bytes`, `read_metadata_from_bytes`.
+
+### Internal
+- `BufferedParserState` gains a memory mode (no public surface change).
+  Streaming parse path is untouched.
+
 ## nom-exif v3.0.0
 
 **Breaking release.** The public API has been reshaped end-to-end. The

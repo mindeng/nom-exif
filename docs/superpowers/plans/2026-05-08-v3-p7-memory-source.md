@@ -1027,7 +1027,7 @@ git commit -m "docs(v3): document memory mode in crate //! and MediaSource rustd
 - Modify: `docs/superpowers/plans/2026-05-08-v3-master.md`
 - Modify: `CHANGELOG.md`
 
-- [ ] **Step 1: Update the master plan phase summary row**
+- [x] **Step 1: Update the master plan phase summary row**
 
 In `docs/superpowers/plans/2026-05-08-v3-master.md`, replace the current P7 row:
 
@@ -1041,7 +1041,7 @@ with:
 | **P7** | [v3-p7-memory-source.md](2026-05-08-v3-p7-memory-source.md) | §3.3 (memory data source) | `MediaSource::<()>::from_bytes(impl Into<Bytes>)` constructor. `MediaParser::parse_exif_bytes` / `parse_track_bytes` methods. Top-level `read_exif_from_bytes` / `read_exif_iter_from_bytes` / `read_track_from_bytes` / `read_metadata_from_bytes`. Internal memory-mode short-circuit on `fill_buf` / `share_buf`; streaming code path untouched. Ships in v3.1.0. |
 ```
 
-- [ ] **Step 2: Update the Status line**
+- [x] **Step 2: Update the Status line**
 
 Replace:
 
@@ -1056,7 +1056,7 @@ with:
 - P1 ✅ done · P2 ✅ done · P3 ✅ done · P4 ✅ done · P4.5 ✅ done · P5 ✅ done · P6 ✅ done (v3.0.0-rc.1 tagged) · P7 ✅ done (v3.1.0)
 ```
 
-- [ ] **Step 3: Add a P7 entry to the risk register (post-mortem form)**
+- [x] **Step 3: Add a P7 entry to the risk register (post-mortem form)**
 
 In `## Risk register`, append:
 
@@ -1064,7 +1064,7 @@ In `## Risk register`, append:
 | Memory-mode `fill_buf` short-circuit may be reached when the parser legitimately walks past truncated input | P7 | Mitigated by `parse_exif_bytes_on_truncated_returns_io_error` regression test in `parser::tests`. UnexpectedEof maps to the same `Error::IO` variant streaming truncation produces, keeping the error taxonomy consistent. |
 ```
 
-- [ ] **Step 4: Update CHANGELOG**
+- [x] **Step 4: Update CHANGELOG**
 
 Inspect `CHANGELOG.md` to determine whether the layout is `## [Unreleased]` (Keep-a-Changelog style) or sequential version-stamped sections. If `Unreleased` exists, add bullets there; otherwise insert a new `## [3.1.0] - YYYY-MM-DD` section at the top of the version log.
 
@@ -1085,7 +1085,7 @@ Inspect `CHANGELOG.md` to determine whether the layout is `## [Unreleased]` (Kee
   Streaming parse path is untouched.
 ```
 
-- [ ] **Step 5: Final verification suite**
+- [x] **Step 5: Final verification suite**
 
 Run in sequence (each must pass):
 
@@ -1098,7 +1098,7 @@ cargo doc --no-deps --all-features --document-private-items 2>&1 | tail -10
 
 Compare the test count against Task 1 Step 2 baseline: should be **higher** by approximately 24 tests (4 in Task 2, 5 in Task 4, 5 in Task 5, 4 in Task 6, 6 in Task 7). No tests should have *disappeared*. The `--doc` count should increase by 2 (the new `from_bytes` constructor doctest and the new Quick-start memory doctest).
 
-- [ ] **Step 6: Commit and tag**
+- [x] **Step 6: Commit and tag**
 
 ```bash
 git add docs/superpowers/plans/2026-05-08-v3-master.md CHANGELOG.md
@@ -1106,7 +1106,7 @@ git commit -m "docs(v3): mark P7 done in master plan + CHANGELOG"
 git tag v3-p7-done
 ```
 
-- [ ] **Step 7: Confirm tag visibility**
+- [x] **Step 7: Confirm tag visibility**
 
 Run: `git log --oneline v3-p4_5-done..v3-p7-done` (or substitute the appropriate prior tag).
 
