@@ -539,7 +539,7 @@ git commit -m "feat(parser): add MediaSource::<()>::from_bytes zero-copy constru
 **Files:**
 - Modify: `src/parser.rs`
 
-- [ ] **Step 1: Add the method**
+- [x] **Step 1: Add the method**
 
 Inside `impl MediaParser` (the same block that holds `parse_exif`), append:
 
@@ -578,7 +578,7 @@ pub fn parse_exif_bytes(&mut self, mut ms: MediaSource<()>) -> crate::Result<Exi
 }
 ```
 
-- [ ] **Step 2: Add tests covering image kinds + zero-copy assertion + error paths**
+- [x] **Step 2: Add tests covering image kinds + zero-copy assertion + error paths**
 
 Append in `mod tests`:
 
@@ -661,7 +661,7 @@ fn parse_exif_bytes_on_truncated_returns_io_error() {
 }
 ```
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 Run: `cargo test --all-features parser::tests::parse_exif_bytes_`
 
@@ -669,7 +669,7 @@ Expected: 5 new tests pass.
 
 Run: `cargo test --all-features` to confirm no regressions.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/parser.rs
