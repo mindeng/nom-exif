@@ -3,13 +3,51 @@ use std::{
     string::FromUtf8Error,
 };
 
-use chrono::{DateTime, FixedOffset, NaiveDateTime, Offset, Utc};
+use chrono::{DateTime, FixedOffset, NaiveDateTime};
 
 use nom::{multi::many_m_n, number::Endianness, AsChar, Parser};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize, Serializer};
 
 use crate::{error::EntryError, ExifTag};
+
+/// EXIF datetime value with timezone awareness preserved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExifDateTime {
+    /// Original value carried a timezone (e.g. assembled with `OffsetTimeOriginal`).
+    Aware(DateTime<FixedOffset>),
+    /// Original value had no timezone (raw `DateTime` tag).
+    Naive(NaiveDateTime),
+}
+
+impl ExifDateTime {
+    /// Returns the timezone-aware form only when the original value carried one.
+    pub fn aware(&self) -> Option<DateTime<FixedOffset>> {
+        match self {
+            ExifDateTime::Aware(dt) => Some(*dt),
+            ExifDateTime::Naive(_) => None,
+        }
+    }
+
+    /// Always returns a `NaiveDateTime` — strips the timezone if present.
+    pub fn into_naive(self) -> NaiveDateTime {
+        match self {
+            ExifDateTime::Aware(dt) => dt.naive_local(),
+            ExifDateTime::Naive(ndt) => ndt,
+        }
+    }
+
+    /// If naive, attaches `fallback`; if already aware, returns the original offset.
+    pub fn or_offset(self, fallback: FixedOffset) -> DateTime<FixedOffset> {
+        match self {
+            ExifDateTime::Aware(dt) => dt,
+            ExifDateTime::Naive(ndt) => ndt
+                .and_local_timezone(fallback)
+                .single()
+                .unwrap_or_else(|| ndt.and_utc().with_timezone(&fallback)),
+        }
+    }
+}
 
 /// Represent a parsed entry value.
 #[derive(Debug, Clone, PartialEq)]
@@ -32,7 +70,7 @@ pub enum EntryValue {
     F32(f32),
     F64(f64),
 
-    Time(DateTime<FixedOffset>),
+    DateTime(DateTime<FixedOffset>),
     NaiveDateTime(NaiveDateTime),
     Undefined(Vec<u8>),
 
@@ -140,7 +178,7 @@ impl EntryValue {
                     return Ok(EntryValue::NaiveDateTime(parse_naive_time(s)?));
                 };
 
-                return Ok(EntryValue::Time(t));
+                return Ok(EntryValue::DateTime(t));
             }
         }
 
@@ -263,44 +301,29 @@ impl EntryValue {
         }
     }
 
-    /// Return `Some((NaiveDateTime, Some(FixedOffset)))` if it's a DateTime.
-    /// Return `Some((NaiveDateTime, None))` if it's a NaiveDateTime.
-    /// Else return None.
+    /// EXIF datetime accessor.
     ///
-    /// E.g.: if an `EntryValue` is parsed from "2023-07-09T20:36:33+08:00", then
-    /// `Some(NaiveDateTime::parse_from_str("2023-07-09T20:36:33", "%Y-%m-%dT%H:%M:%S").unwrap(),
-    /// FixedOffset::east_opt(8 * 3600).unwrap())` is returned.
-    ///
-    /// Usage:
+    /// Returns `Some(ExifDateTime::Aware)` when the parsed value carried a
+    /// timezone (e.g. composed with `OffsetTimeOriginal`); returns
+    /// `Some(ExifDateTime::Naive)` for tags that ship without timezone info;
+    /// returns `None` for non-datetime values.
     ///
     /// ```rust
     /// use nom_exif::*;
     /// use chrono::{DateTime, NaiveDateTime, FixedOffset};
     ///
     /// let dt = DateTime::parse_from_str("2023-07-09T20:36:33+08:00", "%+").unwrap();
-    /// let ndt =
-    ///     NaiveDateTime::parse_from_str("2023-07-09T20:36:33", "%Y-%m-%dT%H:%M:%S").unwrap();
-    /// let offset = FixedOffset::east_opt(8 * 3600).unwrap();
+    /// let ev = EntryValue::DateTime(dt);
+    /// assert!(matches!(ev.as_datetime(), Some(ExifDateTime::Aware(_))));
     ///
-    /// let ev = EntryValue::Time(dt);
-    /// assert_eq!(ev.as_time_components().unwrap(), (ndt, Some(offset)));
-    ///
-    /// let (got_ndt, got_offset) = ev.as_time_components().unwrap();
-    /// if let Some(offset) = got_offset {
-    ///     // It's a DateTime, use got_ndt.and_local_timezone(offset) to get it
-    ///     assert_eq!(got_ndt.and_local_timezone(offset).unwrap(), dt);
-    /// } else {
-    ///     // It's a NaiveDateTime
-    ///     assert_eq!(got_ndt, ndt);
-    /// }
-    ///
+    /// let ndt = NaiveDateTime::parse_from_str("2023-07-09T20:36:33", "%Y-%m-%dT%H:%M:%S").unwrap();
     /// let ev = EntryValue::NaiveDateTime(ndt);
-    /// assert_eq!(ev.as_time_components().unwrap(), (ndt, None));
+    /// assert!(matches!(ev.as_datetime(), Some(ExifDateTime::Naive(_))));
     /// ```
-    pub fn as_time_components(&self) -> Option<(NaiveDateTime, Option<FixedOffset>)> {
+    pub fn as_datetime(&self) -> Option<ExifDateTime> {
         match self {
-            EntryValue::Time(v) => Some((v.naive_local(), Some(v.offset().fix()))),
-            EntryValue::NaiveDateTime(v) => Some((*v, None)),
+            EntryValue::DateTime(v) => Some(ExifDateTime::Aware(*v)),
+            EntryValue::NaiveDateTime(v) => Some(ExifDateTime::Naive(*v)),
             _ => None,
         }
     }
@@ -459,7 +482,7 @@ impl EntryValue {
 impl From<(NaiveDateTime, Option<FixedOffset>)> for EntryValue {
     fn from(value: (NaiveDateTime, Option<FixedOffset>)) -> Self {
         if let Some(offset) = value.1 {
-            EntryValue::Time(value.0.and_local_timezone(offset).unwrap())
+            EntryValue::DateTime(value.0.and_local_timezone(offset).unwrap())
         } else {
             EntryValue::NaiveDateTime(value.0)
         }
@@ -582,7 +605,7 @@ impl Display for EntryValue {
             EntryValue::F64(v) => Display::fmt(&v, f),
             EntryValue::U8(v) => Display::fmt(&v, f),
             EntryValue::I8(v) => Display::fmt(&v, f),
-            EntryValue::Time(v) => Display::fmt(&v.to_rfc3339(), f),
+            EntryValue::DateTime(v) => Display::fmt(&v.to_rfc3339(), f),
             EntryValue::NaiveDateTime(v) => Display::fmt(&v.format("%Y-%m-%d %H:%M:%S"), f),
             EntryValue::Undefined(v) => fmt_array_to_string("Undefined", v, f),
             EntryValue::URationalArray(v) => {
@@ -664,16 +687,9 @@ where
         .join(", ")
 }
 
-impl From<DateTime<Utc>> for EntryValue {
-    fn from(value: DateTime<Utc>) -> Self {
-        assert_eq!(value.offset().fix(), FixedOffset::east_opt(0).unwrap());
-        EntryValue::Time(value.fixed_offset())
-    }
-}
-
 impl From<DateTime<FixedOffset>> for EntryValue {
     fn from(value: DateTime<FixedOffset>) -> Self {
-        EntryValue::Time(value)
+        EntryValue::DateTime(value)
     }
 }
 
@@ -733,12 +749,6 @@ impl From<f64> for EntryValue {
 impl From<String> for EntryValue {
     fn from(value: String) -> Self {
         EntryValue::Text(value)
-    }
-}
-
-impl From<&String> for EntryValue {
-    fn from(value: &String) -> Self {
-        EntryValue::Text(value.to_owned())
     }
 }
 
@@ -953,16 +963,17 @@ mod tests {
             NaiveDateTime::parse_from_str("2023-07-09T20:36:33", "%Y-%m-%dT%H:%M:%S").unwrap();
         let offset = FixedOffset::east_opt(8 * 3600).unwrap();
 
-        let ev = EntryValue::Time(dt);
-        assert_eq!(ev.as_time_components().unwrap(), (ndt, Some(offset)));
-
-        let recovered_dt = ndt.and_local_timezone(offset).unwrap();
-        assert_eq!(recovered_dt, dt);
-        let recovered_dt = offset.from_local_datetime(&ndt).unwrap();
-        assert_eq!(recovered_dt, dt);
+        let ev = EntryValue::DateTime(dt);
+        let edt = ev.as_datetime().unwrap();
+        assert_eq!(edt.aware(), Some(dt));
+        assert_eq!(edt.into_naive(), ndt);
+        assert_eq!(edt.or_offset(FixedOffset::east_opt(0).unwrap()), dt);
 
         let ev = EntryValue::NaiveDateTime(ndt);
-        assert_eq!(ev.as_time_components().unwrap(), (ndt, None));
+        let edt = ev.as_datetime().unwrap();
+        assert_eq!(edt.aware(), None);
+        assert_eq!(edt.into_naive(), ndt);
+        assert_eq!(edt.or_offset(offset), dt);
     }
 
     #[test]

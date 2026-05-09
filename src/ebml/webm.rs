@@ -16,6 +16,7 @@ use crate::{
     },
     error::ParsingError,
     video::{TrackInfo, TrackInfoTag},
+    EntryValue,
 };
 
 use super::{
@@ -37,7 +38,7 @@ impl From<EbmlFileInfo> for TrackInfo {
     fn from(value: EbmlFileInfo) -> Self {
         let mut info = TrackInfo::default();
         if let Some(date) = value.segment_info.date {
-            info.put(TrackInfoTag::CreateDate, date.into());
+            info.put(TrackInfoTag::CreateDate, EntryValue::DateTime(date.fixed_offset()));
         }
         info.put(
             TrackInfoTag::DurationMs,

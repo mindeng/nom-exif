@@ -43,7 +43,7 @@ fn parse_mvhd_tkhd(moov_body: &[u8]) -> BTreeMap<TrackInfoTag, EntryValue> {
 
             entries.insert(
                 TrackInfoTag::CreateDate,
-                EntryValue::Time(mvhd.creation_time()),
+                EntryValue::DateTime(mvhd.creation_time()),
             );
         }
     }
@@ -63,7 +63,7 @@ fn convert_video_tags(entries: Vec<(String, EntryValue)>) -> BTreeMap<TrackInfoT
             if k == "com.apple.quicktime.creationdate" {
                 v.as_str()
                     .and_then(|s| DateTime::parse_from_str(s, "%+").ok())
-                    .map(|t| (TrackInfoTag::CreateDate, EntryValue::Time(t)))
+                    .map(|t| (TrackInfoTag::CreateDate, EntryValue::DateTime(t)))
             } else if k == "com.apple.quicktime.make" {
                 Some((TrackInfoTag::Make, v))
             } else if k == "com.apple.quicktime.model" {

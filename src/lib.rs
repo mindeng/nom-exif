@@ -20,7 +20,7 @@ pub use video::{TrackInfo, TrackInfoTag};
 pub use parser_async::AsyncMediaSource;
 
 pub use exif::{Exif, ExifIter, ExifTag, GPSInfo, LatLng, ParsedExifEntry};
-pub use values::{EntryValue, IRational, URational};
+pub use values::{EntryValue, ExifDateTime, IRational, URational};
 
 pub use error::{ConvertError, EntryError, Error, MalformedKind};
 pub type Result<T> = std::result::Result<T, Error>;

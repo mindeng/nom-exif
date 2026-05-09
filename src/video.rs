@@ -30,7 +30,7 @@ pub enum TrackInfoTag {
     /// Its value is an `EntryValue::Text`.
     Software,
 
-    /// Its value is an [`EntryValue::Time`].
+    /// Its value is an [`EntryValue::DateTime`].
     CreateDate,
 
     /// Duration in millisecond, its value is an `EntryValue::U64`.
