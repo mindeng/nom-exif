@@ -200,9 +200,24 @@ impl LatLng {
 }
 
 impl GPSInfo {
+    /// Latitude in decimal degrees, signed by `latitude_ref` (positive = north).
+    pub fn latitude_decimal(&self) -> Option<f64> {
+        Some(self.latitude.to_decimal_degrees()? * self.latitude_ref.sign())
+    }
+
+    /// Longitude in decimal degrees, signed by `longitude_ref` (positive = east).
+    pub fn longitude_decimal(&self) -> Option<f64> {
+        Some(self.longitude.to_decimal_degrees()? * self.longitude_ref.sign())
+    }
+
+    /// Signed altitude in meters; `None` if altitude is `Unknown` or denominator=0.
+    pub fn altitude_meters(&self) -> Option<f64> {
+        self.altitude.meters()
+    }
+
     /// Returns an ISO 6709 geographic point location string such as
     /// `+48.8577+002.295/`.
-    pub fn format_iso6709(&self) -> String {
+    pub fn to_iso6709(&self) -> String {
         let latitude = self.latitude.to_decimal_degrees().unwrap_or(0.0);
         let longitude = self.longitude.to_decimal_degrees().unwrap_or(0.0);
         let altitude_meters = self.altitude.meters();
@@ -284,13 +299,12 @@ impl TryFrom<&Vec<IRational>> for LatLng {
     }
 }
 
-pub struct InvalidISO6709Coord;
-
 impl FromStr for GPSInfo {
-    type Err = InvalidISO6709Coord;
+    type Err = crate::ConvertError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let info: Self = iso6709parse::parse(s).map_err(|_| InvalidISO6709Coord)?;
-        Ok(info)
+        iso6709parse::parse::<ISO6709Coord>(s)
+            .map(GPSInfo::from)
+            .map_err(|_| crate::ConvertError::InvalidIso6709(s.to_string()))
     }
 }
 
@@ -346,7 +360,7 @@ mod tests {
             altitude: Altitude::AboveSeaLevel(URational::new(0, 1)),
             speed: None,
         };
-        assert_eq!(palace.format_iso6709(), "+39.91667+116.39083/");
+        assert_eq!(palace.to_iso6709(), "+39.91667+116.39083/");
 
         let liberty = GPSInfo {
             latitude_ref: LatRef::North,
@@ -364,7 +378,7 @@ mod tests {
             altitude: Altitude::AboveSeaLevel(URational::new(0, 1)),
             speed: None,
         };
-        assert_eq!(liberty.format_iso6709(), "+40.68917-074.04444/");
+        assert_eq!(liberty.to_iso6709(), "+40.68917-074.04444/");
 
         let above = GPSInfo {
             latitude_ref: LatRef::North,
@@ -382,7 +396,7 @@ mod tests {
             altitude: Altitude::AboveSeaLevel(URational::new(123, 1)),
             speed: None,
         };
-        assert_eq!(above.format_iso6709(), "+40.68917-074.04444+123CRSWGS_84/");
+        assert_eq!(above.to_iso6709(), "+40.68917-074.04444+123CRSWGS_84/");
 
         let below = GPSInfo {
             latitude_ref: LatRef::North,
@@ -400,7 +414,7 @@ mod tests {
             altitude: Altitude::BelowSeaLevel(URational::new(123, 1)),
             speed: None,
         };
-        assert_eq!(below.format_iso6709(), "+40.68917-074.04444-123CRSWGS_84/");
+        assert_eq!(below.to_iso6709(), "+40.68917-074.04444-123CRSWGS_84/");
 
         let below = GPSInfo {
             latitude_ref: LatRef::North,
@@ -419,7 +433,7 @@ mod tests {
             speed: None,
         };
         assert_eq!(
-            below.format_iso6709(),
+            below.to_iso6709(),
             "+40.68917-074.04444-33.333CRSWGS_84/"
         );
     }
@@ -534,5 +548,29 @@ mod tests {
         assert_eq!(SpeedUnit::from_char('N'), Some(SpeedUnit::Knots));
         assert_eq!(SpeedUnit::from_char('X'), None);
         assert_eq!(SpeedUnit::Knots.as_char(), 'N');
+    }
+
+    #[test]
+    fn gps_info_decimal_accessors() {
+        let liberty = GPSInfo {
+            latitude_ref: LatRef::North,
+            latitude: LatLng::new(URational::new(40, 1), URational::new(41, 1), URational::new(21, 1)),
+            longitude_ref: LonRef::West,
+            longitude: LatLng::new(URational::new(74, 1), URational::new(2, 1), URational::new(40, 1)),
+            altitude: Altitude::AboveSeaLevel(URational::new(123, 1)),
+            speed: None,
+        };
+        let lat = liberty.latitude_decimal().unwrap();
+        let lon = liberty.longitude_decimal().unwrap();
+        assert!((lat - 40.689_167).abs() < 1e-5);
+        assert!((lon - (-74.044_444)).abs() < 1e-5);
+        assert_eq!(liberty.altitude_meters(), Some(123.0));
+    }
+
+    #[test]
+    fn gps_info_from_str_uses_convert_error() {
+        use crate::ConvertError;
+        let err = "garbage".parse::<GPSInfo>().unwrap_err();
+        assert!(matches!(err, ConvertError::InvalidIso6709(_)));
     }
 }

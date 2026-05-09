@@ -271,7 +271,7 @@ mod tests {
             .unwrap();
         let iter = input_into_iter(data, None).unwrap();
         let gps = iter.parse_gps_info().unwrap().unwrap();
-        assert_eq!(gps.format_iso6709(), "+22.53113+114.02148/");
+        assert_eq!(gps.to_iso6709(), "+22.53113+114.02148/");
     }
 
     #[test_case("exif.jpg")]
