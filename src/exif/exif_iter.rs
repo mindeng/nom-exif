@@ -157,7 +157,7 @@ pub struct ExifIter {
     current_block_index: usize,
     /// Tags encountered so far for duplicate filtering (ifd_index, tag_code)
     encountered_tags: HashSet<(usize, u16)>,
-    has_embedded_media: bool,
+    has_embedded_track: bool,
 }
 
 impl Debug for ExifIter {
@@ -198,7 +198,7 @@ impl ExifIter {
             additional_blocks: Vec::new(),
             current_block_index: 0,
             encountered_tags: HashSet::new(),
-            has_embedded_media: false,
+            has_embedded_track: false,
         }
     }
 
@@ -218,7 +218,7 @@ impl ExifIter {
             additional_blocks: self.additional_blocks.clone(),
             current_block_index: 0,
             encountered_tags: HashSet::new(),
-            has_embedded_media: self.has_embedded_media,
+            has_embedded_track: self.has_embedded_track,
         }
     }
 
@@ -304,16 +304,37 @@ impl ExifIter {
     }
 
     /// Internal-only setter used by [`crate::MediaParser::parse_exif`] to
-    /// stamp the iterator with format-derived embedded-media information.
-    pub(crate) fn set_has_embedded_media(&mut self, v: bool) {
-        self.has_embedded_media = v;
+    /// stamp the iterator with content-detected embedded-track information.
+    pub(crate) fn set_has_embedded_track(&mut self, v: bool) {
+        self.has_embedded_track = v;
     }
 
-    /// Whether the source file carries additional embedded media that this
-    /// parse path does *not* extract — e.g. HEIC Live Photo MOV, RAF JPEG
-    /// preview. Computed from the file format alone (no iteration required).
+    /// Whether the source file is known to embed a paired media track that
+    /// `parse_exif` did *not* surface — currently this means a Pixel/Google
+    /// Motion Photo (JPEG with `GCamera:MotionPhoto` XMP and an MP4 trailer).
+    /// Use [`crate::MediaParser::parse_track`] on the same source to
+    /// extract the embedded track.
+    ///
+    /// **Content-detected, not MIME-guessed**: returns `true` only when the
+    /// parser observes concrete signals during `parse_exif` (e.g. the XMP
+    /// `GCamera:MotionPhoto="1"` attribute). A plain JPEG or HEIC without
+    /// such signals returns `false`, including iPhone Live Photo HEICs
+    /// (whose video lives in a sibling `.MOV` file, not embedded).
+    ///
+    /// **v3.1 coverage**: only Pixel/Google Motion Photo JPEGs.
+    /// Samsung Motion Photos, HEIC Live Photo with embedded `moov`, and
+    /// other formats are v3.x deliverables.
+    pub fn has_embedded_track(&self) -> bool {
+        self.has_embedded_track
+    }
+
+    /// Deprecated alias for [`Self::has_embedded_track`].
+    #[deprecated(
+        since = "3.1.0",
+        note = "renamed to `has_embedded_track`; the original `has_embedded_media` was too vague and lumped in still-image previews"
+    )]
     pub fn has_embedded_media(&self) -> bool {
-        self.has_embedded_media
+        self.has_embedded_track()
     }
 }
 

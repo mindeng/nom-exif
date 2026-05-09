@@ -5,6 +5,84 @@ use nom::{bytes::streaming, combinator::fail, number, IResult, Parser};
 use crate::error::MalformedKind;
 use crate::exif::check_exif_header;
 
+/// XMP APP1 segment payload prefix (29 bytes including the trailing NUL).
+const XMP_NS_HEADER: &[u8] = b"http://ns.adobe.com/xap/1.0/\x00";
+
+/// Find the byte length of a Pixel/Google Motion Photo trailer in a JPEG
+/// buffer.
+///
+/// Walks JPEG markers up to SOS, looking for an APP1 XMP segment that
+/// contains `GCamera:MotionPhoto="1"` together with a
+/// `GCamera:MotionPhotoOffset="N"` attribute. Returns `Some(N)` when both
+/// signals are present — `N` is the trailer length in bytes (i.e. the MP4
+/// starts at `file_size - N`). Returns `None` for plain JPEGs.
+///
+/// Conservative on error: any malformed-marker or short-buffer condition
+/// yields `None` so callers can treat absence of a Motion Photo as the
+/// default. This is content detection, not validation.
+pub(crate) fn find_motion_photo_offset(input: &[u8]) -> Option<u64> {
+    let mut remain = input;
+    loop {
+        let parsed: IResult<&[u8], (&[u8], u8)> =
+            (streaming::tag(&[0xFF_u8][..]), number::streaming::u8).parse(remain);
+        let (rem, (_, code)) = parsed.ok()?;
+        let (rem, segment) = parse_segment(code, rem).ok()?;
+        remain = rem;
+
+        if segment.marker_code == MarkerCode::Sos.code() {
+            return None;
+        }
+        if segment.marker_code == MarkerCode::APP1.code()
+            && segment.payload.starts_with(XMP_NS_HEADER)
+        {
+            let xmp = &segment.payload[XMP_NS_HEADER.len()..];
+            if let Some(offset) = parse_motion_photo_offset(xmp) {
+                return Some(offset);
+            }
+        }
+    }
+}
+
+/// Parse a Motion Photo offset value from an XMP packet body.
+///
+/// Looks for `GCamera:MotionPhoto="1"` and `GCamera:MotionPhotoOffset="N"`
+/// (or the older `GCamera:MicroVideo="1"` / `GCamera:MicroVideoOffset="N"`
+/// pair used on pre-2018 Pixels). Returns `None` if either signal is
+/// missing or the offset value is unparseable.
+fn parse_motion_photo_offset(xmp: &[u8]) -> Option<u64> {
+    let has_motion_photo = contains_attr_eq(xmp, b"GCamera:MotionPhoto", b"1")
+        || contains_attr_eq(xmp, b"GCamera:MicroVideo", b"1");
+    if !has_motion_photo {
+        return None;
+    }
+    extract_attr_value(xmp, b"GCamera:MotionPhotoOffset")
+        .or_else(|| extract_attr_value(xmp, b"GCamera:MicroVideoOffset"))
+        .and_then(|s| std::str::from_utf8(s).ok()?.parse::<u64>().ok())
+}
+
+/// True if `xmp` contains an attribute `name="value"`.
+fn contains_attr_eq(xmp: &[u8], name: &[u8], value: &[u8]) -> bool {
+    let needle = [name, b"=\"", value, b"\""].concat();
+    memchr_subslice(xmp, &needle).is_some()
+}
+
+/// Extract the quoted value of an attribute named `name`, if present.
+fn extract_attr_value<'a>(xmp: &'a [u8], name: &[u8]) -> Option<&'a [u8]> {
+    let prefix = [name, b"=\""].concat();
+    let start = memchr_subslice(xmp, &prefix)? + prefix.len();
+    let end = xmp[start..].iter().position(|&b| b == b'"')?;
+    Some(&xmp[start..start + end])
+}
+
+fn memchr_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() || haystack.len() < needle.len() {
+        return None;
+    }
+    haystack
+        .windows(needle.len())
+        .position(|w| w == needle)
+}
+
 /// Extract Exif TIFF data from the bytes of a JPEG file.
 pub(crate) fn extract_exif_data(input: &[u8]) -> IResult<&[u8], Option<&[u8]>> {
     let (remain, segment) = find_exif_segment(input)?;

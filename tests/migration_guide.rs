@@ -147,13 +147,16 @@ fn s5_5_exif_iter_clone_rewound_and_parse_gps() {
 }
 
 #[test]
-fn s5_5_has_embedded_media() {
+fn s5_5_has_embedded_track() {
     let mut parser = MediaParser::new();
-    let ms = MediaSource::open("./testdata/exif.heic").unwrap();
+    let ms = MediaSource::open("./testdata/motion_photo_pixel_synth.jpg").unwrap();
     let iter = parser.parse_exif(ms).unwrap();
-    assert!(iter.has_embedded_media(), "HEIC carries embedded media");
+    assert!(
+        iter.has_embedded_track(),
+        "Pixel-style Motion Photo carries an embedded MP4"
+    );
     let exif: Exif = iter.into();
-    assert!(exif.has_embedded_media());
+    assert!(exif.has_embedded_track());
 }
 
 // ─── §5.6 GPSInfo ──────────────────────────────────────────────────────────

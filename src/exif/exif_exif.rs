@@ -15,16 +15,16 @@ pub struct Exif {
     ifds: Vec<ParsedImageFileDirectory>,
     gps_info: Option<GPSInfo>,
     errors: Vec<(IfdIndex, TagOrCode, crate::EntryError)>,
-    has_embedded_media: bool,
+    has_embedded_track: bool,
 }
 
 impl Exif {
-    fn new(gps_info: Option<GPSInfo>, has_embedded_media: bool) -> Exif {
+    fn new(gps_info: Option<GPSInfo>, has_embedded_track: bool) -> Exif {
         Exif {
             ifds: Vec::new(),
             gps_info,
             errors: Vec::new(),
-            has_embedded_media,
+            has_embedded_track,
         }
     }
 
@@ -129,11 +129,33 @@ impl Exif {
         &self.errors
     }
 
-    /// Whether the source file carries additional embedded media that this
-    /// parse path did *not* extract — e.g. HEIC Live Photo MOV, RAF JPEG
-    /// preview.
+    /// Whether the source file's MIME family is known to potentially carry a
+    /// paired media track (e.g. HEIC Live Photo HEVC) that this parse path
+    /// did *not* surface.
+    ///
+    /// **Conservative**: MIME-level hint, not content detection. A
+    /// non–Live-Photo HEIC will still return `true`. Returns `false` for
+    /// formats whose only "embedded" payloads are still images (e.g. RAF
+    /// JPEG preview).
+    ///
+    /// **Informational only in v3.1**: there is currently no way to
+    /// extract the paired track — calling
+    /// [`crate::MediaParser::parse_track`] on the same source will return
+    /// [`crate::Error::TrackNotFound`] because HEIC dispatches as an
+    /// image. The extraction API is a v3.x deliverable; this flag exists
+    /// so callers can detect "data left behind" rather than silently
+    /// dropping it.
+    pub fn has_embedded_track(&self) -> bool {
+        self.has_embedded_track
+    }
+
+    /// Deprecated alias for [`Self::has_embedded_track`].
+    #[deprecated(
+        since = "3.1.0",
+        note = "renamed to `has_embedded_track` to reflect the actual semantics (paired track hint, not arbitrary embedded media)"
+    )]
     pub fn has_embedded_media(&self) -> bool {
-        self.has_embedded_media
+        self.has_embedded_track()
     }
 
     fn put_value(&mut self, ifd: usize, code: u16, v: EntryValue) {
@@ -147,8 +169,8 @@ impl Exif {
 impl From<ExifIter> for Exif {
     fn from(iter: ExifIter) -> Self {
         let gps_info = iter.parse_gps().ok().flatten();
-        let has_embedded_media = iter.has_embedded_media();
-        let mut exif = Exif::new(gps_info, has_embedded_media);
+        let has_embedded_track = iter.has_embedded_track();
+        let mut exif = Exif::new(gps_info, has_embedded_track);
 
         for entry in iter {
             let ifd = entry.ifd();
@@ -502,30 +524,83 @@ mod tests {
     }
 
     #[test]
-    fn has_embedded_media_true_for_heic() {
+    fn has_embedded_track_true_for_pixel_motion_photo() {
         use crate::{MediaParser, MediaSource};
         let mut parser = MediaParser::new();
-        let ms = MediaSource::open("testdata/exif.heic").unwrap();
+        let ms = MediaSource::open("testdata/motion_photo_pixel_synth.jpg").unwrap();
         let iter = parser.parse_exif(ms).unwrap();
         assert!(
-            iter.has_embedded_media(),
-            "HEIC files may carry an embedded MOV (Live Photo)"
+            iter.has_embedded_track(),
+            "Pixel-style Motion Photo carries an embedded MP4 track"
         );
         let exif: Exif = iter.into();
-        assert!(exif.has_embedded_media(), "flag survives From<ExifIter>");
+        assert!(exif.has_embedded_track(), "flag survives From<ExifIter>");
     }
 
     #[test]
-    fn has_embedded_media_false_for_plain_jpeg() {
+    fn has_embedded_track_false_for_plain_jpeg_and_heic() {
+        use crate::{MediaParser, MediaSource};
+        for path in ["testdata/exif.jpg", "testdata/exif.heic"] {
+            let mut parser = MediaParser::new();
+            let iter = parser
+                .parse_exif(MediaSource::open(path).unwrap())
+                .unwrap();
+            assert!(
+                !iter.has_embedded_track(),
+                "{path} has no Motion Photo / paired track signal"
+            );
+            let exif: Exif = iter.into();
+            assert!(!exif.has_embedded_track());
+        }
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn deprecated_has_embedded_media_still_works() {
         use crate::{MediaParser, MediaSource};
         let mut parser = MediaParser::new();
-        let ms = MediaSource::open("testdata/exif.jpg").unwrap();
+        let ms = MediaSource::open("testdata/motion_photo_pixel_synth.jpg").unwrap();
         let iter = parser.parse_exif(ms).unwrap();
-        assert!(
-            !iter.has_embedded_media(),
-            "plain JPEG does not carry embedded media"
-        );
+        // Deprecated alias must still forward to the new method.
+        assert_eq!(iter.has_embedded_media(), iter.has_embedded_track());
         let exif: Exif = iter.into();
-        assert!(!exif.has_embedded_media());
+        assert_eq!(exif.has_embedded_media(), exif.has_embedded_track());
+    }
+
+    /// End-to-end: `has_embedded_track == true` ⇒ `parse_track` extracts a
+    /// real `TrackInfo` from the same source. This locks the v3.1 contract
+    /// for Pixel/Google Motion Photo JPEGs.
+    #[test]
+    fn parse_track_extracts_motion_photo_trailer() {
+        use crate::{MediaParser, MediaSource, TrackInfoTag};
+        let path = "testdata/motion_photo_pixel_synth.jpg";
+
+        let mut p1 = MediaParser::new();
+        let iter = p1.parse_exif(MediaSource::open(path).unwrap()).unwrap();
+        assert!(iter.has_embedded_track());
+
+        let mut p2 = MediaParser::new();
+        let track = p2
+            .parse_track(MediaSource::open(path).unwrap())
+            .expect("parse_track must extract the trailer MP4");
+        assert!(
+            track.get(TrackInfoTag::Width).is_some()
+                || track.get(TrackInfoTag::Height).is_some(),
+            "trailer should yield at least one geometry tag"
+        );
+    }
+
+    /// Plain JPEGs (no Motion Photo XMP) must keep returning TrackNotFound.
+    #[test]
+    fn parse_track_on_plain_jpeg_returns_track_not_found() {
+        use crate::{Error, MediaParser, MediaSource};
+        let mut parser = MediaParser::new();
+        let err = parser
+            .parse_track(MediaSource::open("testdata/exif.jpg").unwrap())
+            .unwrap_err();
+        assert!(
+            matches!(err, Error::TrackNotFound),
+            "expected TrackNotFound, got {err:?}"
+        );
     }
 }

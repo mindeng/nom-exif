@@ -52,7 +52,6 @@ pub enum TrackInfoTag {
 pub struct TrackInfo {
     entries: BTreeMap<TrackInfoTag, EntryValue>,
     gps_info: Option<GPSInfo>,
-    has_embedded_media: bool,
 }
 
 impl TrackInfo {
@@ -75,23 +74,21 @@ impl TrackInfo {
         self.entries.iter().map(|(k, v)| (*k, v))
     }
 
-    /// Whether the source container is known to embed additional media
-    /// streams that this `parse_track` call did *not* surface (e.g. an
-    /// .mka container holding both audio and video, or an .mp4 that also
-    /// embeds a still-image track). Symmetric with
-    /// [`Exif::has_embedded_media`](crate::Exif::has_embedded_media).
-    ///
-    /// **v3.0.0 note:** detection on the track side is not yet
-    /// implemented; this currently always returns `false`. The accessor
-    /// exists so future versions can flip the flag without a breaking
-    /// API change. See spec §8.6 for the design rationale.
+    /// Deprecated: 3.0.0 reserved this for "track source also embeds a
+    /// secondary track" cases (e.g. `.mka` audio container that also
+    /// carries video) but the detection was never wired up — the method
+    /// always returned `false`. v3.1 drops the symmetric counterpart on
+    /// the image side ([`Exif::has_embedded_track`](crate::Exif::has_embedded_track))
+    /// to a content-detected flag, but the track-source variant stays
+    /// without a real use case, so this remains a no-op for source
+    /// compatibility only. May be re-introduced if a concrete use case
+    /// emerges.
+    #[deprecated(
+        since = "3.1.0",
+        note = "no concrete use case in v3.x; always returned false in 3.0.0. Kept as a no-op for source-compat; will be removed if no use case emerges by v4."
+    )]
     pub fn has_embedded_media(&self) -> bool {
-        self.has_embedded_media
-    }
-
-    #[allow(dead_code)] // staged: real callers land in v3.x
-    pub(crate) fn set_has_embedded_media(&mut self, v: bool) {
-        self.has_embedded_media = v;
+        false
     }
 
     pub(crate) fn put(&mut self, tag: TrackInfoTag, value: EntryValue) {
@@ -299,13 +296,15 @@ mod p6_baseline {
     }
 
     #[test]
-    fn track_info_has_embedded_media_default_false() {
-        // v3.0.0 ships the API contract; detection is a v3.x deliverable.
-        // This test pins the day-one behavior so accidentally flipping it
-        // requires explicit ack.
+    #[allow(deprecated)]
+    fn track_info_deprecated_has_embedded_media_returns_false() {
+        // 3.0.0 reserved this method for a "track source carries another
+        // embedded track" detection that never materialized. v3.1 leaves
+        // it as a deprecated no-op until a real use case shows up.
         let mut parser = crate::MediaParser::new();
-        let ms = crate::MediaSource::open("testdata/meta.mov").unwrap();
-        let info = parser.parse_track(ms).unwrap();
+        let info = parser
+            .parse_track(crate::MediaSource::open("testdata/meta.mov").unwrap())
+            .unwrap();
         assert!(!info.has_embedded_media());
     }
 }

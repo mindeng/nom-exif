@@ -705,27 +705,72 @@ impl MediaParser {
         res
     }
 
-    /// Parse track info from a video/audio source. Returns `Error::TrackNotFound`
-    /// if the source is an `Image` (use [`Self::parse_exif`] instead).
+    /// Parse track info from a video/audio source.
+    ///
+    /// In v3.1, this also accepts JPEG images that carry an embedded
+    /// Pixel/Google Motion Photo trailer: when [`ExifIter::has_embedded_track`]
+    /// returned `true` for such a JPEG, calling `parse_track` on the same
+    /// source extracts the embedded MP4's metadata. Other image formats
+    /// without an embedded track return [`crate::Error::TrackNotFound`].
     pub fn parse_track<R: Read>(&mut self, mut ms: MediaSource<R>) -> crate::Result<TrackInfo> {
         self.reset();
         self.acquire_buf();
         self.buf_mut().append(&mut ms.buf);
         let res: crate::Result<TrackInfo> = (|| {
             self.fill_buf(&mut ms.reader, INIT_BUF_SIZE)?;
-            let mime_track = match ms.mime {
-                crate::file::MediaMime::Image(_) => return Err(crate::Error::TrackNotFound),
-                crate::file::MediaMime::Track(t) => t,
-            };
-            let skip = ms.skip_by_seek;
-            let out = self.load_and_parse(ms.reader.by_ref(), skip, |data, _| {
-                crate::video::parse_track_info(data, mime_track)
-                    .map_err(|e| ParsingErrorState::new(e, None))
-            })?;
-            Ok(out)
+            match ms.mime {
+                crate::file::MediaMime::Image(crate::file::MediaMimeImage::Jpeg) => {
+                    self.parse_jpeg_motion_photo(&mut ms.reader)
+                }
+                crate::file::MediaMime::Image(_) => Err(crate::Error::TrackNotFound),
+                crate::file::MediaMime::Track(mime_track) => {
+                    let skip = ms.skip_by_seek;
+                    Ok(self.load_and_parse(ms.reader.by_ref(), skip, |data, _| {
+                        crate::video::parse_track_info(data, mime_track)
+                            .map_err(|e| ParsingErrorState::new(e, None))
+                    })?)
+                }
+            }
         })();
         self.reset();
         res
+    }
+
+    /// Read a JPEG to EOF, locate a Pixel-style Motion Photo MP4 trailer,
+    /// and parse it as track metadata. Returns
+    /// [`crate::Error::TrackNotFound`] if no Motion Photo signal is
+    /// present in the JPEG's XMP.
+    fn parse_jpeg_motion_photo<R: Read>(&mut self, reader: &mut R) -> crate::Result<TrackInfo> {
+        // Drain the rest of the JPEG into the parse buffer so we can
+        // address the trailing MP4 by its byte offset from EOF.
+        reader.read_to_end(self.buf_mut())?;
+        let buf = self.buf_mut();
+        let Some(offset) = crate::jpeg::find_motion_photo_offset(buf) else {
+            return Err(crate::Error::TrackNotFound);
+        };
+        let trailer_start = (buf.len() as u64)
+            .checked_sub(offset)
+            .ok_or(crate::Error::TrackNotFound)? as usize;
+        let trailer = &buf[trailer_start..];
+
+        // The trailer can be MP4 / MOV / 3gp depending on the source device;
+        // dispatch by sniffing it as a fresh ISO BMFF input.
+        let trailer_mime = crate::file::MediaMime::try_from(trailer)
+            .map_err(|_| crate::Error::TrackNotFound)?;
+        let mime_track = match trailer_mime {
+            crate::file::MediaMime::Track(t) => t,
+            crate::file::MediaMime::Image(_) => return Err(crate::Error::TrackNotFound),
+        };
+        crate::video::parse_track_info(trailer, mime_track).map_err(|e| match e {
+            crate::error::ParsingError::Need(_)
+            | crate::error::ParsingError::ClearAndSkip(_) => crate::Error::UnexpectedEof {
+                context: "motion-photo trailer",
+            },
+            crate::error::ParsingError::Failed(msg) => crate::Error::Malformed {
+                kind: crate::error::MalformedKind::IsoBmffBox,
+                message: msg,
+            },
+        })
     }
 
     /// Parse Exif metadata from an in-memory byte payload built via

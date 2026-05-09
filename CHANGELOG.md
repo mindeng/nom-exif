@@ -1,5 +1,61 @@
 # Changelog
 
+## nom-exif v3.1.0 (unreleased)
+
+### Added
+
+- **Pixel/Google Motion Photo support.** `parse_exif` now scans JPEG XMP
+  for the `GCamera:MotionPhoto="1"` signal during its existing APP-marker
+  walk; when present, [`Exif::has_embedded_track`] /
+  [`ExifIter::has_embedded_track`] returns `true`. `parse_track` on the
+  same JPEG locates the trailing MP4 (via `GCamera:MotionPhotoOffset`)
+  and parses it as track metadata — previously it returned
+  `Error::TrackNotFound` for any image MIME.
+- New synthetic test fixture `testdata/motion_photo_pixel_synth.jpg`
+  built from existing repo files via
+  `testdata/scripts/build_motion_photo_fixture.py` (no third-party
+  content; legally clean).
+
+### Renamed
+
+- `Exif::has_embedded_media()` → `Exif::has_embedded_track()`
+- `ExifIter::has_embedded_media()` → `ExifIter::has_embedded_track()`
+
+The original names implied "any embedded media" but the actual semantics
+target a paired media track. Old names remain as `#[deprecated]`
+aliases.
+
+### Deprecated (no replacement)
+
+- `TrackInfo::has_embedded_media()` is now deprecated and always returns
+  `false`. The 3.0.0 method was reserved for "track source carries
+  another embedded track" detection (e.g. mka with both audio and video)
+  but the detection was never wired up. Without a concrete use case
+  there is no symmetric `TrackInfo::has_embedded_track()` in v3.1; the
+  deprecated method stays as a no-op for source compatibility.
+
+### Changed
+
+- `has_embedded_track` is now **content-detected**, not MIME-guessed. In
+  3.0.0 this flag was `true` for any HEIC/HEIF/RAF source whether or not
+  a track actually existed; in 3.1.0 it returns `true` only when concrete
+  content signals are observed (Pixel Motion Photo XMP for now). Plain
+  HEIC, plain JPEG, and RAF correctly return `false`. iPhone Live Photos
+  remain `false` for the HEIC half (the video is a sibling `.MOV` file).
+
+### Fixed
+
+- `MediaMimeImage::Raf` no longer flips `has_embedded_track()` to `true`
+  — RAF's preview is a still JPEG, not a media track.
+
+### v3.x roadmap (not in 3.1)
+
+- Samsung Motion Photo (different XMP namespace + Samsung-specific
+  trailer marker)
+- HEIC Live Photo with embedded `moov` box (rare; common Apple Live
+  Photos already work via paired `.MOV` files)
+- Older Pixel `MicroVideo` format detection
+
 ## nom-exif v3.0.0 (2026-05-09)
 
 **Breaking release.** The public API has been reshaped end-to-end. The

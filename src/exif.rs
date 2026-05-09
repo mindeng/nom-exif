@@ -24,16 +24,6 @@ pub mod gps;
 mod tags;
 mod travel;
 
-/// Whether a given image MIME family is known to carry embedded media that
-/// `parse_exif` does not extract (HEIC Live Photo MOV, RAF JPEG preview, …).
-/// Used by `MediaParser::parse_exif` to stamp the returned `ExifIter`.
-fn mime_has_embedded_media(mime: MediaMimeImage) -> bool {
-    matches!(
-        mime,
-        MediaMimeImage::Heic | MediaMimeImage::Heif | MediaMimeImage::Raf
-    )
-}
-
 #[tracing::instrument(skip(reader, skip_by_seek))]
 pub(crate) fn parse_exif_iter<R: Read>(
     parser: &mut MediaParser,
@@ -43,18 +33,14 @@ pub(crate) fn parse_exif_iter<R: Read>(
 ) -> Result<ExifIter, crate::Error> {
     // For CR3 files, we need special handling to get all CMT blocks
     if mime_img == MediaMimeImage::Cr3 {
-        let mut iter = parse_cr3_exif_iter(parser, reader, skip_by_seek)?;
-        iter.set_has_embedded_media(mime_has_embedded_media(mime_img));
-        return Ok(iter);
+        return parse_cr3_exif_iter(parser, reader, skip_by_seek);
     }
 
     let out = parser.load_and_parse(reader, skip_by_seek, |buf, state| {
         extract_exif_range(mime_img, buf, state)
     })?;
 
-    let mut iter = range_to_iter(parser, out)?;
-    iter.set_has_embedded_media(mime_has_embedded_media(mime_img));
-    Ok(iter)
+    range_to_iter(parser, mime_img, out)
 }
 
 /// Special parser for CR3 files that extracts all CMT blocks (CMT1, CMT2, CMT3)
@@ -157,6 +143,7 @@ fn extract_exif_range(
 
 fn range_to_iter(
     parser: &mut impl ShareBuf,
+    mime_img: MediaMimeImage,
     out: Option<(Range<usize>, Option<TiffHeader>)>,
 ) -> Result<ExifIter, crate::Error> {
     if let Some((range, header)) = out {
@@ -164,11 +151,23 @@ fn range_to_iter(
         let (full, position) = parser.share_buf();
         let abs = (range.start + position)..(range.end + position);
         let view = full.slice(abs);
-        let iter = input_into_iter(view, header)?;
+        let mut iter = input_into_iter(view, header)?;
+        iter.set_has_embedded_track(detect_embedded_track(mime_img, &full[position..]));
         Ok(iter)
     } else {
         tracing::debug!("Exif not found");
         Err(crate::Error::ExifNotFound)
+    }
+}
+
+/// Content-detect whether the source carries an embedded media track that
+/// `parse_track` could extract. v3.1 covers Pixel/Google Motion Photo
+/// JPEGs only; Samsung Motion Photo, HEIC Live Photo with embedded `moov`,
+/// and other formats are v3.x deliverables.
+fn detect_embedded_track(mime_img: MediaMimeImage, head: &[u8]) -> bool {
+    match mime_img {
+        MediaMimeImage::Jpeg => jpeg::find_motion_photo_offset(head).is_some(),
+        _ => false,
     }
 }
 
@@ -189,9 +188,7 @@ where
         })
         .await?;
 
-    let mut iter = range_to_iter(parser, out)?;
-    iter.set_has_embedded_media(mime_has_embedded_media(mime_img));
-    Ok(iter)
+    range_to_iter(parser, mime_img, out)
 }
 
 #[tracing::instrument(skip(buf))]

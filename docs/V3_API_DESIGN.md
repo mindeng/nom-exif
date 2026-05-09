@@ -263,7 +263,7 @@ pub enum MediaKind {
 
 // 注：MediaKind 是封闭 enum（无 #[non_exhaustive]）。
 // §8.6 论证 MediaKind 与 Metadata 永远只有两个 variant；HEIC 内嵌 MOV 等
-// 场景属于 *embedded media extraction* 范畴（见 `Exif::has_embedded_media()`、
+// 场景属于 *embedded track extraction* 范畴（见 `Exif::has_embedded_track()`、
 // 未来的 `MediaSource::extract_embedded()`），不通过此 enum 表达。
 //
 // 注：`MediaMime`（具体格式 enum：Jpeg/Heic/Heif/.../Mp4/Mov/...）保持
@@ -427,9 +427,15 @@ impl Exif {
     /// 用户可以通过此方法定位坏 entry 而不必走 lazy 路径。
     pub fn errors(&self) -> &[(IfdIndex, TagOrCode, EntryError)];
 
-    /// 此文件是否嵌入了未被本次解析处理的额外媒体流
-    /// （例如 HEIC Live Photo 的 MOV、RAF 的 JPEG preview）。
-    /// 见 §8.6 关于 embedded media 的说明。
+    /// 此文件是否嵌入了一段未被本次解析处理的媒体 track（例如 Pixel/Google
+    /// Motion Photo JPEG 末尾追加的 MP4）。基于 parse_exif 期间观察到的
+    /// 内容信号判定（如 `GCamera:MotionPhoto="1"` XMP 属性），不做 MIME
+    /// 级猜测。`true` 时调用 `parse_track` 即可拿到嵌入 track 的元数据。
+    /// 见 §8.6。
+    pub fn has_embedded_track(&self) -> bool;
+
+    /// Deprecated（3.1.0）：等同于 `has_embedded_track()`。
+    #[deprecated]
     pub fn has_embedded_media(&self) -> bool;
 }
 
@@ -475,8 +481,12 @@ impl ExifIter {
     pub fn clone_rewound(&self) -> Self;
     pub fn parse_gps(&self) -> Result<Option<GPSInfo>>;
 
-    /// 与 `Exif::has_embedded_media()` 同义；header 解析后即可返回，
+    /// 与 `Exif::has_embedded_track()` 同义；header 解析后即可返回，
     /// 不需要驱动迭代器。
+    pub fn has_embedded_track(&self) -> bool;
+
+    /// Deprecated（3.1.0）：等同于 `has_embedded_track()`。
+    #[deprecated]
     pub fn has_embedded_media(&self) -> bool;
 }
 
@@ -818,8 +828,11 @@ impl TrackInfo {
     pub fn gps_info(&self) -> Option<&GPSInfo>;     // 改名（去掉 get_）
     pub fn iter(&self) -> impl Iterator<Item = (TrackInfoTag, &EntryValue)>;
 
-    /// 此容器是否嵌入了未被本次解析处理的额外媒体流。与 `Exif::has_embedded_media()`
-    /// 对称（如 mka 含视频流而本次只解析了 audio track）。见 §8.6。
+    /// Deprecated（3.1.0）：3.0.0 预留用于"track 源里又嵌一个 track"
+    /// 检测，但从未真正实现，永远返回 false。3.1.0 不再保留对称的
+    /// `has_embedded_track`，只留这个 no-op 占位以保持源兼容；如果
+    /// 未来出现真实用例再重新引入。
+    #[deprecated]
     pub fn has_embedded_media(&self) -> bool;
 }
 
@@ -881,10 +894,10 @@ pub enum Metadata {
 // 理由与 MediaKind 一致——当前 parser 的 MIME 探测层就是二选一，加 Both
 // 会成为永远不返回的死代码 API。
 //
-// 用户判断"是否还有未解析的元数据"通过 `Exif::has_embedded_media()` 或
-// `TrackInfo::has_embedded_media()`（如 HEIC Live Photo）。真有"既需要 Exif
-// 又需要 track"的场景，调用方应分别调用 read_exif 与 read_track 并各自处理
-// ExifNotFound/TrackNotFound 错误。
+// 用户判断"图片里是否还嵌了一段 track"通过 `Exif::has_embedded_track()`
+// （Pixel Motion Photo 等）。真有"既需要 Exif 又需要 track"的场景，
+// 调用方应分别调用 read_exif 与 read_track 并各自处理 ExifNotFound /
+// TrackNotFound 错误。
 
 // async 版本（feature = "tokio"）
 #[cfg(feature = "tokio")]
@@ -994,7 +1007,7 @@ Feature 改名（`async` → `tokio`、`json_dump` → `serde`）的设计动机
 以下问题在 2026-05-08 的设计 review 中均已决议。后续如发现实现障碍或新证据，可重新讨论。
 
 1. ~~**`Exif::iter()` 的 item 类型？**~~ **已决议**：保持 `ExifEntry<'a>` struct（零拷贝引用），不退化为元组。理由：未来扩展（增加 IFD 内偏移量、原始字节等字段）不需要破坏 API；用户用 `entry.tag` / `entry.value` 比 `entry.0` / `entry.1` 可读性更好。
-2. ~~**`Metadata::Both` variant？**~~ **已决议**：不加。`MediaKind` 与 `Metadata` 都保持二选一（封闭 enum，无 `#[non_exhaustive]`）。HEIC 内嵌 MOV 等场景属于 *embedded media extraction* 范畴：当前通过 `Exif::has_embedded_media()` / `ExifIter::has_embedded_media()` / `TrackInfo::has_embedded_media()` 让用户感知"还有未解析的数据"，未来通过独立 API（如 `MediaSource::extract_embedded()`）暴露具体流。详见 §8.6。
+2. ~~**`Metadata::Both` variant？**~~ **已决议**：不加。`MediaKind` 与 `Metadata` 都保持二选一（封闭 enum，无 `#[non_exhaustive]`）。Pixel Motion Photo 等"图片里嵌一段 track"的场景属于 *embedded track extraction* 范畴：当前通过 `Exif::has_embedded_track()` / `ExifIter::has_embedded_track()`（基于内容检测置位）+ `parse_track` 在 image MIME 上的 polymorphic 分支拿到嵌入 track。3.0.0 的 `has_embedded_media()` 是已 deprecated 的别名。详见 §8.6。
 3. ~~**`MediaSource` 的 skip fallback？**~~ **已决议**：`seek` 失败时返回 `Error::Io(...)`，不静默回退到 `Read`。理由：静默回退会掩盖真实问题（例如调用方传入了被截断的 file handle），且性能特征会突然劣化让用户难以诊断。
 4. ~~**`async` feature 命名 / 多 runtime 支持？**~~ **已决议**：feature 改名为 `tokio`（不再用误导性的 `async`）。v3 仅支持 tokio，未来如需 async-std/smol 平行新增对应 feature。详见 §8.7。
 5. ~~**`json_dump` feature？**~~ **已决议**：feature 改名为 `serde`（与生态惯例对齐）。仍直接派生 `Serialize` / `Deserialize`，不抽象为 `to_json` 方法——保持下游灵活性最大（任何 serde-compatible 格式都能用，不锁死 JSON）。详见 §8.8。
@@ -1038,8 +1051,9 @@ EXIF 子 IFD 数量是开放的（某些相机有 SubIFD2/3...），用 enum 限
 
 - **当前 MIME 探测层就是二选一**：`MediaKind::Image | Track`（内部根据格式 sniff 分类，具体格式 enum 当前 pub(crate)），HEIC 会被归为 `Image`，parser 不会去解析其内嵌的 MOV 流。即使 enum 加 `Both`，目前没有任何代码路径会构造它——这是死代码。
 - **加 `Both` 让所有调用方付出代价**：`match` 需要多一条分支，但 99% 的文件只有一种元数据。便利性反而下降。
-- **正确的解法是 *embedded media extraction***：未来通过独立 API（如 `MediaSource::extract_embedded() -> impl Iterator<Item = MediaSource>`）暴露内嵌流，由用户对每个流单独 `parse_exif` / `parse_track`。这与"当前文件的元数据是什么"是正交问题。
-- **v3 day-one 的妥协**：`Exif::has_embedded_media()` / `ExifIter::has_embedded_media()` / `TrackInfo::has_embedded_media()` 三个方法返回 bool，让用户至少能感知"还有数据没拿到"——避免 Live Photo HEIC 的内嵌 MOV 被静默丢失而用户无从察觉。具体内嵌流的提取留给 v3.x。
+- **正确的解法是 *embedded track extraction***：未来通过独立 API（如 `MediaSource::extract_embedded() -> impl Iterator<Item = MediaSource>`）暴露内嵌流，由用户对每个流单独 `parse_exif` / `parse_track`。这与"当前文件的元数据是什么"是正交问题。
+- **v3.1 的取舍**：`Exif::has_embedded_track()` / `ExifIter::has_embedded_track()` 两个方法返回 bool，告诉用户"图片里还嵌了一段 track 待提取"。`parse_track` 对 image MIME 加 polymorphic 分支，命中即抽出来。
+  > **3.1 升级历程**：(a) v3.0.0 这两个方法叫 `has_embedded_media()`，3.1.0 改名为 `has_embedded_track()`，旧名作为 `#[deprecated]` 别名保留；(b) 实现从"MIME 级猜测"升级为"内容检测"——`parse_exif` 走 JPEG 路径时扫描 XMP，看见 `GCamera:MotionPhoto="1"` 才置位（覆盖 Pixel/Google Motion Photo），其他格式默认 false；(c) `parse_track` 对 image MIME 不再立即 `TrackNotFound`：JPEG 走 polymorphic 路径，扫到 Motion Photo trailer 就解析其内嵌 MP4 返回 `TrackInfo`。Samsung Motion Photo、HEIC + `moov` 留 v3.x。`TrackInfo::has_embedded_media` 在 3.0.0 是预留位（永远 false，从未实装），3.1 维持 deprecated no-op，等真实用例再考虑重新引入。
 
 如果将来真的有需要同时返回多种元数据的场景，宁可在 v3.x 引入新方法（如 `read_all_metadata`），也不要在 `MediaKind` 上加 `Both`——后者会让所有现有调用方被迫升级。
 

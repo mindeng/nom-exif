@@ -78,7 +78,7 @@ let meta = nom_exif::read_metadata("file.heic")?;   // returns Metadata::{Exif,T
 | `entry.take_result()` (panic risk) | `entry.into_result()` (consumes `self`) |
 | `iter.clone_and_rewind()` | `iter.clone_rewound()` (or `let mut x = iter.clone(); x.rewind();`) |
 | `iter.parse_gps_info()` | `iter.parse_gps()` |
-| (none) | New: `Exif::has_embedded_media()` / `ExifIter::has_embedded_media()` — true when the container embeds an unparsed extra media stream (e.g. HEIC Live Photo) |
+| (none) | New: `Exif::has_embedded_track()` / `ExifIter::has_embedded_track()` — content-detected flag set when `parse_exif` sees a Pixel/Google Motion Photo XMP signal (`GCamera:MotionPhoto="1"`). For such files, `parse_track` on the same source extracts the embedded MP4. <br> *Renamed in 3.1.0 from the original `has_embedded_media()`; the old name is a `#[deprecated]` alias. The 3.0.0 implementation was a coarse MIME-level guess (RAF/HEIC always true even when no track was actually present); 3.1 replaces that with content detection. v3.1 covers Pixel/Google Motion Photo JPEGs only — Samsung Motion Photo and HEIC Live Photo with embedded `moov` are v3.x deliverables.* |
 
 ## 6. GPSInfo
 
@@ -164,4 +164,4 @@ Feature names only — semantics and functionality are unchanged.
 | `TryFrom<&str> for TrackInfoTag` (with `UnknownTrackInfoTag` error) | `TrackInfoTag::from_str("Make")` (impl `FromStr`, `Err = ConvertError`) |
 | `From<BTreeMap<TrackInfoTag, EntryValue>> for TrackInfo` | Removed — internal construction detail, not part of the public API |
 | `IntoIterator for TrackInfo` (owned iteration) | Removed — use `info.iter()` instead |
-| (none) | New: `TrackInfo::has_embedded_media()` (always `false` in 3.0.0; reserved for parity with `Exif::has_embedded_media`) |
+| `TrackInfo::has_embedded_media()` | Deprecated, no replacement. 3.0.0 reserved this for "track source carries another embedded track" detection that was never wired up (always returned `false`). v3.1 leaves it as a deprecated no-op until a real use case emerges; the symmetric `has_embedded_track` was added to `Exif`/`ExifIter` only. |

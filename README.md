@@ -134,6 +134,44 @@ let iter = parser.parse_exif_from_bytes(ms)?;
 `bytes::Bytes`: `Vec<u8>`, `&'static [u8]`, `Bytes`, and HTTP-body types
 that implement `Into<Bytes>` directly.
 
+## Embedded Media Tracks (Motion Photos)
+
+Pixel and Google phones store **Motion Photos** as a single JPEG with a
+short MP4 video appended after the image data. `parse_exif` reads the
+photo's EXIF as usual and sets a flag when it sees the
+`GCamera:MotionPhoto="1"` XMP signal; `parse_track` on the same source
+then extracts the embedded MP4's metadata.
+
+```rust
+use nom_exif::{MediaParser, MediaSource, TrackInfoTag};
+
+let path = "PXL_20240101_120000000.MP.jpg";
+let mut parser = MediaParser::new();
+
+// 1. Parse the still image as usual.
+let iter = parser.parse_exif(MediaSource::open(path)?)?;
+println!("has_embedded_track = {}", iter.has_embedded_track());
+
+// 2. If true, re-open the source (parse_exif consumed it) and call
+//    parse_track to extract the embedded MP4's metadata.
+if iter.has_embedded_track() {
+    let track = parser.parse_track(MediaSource::open(path)?)?;
+    println!("video {:?}x{:?}",
+        track.get(TrackInfoTag::Width),
+        track.get(TrackInfoTag::Height));
+}
+# Ok::<(), nom_exif::Error>(())
+```
+
+`has_embedded_track` is **content-detected**, not a MIME-level guess — a
+plain JPEG without the Motion Photo XMP returns `false` and `parse_track`
+returns `Error::TrackNotFound`. For Apple Live Photos the video lives in
+a sibling `.MOV` file rather than embedded in the HEIC, so the flag is
+`false` for those — call `parse_track` on the `.MOV` directly.
+
+**v3.1 coverage**: Pixel/Google Motion Photo JPEGs only. Samsung Motion
+Photos and HEIC Live Photos with embedded `moov` are v3.x deliverables.
+
 ## Two API styles for Exif
 
 The library exposes both **eager** and **lazy** views of EXIF metadata.

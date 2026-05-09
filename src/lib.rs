@@ -99,13 +99,41 @@
 //!   `MediaParser::parse_*_async`).
 //! - `serde` — derives `Serialize`/`Deserialize` on the public types.
 //!
-//! # Embedded media
+//! # Embedded media tracks
 //!
-//! Some formats (HEIC Live Photos, RAF JPEG previews, …) embed media
-//! streams that `parse_exif` does not surface. The
-//! [`Exif::has_embedded_media`] / [`ExifIter::has_embedded_media`] /
-//! [`TrackInfo::has_embedded_media`] flags let callers detect this; the
-//! actual extraction API is a v3.x deliverable.
+//! Some images embed a media track that `parse_exif` doesn't surface —
+//! most commonly **Pixel/Google Motion Photo** JPEGs, which carry a short
+//! MP4 video appended after the JPEG image data. The
+//! [`Exif::has_embedded_track`] / [`ExifIter::has_embedded_track`] flags
+//! are set by `parse_exif` when it observes a concrete content signal
+//! (e.g. the `GCamera:MotionPhoto="1"` XMP attribute). When the flag is
+//! `true`, call [`MediaParser::parse_track`] on the same source to
+//! extract the embedded MP4's metadata — `parse_track` automatically
+//! locates and parses the trailer.
+//!
+//! ```no_run
+//! use nom_exif::{MediaParser, MediaSource};
+//! let mut parser = MediaParser::new();
+//! let path = "PXL_20240101_120000000.MP.jpg";
+//! let iter = parser.parse_exif(MediaSource::open(path)?)?;
+//! if iter.has_embedded_track() {
+//!     // Re-open: MediaSource is consumed by parse_exif.
+//!     let track = parser.parse_track(MediaSource::open(path)?)?;
+//!     // ...
+//! }
+//! # Ok::<(), nom_exif::Error>(())
+//! ```
+//!
+//! **v3.1 coverage**: Pixel/Google Motion Photo JPEGs only. Samsung
+//! Motion Photos (different XMP namespace + Samsung-specific trailer)
+//! and HEIC Live Photo with embedded `moov` are v3.x deliverables.
+//!
+//! For Apple Live Photos the video lives in a sibling `.MOV` file rather
+//! than embedded in the HEIC, so `has_embedded_track` is `false` for
+//! those — call `parse_track` on the `.MOV` directly.
+//!
+//! The pre-3.1 names (`has_embedded_media`) are `#[deprecated]` aliases
+//! that forward to the new methods.
 
 pub use parser::{MediaKind, MediaParser, MediaSource};
 pub use video::{TrackInfo, TrackInfoTag};
