@@ -84,7 +84,7 @@ fn convert_video_tags(entries: Vec<(String, EntryValue)>) -> BTreeMap<TrackInfoT
                     .and_then(parse_udta_auth)
                     .map(|v| (TrackInfoTag::Author, EntryValue::Text(v)))
             } else if k.starts_with("udta.") {
-                let tag = TryInto::<TrackInfoTag>::try_into(k.as_str()).ok();
+                let tag = k.as_str().parse::<TrackInfoTag>().ok();
                 tag.map(|t| (t, v))
             } else {
                 None

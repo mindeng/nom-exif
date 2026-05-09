@@ -1,9 +1,4 @@
-use std::{
-    collections::{btree_map::IntoIter, BTreeMap},
-    fmt::Display,
-};
-
-use thiserror::Error;
+use std::collections::{btree_map::IntoIter, BTreeMap};
 
 use crate::{
     ebml::webm::parse_webm,
@@ -202,26 +197,9 @@ impl TrackInfoTag {
     }
 }
 
-impl Display for TrackInfoTag {
+impl std::fmt::Display for TrackInfoTag {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s: &str = (*self).into();
-        s.fmt(f)
-    }
-}
-
-impl From<TrackInfoTag> for &str {
-    fn from(value: TrackInfoTag) -> Self {
-        match value {
-            TrackInfoTag::Make => "Make",
-            TrackInfoTag::Model => "Model",
-            TrackInfoTag::Software => "Software",
-            TrackInfoTag::CreateDate => "CreateDate",
-            TrackInfoTag::DurationMs => "DurationMs",
-            TrackInfoTag::ImageWidth => "ImageWidth",
-            TrackInfoTag::ImageHeight => "ImageHeight",
-            TrackInfoTag::GpsIso6709 => "GpsIso6709",
-            TrackInfoTag::Author => "Author",
-        }
+        f.write_str(self.name())
     }
 }
 
@@ -244,29 +222,6 @@ impl std::str::FromStr for TrackInfoTag {
     }
 }
 
-#[derive(Debug, Error)]
-#[error("unknown TrackInfoTag: {0}")]
-pub struct UnknownTrackInfoTag(pub String);
-
-impl TryFrom<&str> for TrackInfoTag {
-    type Error = UnknownTrackInfoTag;
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let tag = match value {
-            "Make" => TrackInfoTag::Make,
-            "Model" => TrackInfoTag::Model,
-            "Software" => TrackInfoTag::Software,
-            "CreateDate" => TrackInfoTag::CreateDate,
-            "DurationMs" => TrackInfoTag::DurationMs,
-            "ImageWidth" => TrackInfoTag::ImageWidth,
-            "ImageHeight" => TrackInfoTag::ImageHeight,
-            "GpsIso6709" => TrackInfoTag::GpsIso6709,
-            "Author" => TrackInfoTag::Author,
-            x => return Err(UnknownTrackInfoTag(x.to_owned())),
-        };
-
-        Ok(tag)
-    }
-}
 
 #[cfg(test)]
 mod p6_baseline {
