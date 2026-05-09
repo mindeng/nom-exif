@@ -853,6 +853,27 @@ mod tests {
         let _: TrackInfo = parser.parse_track(mf).unwrap_or_default();
     }
 
+    // Regression: a crafted ISOBMFF file declares an extended 64-bit box size
+    // just under MAX_ALLOC_SIZE (~1 GB). Pre-fix, the unseekable parser called
+    // reserve_exact() with that size before reading, allocating ~1 GB even when
+    // the actual stream contained only a few KB. See commit 81f9e8a.
+    #[test]
+    fn parse_oom_large_box() {
+        let mut parser = parser();
+
+        let mf = MediaSource::seekable(open_sample("oom_large_box.heic").unwrap()).unwrap();
+        let _: Result<ExifIter, _> = parser.parse_exif(mf);
+
+        let mf = MediaSource::unseekable(open_sample("oom_large_box.heic").unwrap()).unwrap();
+        let _: Result<ExifIter, _> = parser.parse_exif(mf);
+
+        let mf = MediaSource::seekable(open_sample("oom_large_box.heic").unwrap()).unwrap();
+        let _: TrackInfo = parser.parse_track(mf).unwrap_or_default();
+
+        let mf = MediaSource::unseekable(open_sample("oom_large_box.heic").unwrap()).unwrap();
+        let _: TrackInfo = parser.parse_track(mf).unwrap_or_default();
+    }
+
     #[test]
     fn media_kind_classifies_image_and_track() {
         let img = MediaSource::open("testdata/exif.jpg").unwrap();
