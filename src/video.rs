@@ -52,6 +52,7 @@ pub enum TrackInfoTag {
 pub struct TrackInfo {
     entries: BTreeMap<TrackInfoTag, EntryValue>,
     gps_info: Option<GPSInfo>,
+    has_embedded_media: bool,
 }
 
 impl TrackInfo {
@@ -72,6 +73,25 @@ impl TrackInfo {
     /// included here — get it via [`TrackInfo::gps_info`].
     pub fn iter(&self) -> impl Iterator<Item = (TrackInfoTag, &EntryValue)> {
         self.entries.iter().map(|(k, v)| (*k, v))
+    }
+
+    /// Whether the source container is known to embed additional media
+    /// streams that this `parse_track` call did *not* surface (e.g. an
+    /// .mka container holding both audio and video, or an .mp4 that also
+    /// embeds a still-image track). Symmetric with
+    /// [`Exif::has_embedded_media`](crate::Exif::has_embedded_media).
+    ///
+    /// **v3.0.0 note:** detection on the track side is not yet
+    /// implemented; this currently always returns `false`. The accessor
+    /// exists so future versions can flip the flag without a breaking
+    /// API change. See spec §8.6 for the design rationale.
+    pub fn has_embedded_media(&self) -> bool {
+        self.has_embedded_media
+    }
+
+    #[allow(dead_code)] // staged: real callers land in v3.x
+    pub(crate) fn set_has_embedded_media(&mut self, v: bool) {
+        self.has_embedded_media = v;
     }
 
     pub(crate) fn put(&mut self, tag: TrackInfoTag, value: EntryValue) {
@@ -178,6 +198,7 @@ impl From<BTreeMap<TrackInfoTag, EntryValue>> for TrackInfo {
         Self {
             entries,
             gps_info: None,
+            has_embedded_media: false,
         }
     }
 }
@@ -292,5 +313,16 @@ mod p6_baseline {
         use std::str::FromStr;
         let err = TrackInfoTag::from_str("Bogus").unwrap_err();
         assert!(matches!(err, ConvertError::UnknownTagName(s) if s == "Bogus"));
+    }
+
+    #[test]
+    fn track_info_has_embedded_media_default_false() {
+        // v3.0.0 ships the API contract; detection is a v3.x deliverable.
+        // This test pins the day-one behavior so accidentally flipping it
+        // requires explicit ack.
+        let mut parser = crate::MediaParser::new();
+        let ms = crate::MediaSource::open("testdata/meta.mov").unwrap();
+        let info = parser.parse_track(ms).unwrap();
+        assert!(!info.has_embedded_media());
     }
 }
