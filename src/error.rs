@@ -61,7 +61,7 @@ pub(crate) enum ParsedError {
 ///   operations, or preferably, by designing an appropriate network protocol for
 ///   skipping.
 ///
-/// # [`ParsingError::Skip`]
+/// # [`ParsingError::ClearAndSkip`]
 ///
 /// Please note that when the caller receives an `Error::Skip(n)` error, it
 /// should be understood as follows:

@@ -137,7 +137,7 @@ fn parse_udta_auth(data: &[u8]) -> Option<String> {
 /// Parse the byte data of an ISOBMFF file and return the potential body data of
 /// moov atom it may contain.
 ///
-/// Regarding error handling, please refer to [Error] for more information.
+/// Regarding error handling, please refer to [`ParsingError`] for more information.
 #[tracing::instrument(skip_all)]
 pub(crate) fn extract_moov_body_from_buf(input: &[u8]) -> Result<Range<usize>, ParsingError> {
     // parse metadata from moov/meta/keys & moov/meta/ilst

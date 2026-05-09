@@ -95,7 +95,7 @@ impl TrackInfo {
 ///
 /// - In order to improve parsing efficiency, the parser will internally skip
 ///   some useless bytes during parsing the byte stream, which is called
-///   [`Skip`] internally.
+///   `Skip` internally.
 ///
 /// - In order to support both `Read` and `Read` + `Seek` types, the interface
 ///   of input parameters is defined as `Read`.

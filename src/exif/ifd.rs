@@ -1,7 +1,7 @@
 use crate::EntryValue;
 use std::collections::HashMap;
 
-/// https://www.media.mit.edu/pia/Research/deepview/exif.html
+/// <https://www.media.mit.edu/pia/Research/deepview/exif.html>
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ParsedImageFileDirectory {
     pub entries: HashMap<u16, ParsedIdfEntry>,
