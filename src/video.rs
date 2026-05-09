@@ -40,7 +40,7 @@ pub enum TrackInfoTag {
     /// Its value is an `EntryValue::Text`, location presented in ISO6709.
     ///
     /// If you need a parsed [`GPSInfo`] which provides more detailed GPS info,
-    /// please use [`TrackInfo::get_gps_info`].
+    /// please use [`TrackInfo::gps_info`].
     GpsIso6709,
 
     /// Its value is an `EntryValue::Text`.
@@ -61,15 +61,17 @@ impl TrackInfo {
         self.entries.get(&tag)
     }
 
-    /// Get parsed `GPSInfo`.
-    pub fn get_gps_info(&self) -> Option<&GPSInfo> {
+    /// Parsed GPS info, if `GpsIso6709` was present in the source. Mirrors
+    /// [`Exif::gps_info`](crate::Exif::gps_info).
+    pub fn gps_info(&self) -> Option<&GPSInfo> {
         self.gps_info.as_ref()
     }
 
-    /// Get an iterator for `(&TrackInfoTag, &EntryValue)`. The parsed
-    /// `GPSInfo` is not included.
-    pub fn iter(&self) -> impl Iterator<Item = (&TrackInfoTag, &EntryValue)> {
-        self.entries.iter()
+    /// Iterate over `(tag, value)` pairs. The tag is yielded by value
+    /// because [`TrackInfoTag`] is `Copy`. The parsed `GPSInfo` is **not**
+    /// included here — get it via [`TrackInfo::gps_info`].
+    pub fn iter(&self) -> impl Iterator<Item = (TrackInfoTag, &EntryValue)> {
+        self.entries.iter().map(|(k, v)| (*k, v))
     }
 
     pub(crate) fn put(&mut self, tag: TrackInfoTag, value: EntryValue) {
@@ -131,9 +133,9 @@ impl TrackInfo {
 /// assert_eq!(info.get(TrackInfoTag::Make), Some(&"Apple".into()));
 /// assert_eq!(info.get(TrackInfoTag::Model), Some(&"iPhone X".into()));
 /// assert_eq!(info.get(TrackInfoTag::GpsIso6709), Some(&"+27.1281+100.2508+000.000/".into()));
-/// assert_eq!(info.get_gps_info().unwrap().latitude_ref, LatRef::North);
+/// assert_eq!(info.gps_info().unwrap().latitude_ref, LatRef::North);
 /// assert_eq!(
-///     info.get_gps_info().unwrap().latitude,
+///     info.gps_info().unwrap().latitude,
 ///     LatLng::new(URational::new(27, 1), URational::new(7, 1), URational::new(4116, 100)),
 /// );
 /// ```
