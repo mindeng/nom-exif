@@ -58,19 +58,19 @@ The dual-method approach (`parse_exif` for `Read` sources, `parse_exif_bytes` fo
 - Read: `Cargo.toml`, `src/parser.rs`, `src/lib.rs`
 - Modify: `docs/superpowers/plans/2026-05-08-v3-p7-memory-source.md` (this plan, already on disk — committed in this task)
 
-- [ ] **Step 1: Confirm branch state**
+- [x] **Step 1: Confirm branch state**
 
 Run: `git status` and `git log --oneline -5`
 
 Expected: `On branch v3`. Recent commits include `v3.0.0-rc.1` tag (or its equivalent commit) at or near HEAD. Working tree clean except for this plan file.
 
-- [ ] **Step 2: Capture baseline test count**
+- [x] **Step 2: Capture baseline test count**
 
 Run: `cargo test --all-features 2>&1 | grep -E "test result" | tail -20`
 
 Expected: every line ends with `0 failed`. Record the total `passed` count for Task 9 verification (paste the numbers into a scratch comment in this plan or note them externally).
 
-- [ ] **Step 3: Verify the public surface entering P7**
+- [x] **Step 3: Verify the public surface entering P7**
 
 Run: `cargo doc --no-deps --all-features --document-private-items 2>&1 | tail -5`
 
@@ -80,7 +80,7 @@ Run: `Grep -n "^pub use" src/lib.rs`
 
 Expected: the v3 public re-export list as left by P6 — no `read_*_from_bytes` symbols yet, no `from_bytes` constructor yet.
 
-- [ ] **Step 4: Commit this plan**
+- [x] **Step 4: Commit this plan**
 
 ```bash
 git add docs/superpowers/plans/2026-05-08-v3-p7-memory-source.md
