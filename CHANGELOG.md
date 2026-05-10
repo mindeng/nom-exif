@@ -1,5 +1,37 @@
 # Changelog
 
+## nom-exif v3.4.0 (2026-05-10)
+
+### Changed (BREAKING for `serde` feature)
+- **Structured `Serialize` for `EntryValue`**. The previous impl
+  stringified everything via `Display`, which meant numeric arrays
+  and `Undefined` byte blobs were truncated with `...` after 8 / 9
+  elements — JSON consumers silently lost data, and rationals came
+  out as opaque strings like `"175/100 (1.7500)"`. The new shape:
+  - Scalar numerics → JSON numbers.
+  - `Text` / `DateTime` / `NaiveDateTime` → strings (formats
+    unchanged).
+  - `URational` / `IRational` → `{"numerator", "denominator"}`
+    objects (uses the existing `Rational<T>` `Serialize` derive).
+  - `URationalArray` / `IRationalArray` → JSON arrays of those
+    objects, never truncated.
+  - `Undefined(Vec<u8>)` → continuous lowercase hex string
+    (e.g. `"30323230"`), never truncated.
+  - `U8Array` / `U16Array` / `U32Array` → JSON arrays of numbers.
+### Changed (BREAKING for `Display` / `to_string`)
+- **`Display` no longer truncates arrays.** The 8-element ellipsis cap
+  on `Undefined`, `U8Array`, `U16Array`, `U32Array`, and the 3-element
+  cap on `URationalArray` / `IRationalArray` are gone. `to_string()`
+  now emits every element. Callers that need a length cap should
+  impose it at their layer (rexiftool already does this).
+- **`EntryValue::Undefined` rendering redesigned.** When all bytes are
+  printable ASCII (`0x20..=0x7E`), it now displays as a quoted string
+  (e.g. `ExifVersion` → `"0220"`, `GPSProcessingMethod` → `"CELLID"`).
+  Otherwise it displays as a continuous lowercase hex string prefixed
+  with `0x` (e.g. `ComponentsConfiguration` → `0x01020300`). The
+  `Undefined[0xNN, 0xNN, ...]` wrapper is gone. `U8Array` /
+  `U16Array` / `U32Array` keep their `Name[...]` form.
+
 ## nom-exif v3.3.0 (2026-05-10)
 
 ### Added

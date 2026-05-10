@@ -564,11 +564,61 @@ impl TryFrom<u16> for DataFormat {
 
 #[cfg(feature = "serde")]
 impl Serialize for EntryValue {
+    /// Structured per-variant serialization. Numeric variants serialize as
+    /// JSON numbers, [`EntryValue::Text`] / [`EntryValue::DateTime`] /
+    /// [`EntryValue::NaiveDateTime`] as strings, rationals as
+    /// `{"numerator", "denominator"}` objects (and arrays thereof),
+    /// [`EntryValue::Undefined`] as a continuous lowercase hex string with no
+    /// truncation, and integer arrays as JSON arrays of numbers.
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        serializer.serialize_str(&self.to_string())
+        use serde::ser::SerializeSeq;
+        match self {
+            EntryValue::Text(s) => serializer.serialize_str(s),
+            EntryValue::URational(r) => r.serialize(serializer),
+            EntryValue::IRational(r) => r.serialize(serializer),
+            EntryValue::U8(v) => serializer.serialize_u8(*v),
+            EntryValue::U16(v) => serializer.serialize_u16(*v),
+            EntryValue::U32(v) => serializer.serialize_u32(*v),
+            EntryValue::U64(v) => serializer.serialize_u64(*v),
+            EntryValue::I8(v) => serializer.serialize_i8(*v),
+            EntryValue::I16(v) => serializer.serialize_i16(*v),
+            EntryValue::I32(v) => serializer.serialize_i32(*v),
+            EntryValue::I64(v) => serializer.serialize_i64(*v),
+            EntryValue::F32(v) => serializer.serialize_f32(*v),
+            EntryValue::F64(v) => serializer.serialize_f64(*v),
+            EntryValue::DateTime(t) => serializer.serialize_str(&t.to_rfc3339()),
+            EntryValue::NaiveDateTime(t) => {
+                serializer.serialize_str(&t.format("%Y-%m-%d %H:%M:%S").to_string())
+            }
+            EntryValue::Undefined(bytes) => {
+                let mut hex = String::with_capacity(bytes.len() * 2);
+                for b in bytes {
+                    use std::fmt::Write;
+                    let _ = write!(&mut hex, "{b:02x}");
+                }
+                serializer.serialize_str(&hex)
+            }
+            EntryValue::URationalArray(v) => {
+                let mut seq = serializer.serialize_seq(Some(v.len()))?;
+                for r in v {
+                    seq.serialize_element(r)?;
+                }
+                seq.end()
+            }
+            EntryValue::IRationalArray(v) => {
+                let mut seq = serializer.serialize_seq(Some(v.len()))?;
+                for r in v {
+                    seq.serialize_element(r)?;
+                }
+                seq.end()
+            }
+            EntryValue::U8Array(v) => v.serialize(serializer),
+            EntryValue::U16Array(v) => v.serialize(serializer),
+            EntryValue::U32Array(v) => v.serialize(serializer),
+        }
     }
 }
 
@@ -608,7 +658,7 @@ impl Display for EntryValue {
             EntryValue::I8(v) => Display::fmt(&v, f),
             EntryValue::DateTime(v) => Display::fmt(&v.to_rfc3339(), f),
             EntryValue::NaiveDateTime(v) => Display::fmt(&v.format("%Y-%m-%d %H:%M:%S"), f),
-            EntryValue::Undefined(v) => fmt_array_to_string("Undefined", v, f),
+            EntryValue::Undefined(v) => fmt_undefined(v, f),
             EntryValue::URationalArray(v) => {
                 format!("URationalArray[{}]", rationals_to_string::<u32>(v)).fmt(f)
             }
@@ -628,43 +678,21 @@ pub(crate) fn fmt_array_to_string<T: Display + LowerHex>(
     f: &mut std::fmt::Formatter,
 ) -> Result<(), std::fmt::Error> {
     array_to_string(name, v).fmt(f)
-    // format!(
-    //     "{}[{}]",
-    //     name,
-    //     v.iter()
-    //         .map(|x| x.to_string())
-    //         .collect::<Vec<String>>()
-    //         .join(", ")
-    // )
-    // .fmt(f)
 }
 
 pub(crate) fn array_to_string<T: Display + LowerHex>(name: &str, v: &[T]) -> String {
-    // Display up to MAX_DISPLAY_NUM components, and replace the rest with ellipsis
-    const MAX_DISPLAY_NUM: usize = 8;
     let s = v
         .iter()
         .map(|x| format!("0x{x:02x}"))
-        .take(MAX_DISPLAY_NUM + 1)
-        .enumerate()
-        .map(|(i, x)| {
-            if i >= MAX_DISPLAY_NUM {
-                "...".to_owned()
-            } else {
-                x
-            }
-        })
         .collect::<Vec<String>>()
         .join(", ");
-    format!("{}[{}]", name, s)
+    format!("{name}[{s}]")
 }
 
 fn rationals_to_string<T>(rationals: &[Rational<T>]) -> String
 where
     T: Display + Into<f64> + Copy,
 {
-    // Display up to MAX_DISPLAY_NUM components, and replace the rest with ellipsis
-    const MAX_DISPLAY_NUM: usize = 3;
     rationals
         .iter()
         .map(|x| {
@@ -675,17 +703,28 @@ where
                 x.numerator().into() / x.denominator().into()
             )
         })
-        .take(MAX_DISPLAY_NUM + 1)
-        .enumerate()
-        .map(|(i, x)| {
-            if i >= MAX_DISPLAY_NUM {
-                "...".to_owned()
-            } else {
-                x
-            }
-        })
         .collect::<Vec<String>>()
         .join(", ")
+}
+
+/// Render `EntryValue::Undefined` for human display.
+///
+/// All bytes printable ASCII (`0x20..=0x7E`) → quoted text, e.g. `"0220"`.
+/// Otherwise → continuous lowercase hex prefixed with `0x`, e.g. `0x01020300`.
+/// Empty → `0x`. The lossy `Undefined[0xNN, 0xNN, ..., ...]` rendering with
+/// the 9-element ellipsis cap from earlier versions is gone — callers that
+/// need a length cap should impose it at their layer.
+fn fmt_undefined(v: &[u8], f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    if !v.is_empty() && v.iter().all(|b| (0x20..=0x7e).contains(b)) {
+        let s = std::str::from_utf8(v).expect("ASCII subset is valid UTF-8");
+        write!(f, "\"{s}\"")
+    } else {
+        f.write_str("0x")?;
+        for b in v {
+            write!(f, "{b:02x}")?;
+        }
+        Ok(())
+    }
 }
 
 impl From<DateTime<FixedOffset>> for EntryValue {

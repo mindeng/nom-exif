@@ -4,7 +4,7 @@ ifd0.ImageHeight                      » 4096
 ifd0.ModifyDate                       » 2023-07-09T20:36:33+08:00
 ifd0.YCbCrPositioning                 » 1
 ifd0.ExifOffset                       » 201
-ifd0.MakerNote                        » Undefined[0x30]
+ifd0.MakerNote                        » "0"
 ifd0.RecommendedExposureIndex         » 454
 ifd0.SensitivityType                  » 2
 ifd0.ISOSpeedRatings                  » 454
@@ -54,12 +54,12 @@ ifd0.BrightnessValue                  » 70/100 (0.7000)
 ifd0.ExifImageWidth                   » 3072
 ifd0.ExposureMode                     » 0
 ifd0.ApertureValue                    » 161/100 (1.6100)
-ifd0.ComponentsConfiguration          » Undefined[0x01, 0x02, 0x03, 0x00]
+ifd0.ComponentsConfiguration          » 0x01020300
 ifd0.ColorSpace                       » 1
-ifd0.SceneType                        » Undefined[0x01]
+ifd0.SceneType                        » 0x01
 ifd0.ShutterSpeedValue                » 6644/1000 (6.6440)
-ifd0.ExifVersion                      » Undefined[0x30, 0x32, 0x32, 0x30]
-ifd0.FlashPixVersion                  » Undefined[0x30, 0x31, 0x30, 0x30]
+ifd0.ExifVersion                      » "0220"
+ifd0.FlashPixVersion                  » "0100"
 ifd0.ResolutionUnit                   » 2
 ifd0.GPSInfo                          » 1198
 ifd0.GPSLatitudeRef                   » N
@@ -69,7 +69,7 @@ ifd0.GPSLongitude                     » IRationalArray[114/1 (114.0000), 1/1 (1
 ifd0.GPSAltitudeRef                   » 0
 ifd0.GPSAltitude                      » 0/1 (0.0000)
 ifd0.GPSTimeStamp                     » URationalArray[12/1 (12.0000), 36/1 (36.0000), 33/1 (33.0000)]
-ifd0.GPSProcessingMethod              » Undefined[0x43, 0x45, 0x4c, 0x4c, 0x49, 0x44]
+ifd0.GPSProcessingMethod              » "CELLID"
 ifd0.GPSDateStamp                     » 2023:07:09
 ifd0.XResolution                      » 72/1 (72.0000)
 ifd0.YResolution                      » 72/1 (72.0000)
