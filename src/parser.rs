@@ -906,6 +906,67 @@ impl MediaParser {
         self.parse_track(ms.into_empty())
     }
 
+    /// Parse all metadata from an image source: EXIF (if any) and
+    /// format-specific extras (PNG `tEXt` chunks, etc.).
+    ///
+    /// Returns `Err(Error::ExifNotFound)` if neither EXIF nor any
+    /// format-specific metadata is found. Returns
+    /// `Err(Error::TrackNotFound)`-style errors on track inputs (use
+    /// `parse_track` instead).
+    ///
+    /// **Lazy form** — this method returns `ImageMetadata<ExifIter>`.
+    /// Convert to the eager `ImageMetadata<Exif>` via `.into()` if
+    /// desired.
+    pub fn parse_image_metadata<R: Read>(
+        &mut self,
+        mut ms: MediaSource<R>,
+    ) -> crate::Result<crate::image_metadata::ImageMetadata<crate::ExifIter>> {
+        self.reset();
+        let res: crate::Result<crate::image_metadata::ImageMetadata<crate::ExifIter>> = (|| {
+            // Memory-mode shortcut + buffer setup mirrors parse_exif.
+            if let Some(memory) = ms.memory.take() {
+                self.state.set_memory(memory);
+            } else {
+                self.acquire_buf();
+                self.buf_mut().append(&mut ms.buf);
+                self.fill_buf(&mut ms.reader, INIT_BUF_SIZE)?;
+            }
+
+            // Reject track inputs (parse_track is the right API).
+            let mime_img = match ms.mime {
+                crate::file::MediaMime::Image(img) => img,
+                crate::file::MediaMime::Track(_) => return Err(crate::Error::ExifNotFound),
+            };
+
+            if mime_img == crate::file::MediaMimeImage::Png {
+                let (exif, text_chunks) =
+                    crate::exif::parse_png_full(self, &mut ms.reader, ms.skip_by_seek)?;
+                let format = if text_chunks.is_empty() {
+                    None
+                } else {
+                    Some(crate::ImageFormatMetadata::Png(crate::PngTextChunks {
+                        entries: text_chunks,
+                    }))
+                };
+                if exif.is_none() && format.is_none() {
+                    return Err(crate::Error::ExifNotFound);
+                }
+                Ok(crate::ImageMetadata { exif, format })
+            } else {
+                // Non-PNG: existing parse_exif_iter path; format always None.
+                let iter =
+                    crate::exif::parse_exif_iter(self, mime_img, &mut ms.reader, ms.skip_by_seek)?;
+                Ok(crate::ImageMetadata {
+                    exif: Some(iter),
+                    format: None,
+                })
+            }
+        })(
+        );
+        self.reset();
+        res
+    }
+
     fn reset(&mut self) {
         self.state.reset();
     }
@@ -1679,5 +1740,32 @@ mod tests {
         let ms = MediaSource::from_memory(raw).unwrap();
         let res = parser.parse_track(ms);
         assert!(matches!(res, Err(crate::Error::TrackNotFound)));
+    }
+
+    #[test]
+    fn parse_image_metadata_jpeg_returns_exif_only() {
+        let mut parser = MediaParser::new();
+        let ms = MediaSource::open("testdata/exif.jpg").unwrap();
+        let img = parser.parse_image_metadata(ms).unwrap();
+        assert!(img.exif.is_some());
+        assert!(img.format.is_none());
+    }
+
+    #[test]
+    fn parse_image_metadata_jpeg_from_memory() {
+        let mut parser = MediaParser::new();
+        let raw = std::fs::read("testdata/exif.jpg").unwrap();
+        let ms = MediaSource::from_memory(raw).unwrap();
+        let img = parser.parse_image_metadata(ms).unwrap();
+        assert!(img.exif.is_some());
+        assert!(img.format.is_none());
+    }
+
+    #[test]
+    fn parse_image_metadata_on_track_returns_exif_not_found() {
+        let mut parser = MediaParser::new();
+        let ms = MediaSource::open("testdata/meta.mov").unwrap();
+        let res = parser.parse_image_metadata(ms);
+        assert!(matches!(res, Err(crate::Error::ExifNotFound)));
     }
 }
