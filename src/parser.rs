@@ -189,6 +189,23 @@ impl MediaSource<()> {
             memory: Some(bytes),
         })
     }
+
+    /// Internal adapter: convert a v3.0-style `MediaSource<()>` (built via
+    /// the deprecated `from_bytes`) into the unified `MediaSource<Empty>`
+    /// shape so the deprecated `parse_*_from_bytes` methods can delegate to
+    /// the unified `parse_*` methods. Memory contents are moved over
+    /// verbatim, preserving zero-copy.
+    pub(crate) fn into_empty(self) -> MediaSource<std::io::Empty> {
+        MediaSource {
+            reader: std::io::empty(),
+            buf: self.buf,
+            mime: self.mime,
+            // Placeholder: never invoked in memory mode (clear_and_skip's
+            // AdvanceOnly path is the only one taken).
+            skip_by_seek: |_, _| Ok(false),
+            memory: self.memory,
+        }
+    }
 }
 
 // ----- Parse-time buffer policy -----
