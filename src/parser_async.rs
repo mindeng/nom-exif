@@ -37,6 +37,11 @@ pub struct AsyncMediaSource<R> {
     pub(crate) buf: Vec<u8>,
     pub(crate) mime: crate::file::MediaMime,
     pub(crate) skip_by_seek: AsyncSkipBySeekFn<R>,
+    /// Set when this source was constructed via [`Self::from_memory`].
+    /// The full payload lives here as a zero-copy [`bytes::Bytes`]; the
+    /// async parse methods branch on this field to take the memory path
+    /// instead of `fill_buf`-ing from `reader`.
+    pub(crate) memory: Option<bytes::Bytes>,
 }
 
 impl<R> Debug for AsyncMediaSource<R> {
@@ -60,6 +65,7 @@ impl<R: AsyncRead + Unpin> AsyncMediaSource<R> {
             buf,
             mime,
             skip_by_seek,
+            memory: None,
         })
     }
 
@@ -68,6 +74,53 @@ impl<R: AsyncRead + Unpin> AsyncMediaSource<R> {
             crate::file::MediaMime::Image(_) => crate::MediaKind::Image,
             crate::file::MediaMime::Track(_) => crate::MediaKind::Track,
         }
+    }
+}
+
+impl AsyncMediaSource<tokio::io::Empty> {
+    /// Build an [`AsyncMediaSource`] from an in-memory byte payload.
+    ///
+    /// Async counterpart of [`crate::MediaSource::from_memory`]. Returns
+    /// `AsyncMediaSource<tokio::io::Empty>`, which satisfies the
+    /// `<R: AsyncRead + Unpin + Send>` bound on
+    /// [`MediaParser::parse_exif_async`](crate::MediaParser::parse_exif_async),
+    /// [`parse_track_async`](crate::MediaParser::parse_track_async), and
+    /// [`parse_image_metadata_async`](crate::MediaParser::parse_image_metadata_async)
+    /// so a single async entry point per "what to parse" handles both
+    /// streaming and in-memory inputs.
+    ///
+    /// Accepts any type convertible into [`bytes::Bytes`] — `Bytes`,
+    /// `Vec<u8>`, `&'static [u8]`, `String`, `Box<[u8]>`, plus HTTP-stack
+    /// body types implementing `Into<Bytes>`. Zero-copy: parsed
+    /// `ExifIter` / sub-IFDs share the original `Bytes` via reference
+    /// counting, no copy.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # async fn run() -> Result<(), nom_exif::Error> {
+    /// use nom_exif::{AsyncMediaSource, MediaKind, MediaParser};
+    ///
+    /// let bytes = tokio::fs::read("./testdata/exif.jpg").await?;
+    /// let ms = AsyncMediaSource::from_memory(bytes)?;
+    /// assert_eq!(ms.kind(), MediaKind::Image);
+    ///
+    /// let mut parser = MediaParser::new();
+    /// let _iter = parser.parse_exif_async(ms).await?;
+    /// # Ok(()) }
+    /// ```
+    pub fn from_memory(bytes: impl Into<bytes::Bytes>) -> crate::Result<Self> {
+        let bytes = bytes.into();
+        let head_end = bytes.len().min(HEADER_PARSE_BUF_SIZE);
+        let mime: crate::file::MediaMime = bytes[..head_end].try_into()?;
+        Ok(Self {
+            reader: tokio::io::empty(),
+            buf: Vec::new(),
+            mime,
+            // Placeholder: never invoked in memory mode (AdvanceOnly path).
+            skip_by_seek: |_, _| Box::pin(async move { Ok(false) }),
+            memory: Some(bytes),
+        })
     }
 }
 

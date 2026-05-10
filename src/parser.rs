@@ -1046,25 +1046,44 @@ mod tokio_impl {
     impl MediaParser {
         /// Parse Exif metadata from an async image source. Returns
         /// `Error::ExifNotFound` if the source is a `Track`.
+        ///
+        /// As of v3.3, also accepts memory-mode sources built via
+        /// [`AsyncMediaSource::from_memory`]; the memory branch shares
+        /// caller-owned `Bytes` zero-copy through `state.set_memory`.
         pub async fn parse_exif_async<R: AsyncRead + Unpin + Send>(
             &mut self,
             mut ms: AsyncMediaSource<R>,
         ) -> crate::Result<ExifIter> {
             self.reset();
-            self.acquire_buf();
-            self.buf_mut().append(&mut ms.buf);
             let res: crate::Result<ExifIter> = async {
-                <Self as AsyncBufParser>::fill_buf(self, &mut ms.reader, INIT_BUF_SIZE).await?;
-                if !matches!(ms.mime, crate::file::MediaMime::Image(_)) {
-                    return Err(crate::Error::ExifNotFound);
+                if let Some(memory) = ms.memory.take() {
+                    // Memory-mode: zero-copy share of caller-owned bytes.
+                    self.state.set_memory(memory);
+                    if !matches!(ms.mime, crate::file::MediaMime::Image(_)) {
+                        return Err(crate::Error::ExifNotFound);
+                    }
+                    crate::exif::parse_exif_iter_async(
+                        self,
+                        ms.mime.unwrap_image(),
+                        &mut ms.reader,
+                        ms.skip_by_seek,
+                    )
+                    .await
+                } else {
+                    self.acquire_buf();
+                    self.buf_mut().append(&mut ms.buf);
+                    <Self as AsyncBufParser>::fill_buf(self, &mut ms.reader, INIT_BUF_SIZE).await?;
+                    if !matches!(ms.mime, crate::file::MediaMime::Image(_)) {
+                        return Err(crate::Error::ExifNotFound);
+                    }
+                    crate::exif::parse_exif_iter_async(
+                        self,
+                        ms.mime.unwrap_image(),
+                        &mut ms.reader,
+                        ms.skip_by_seek,
+                    )
+                    .await
                 }
-                crate::exif::parse_exif_iter_async(
-                    self,
-                    ms.mime.unwrap_image(),
-                    &mut ms.reader,
-                    ms.skip_by_seek,
-                )
-                .await
             }
             .await;
             self.reset();
@@ -1076,15 +1095,34 @@ mod tokio_impl {
             mut ms: AsyncMediaSource<R>,
         ) -> crate::Result<crate::image_metadata::ImageMetadata<crate::ExifIter>> {
             self.reset();
-            self.acquire_buf();
-            self.buf_mut().append(&mut ms.buf);
             let res: crate::Result<crate::image_metadata::ImageMetadata<crate::ExifIter>> = async {
-                <Self as AsyncBufParser>::fill_buf(self, &mut ms.reader, INIT_BUF_SIZE).await?;
-
                 let mime_img = match ms.mime {
                     crate::file::MediaMime::Image(img) => img,
                     crate::file::MediaMime::Track(_) => return Err(crate::Error::ExifNotFound),
                 };
+
+                if let Some(memory) = ms.memory.take() {
+                    self.state.set_memory(memory);
+                } else {
+                    self.acquire_buf();
+                    self.buf_mut().append(&mut ms.buf);
+                    // PNG-only EOF tolerance mirrors the sync path: small
+                    // tEXt-only PNGs (<HEADER_PARSE_BUF_SIZE) are fully
+                    // consumed during mime detection, so fill_buf returns
+                    // UnexpectedEof; the bytes we need are already in the
+                    // parse buffer.
+                    let is_png = mime_img == crate::file::MediaMimeImage::Png;
+                    match <Self as AsyncBufParser>::fill_buf(self, &mut ms.reader, INIT_BUF_SIZE)
+                        .await
+                    {
+                        Ok(_) => {}
+                        Err(e)
+                            if is_png
+                                && !self.buffer().is_empty()
+                                && e.kind() == io::ErrorKind::UnexpectedEof => {}
+                        Err(e) => return Err(e.into()),
+                    }
+                }
 
                 if mime_img == crate::file::MediaMimeImage::Png {
                     let (exif, text_chunks) =
@@ -1122,19 +1160,26 @@ mod tokio_impl {
 
         /// Parse track info from an async video/audio source. Returns
         /// `Error::TrackNotFound` if the source is an `Image`.
+        ///
+        /// As of v3.3, also accepts memory-mode sources built via
+        /// [`AsyncMediaSource::from_memory`].
         pub async fn parse_track_async<R: AsyncRead + Unpin + Send>(
             &mut self,
             mut ms: AsyncMediaSource<R>,
         ) -> crate::Result<TrackInfo> {
             self.reset();
-            self.acquire_buf();
-            self.buf_mut().append(&mut ms.buf);
             let res: crate::Result<TrackInfo> = async {
-                <Self as AsyncBufParser>::fill_buf(self, &mut ms.reader, INIT_BUF_SIZE).await?;
                 let mime_track = match ms.mime {
                     crate::file::MediaMime::Image(_) => return Err(crate::Error::TrackNotFound),
                     crate::file::MediaMime::Track(t) => t,
                 };
+                if let Some(memory) = ms.memory.take() {
+                    self.state.set_memory(memory);
+                } else {
+                    self.acquire_buf();
+                    self.buf_mut().append(&mut ms.buf);
+                    <Self as AsyncBufParser>::fill_buf(self, &mut ms.reader, INIT_BUF_SIZE).await?;
+                }
                 let skip = ms.skip_by_seek;
                 let out = <Self as AsyncBufParser>::load_and_parse(
                     self,
