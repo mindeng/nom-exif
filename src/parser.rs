@@ -1040,6 +1040,55 @@ mod tokio_impl {
             res
         }
 
+        pub async fn parse_image_metadata_async<R: AsyncRead + Unpin + Send>(
+            &mut self,
+            mut ms: AsyncMediaSource<R>,
+        ) -> crate::Result<crate::image_metadata::ImageMetadata<crate::ExifIter>> {
+            self.reset();
+            self.acquire_buf();
+            self.buf_mut().append(&mut ms.buf);
+            let res: crate::Result<crate::image_metadata::ImageMetadata<crate::ExifIter>> = async {
+                <Self as AsyncBufParser>::fill_buf(self, &mut ms.reader, INIT_BUF_SIZE).await?;
+
+                let mime_img = match ms.mime {
+                    crate::file::MediaMime::Image(img) => img,
+                    crate::file::MediaMime::Track(_) => return Err(crate::Error::ExifNotFound),
+                };
+
+                if mime_img == crate::file::MediaMimeImage::Png {
+                    let (exif, text_chunks) =
+                        crate::exif::parse_png_full_async(self, &mut ms.reader, ms.skip_by_seek)
+                            .await?;
+                    let format = if text_chunks.is_empty() {
+                        None
+                    } else {
+                        Some(crate::ImageFormatMetadata::Png(crate::PngTextChunks {
+                            entries: text_chunks,
+                        }))
+                    };
+                    if exif.is_none() && format.is_none() {
+                        return Err(crate::Error::ExifNotFound);
+                    }
+                    Ok(crate::image_metadata::ImageMetadata { exif, format })
+                } else {
+                    let iter = crate::exif::parse_exif_iter_async(
+                        self,
+                        mime_img,
+                        &mut ms.reader,
+                        ms.skip_by_seek,
+                    )
+                    .await?;
+                    Ok(crate::image_metadata::ImageMetadata {
+                        exif: Some(iter),
+                        format: None,
+                    })
+                }
+            }
+            .await;
+            self.reset();
+            res
+        }
+
         /// Parse track info from an async video/audio source. Returns
         /// `Error::TrackNotFound` if the source is an `Image`.
         pub async fn parse_track_async<R: AsyncRead + Unpin + Send>(
@@ -1767,5 +1816,16 @@ mod tests {
         let ms = MediaSource::open("testdata/meta.mov").unwrap();
         let res = parser.parse_image_metadata(ms);
         assert!(matches!(res, Err(crate::Error::ExifNotFound)));
+    }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn parse_image_metadata_async_jpeg() {
+        use crate::parser_async::AsyncMediaSource;
+        let mut parser = MediaParser::new();
+        let ms = AsyncMediaSource::open("testdata/exif.jpg").await.unwrap();
+        let img = parser.parse_image_metadata_async(ms).await.unwrap();
+        assert!(img.exif.is_some());
+        assert!(img.format.is_none());
     }
 }
