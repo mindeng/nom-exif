@@ -285,93 +285,20 @@ by `tests/migration_guide.rs`. A few high-traffic items:
 
 ## CLI Tool `rexiftool`
 
-`rexiftool` is a thin CLI wrapper around `nom-exif`, published as a
-separate crate.
-
-### Install
+`rexiftool` is a companion CLI built on `nom-exif`, published as a
+separate crate:
 
 ```sh
 cargo install rexiftool
+rexiftool photo.heic        # key => value
+rexiftool photo.heic -j     # JSON
+rexiftool ./photos/         # batch (non-recursive)
 ```
 
 Pre-built binaries (macOS Intel / Apple Silicon, Linux x86_64,
-Windows x86_64) are attached to each `rexiftool-v*` release on
-[GitHub Releases](https://github.com/mindeng/nom-exif/releases).
-
-From a checkout of this repo: `cargo run -p rexiftool -- <args>`.
-
-### Human Readable Output
-
-`rexiftool testdata/meta.mov`:
-
-```text
-Make                            => Apple
-Model                           => iPhone X
-Software                        => 12.1.2
-CreateDate                      => 2024-02-02T08:09:57+00:00
-DurationMs                      => 500
-Width                           => 720
-Height                          => 1280
-GpsIso6709                      => +27.1281+100.2508+000.000/
-```
-
-Pass `--debug` to enable tracing logs:
-
-`rexiftool --debug ./testdata/meta.mov`
-
-When the source carries an embedded media track (e.g. a Pixel Motion
-Photo MP4 trailer), its metadata is appended after the EXIF entries
-under an `-- Embedded Track --` separator. Pass `--no-track` to skip
-this and show only EXIF.
-
-### JSON Dump
-
-`rexiftool testdata/meta.mov -j`:
-
-```text
-{
-  "Width": "720",
-  "Software": "12.1.2",
-  "Height": "1280",
-  "Make": "Apple",
-  "GpsIso6709": "+27.1281+100.2508+000.000/",
-  "CreateDate": "2024-02-02T08:09:57+00:00",
-  "Model": "iPhone X",
-  "DurationMs": "500"
-}
-```
-
-For images with embedded tracks (Pixel Motion Photo etc.), the track's
-metadata appears under a nested `_embedded_track` key. Pass `--no-track`
-to omit it.
-
-### Parsing Files in a Directory
-
-`rexiftool` also supports batch parsing of all files in a folder
-(non-recursive).
-
-`rexiftool testdata/`:
-
-```text
-File: "testdata/embedded-in-heic.mov"
-------------------------------------------------
-Make                            => Apple
-Model                           => iPhone 15 Pro
-Software                        => 17.1
-CreateDate                      => 2023-11-02T12:01:02+00:00
-DurationMs                      => 2795
-Width                           => 1920
-Height                          => 1440
-GpsIso6709                      => +22.5797+113.9380+028.396/
-
-File: "testdata/exif.jpg"
-------------------------------------------------
-ImageWidth                      => 3072
-Model                           => vivo X90 Pro+
-ImageHeight                     => 4096
-ModifyDate                      => 2023-07-09T20:36:33+08:00
-...
-```
+Windows x86_64) are attached to each `rexiftool-v*` GitHub release.
+Full usage docs: [crates/rexiftool/README.md](crates/rexiftool/README.md)
+or [crates.io/crates/rexiftool](https://crates.io/crates/rexiftool).
 
 ## Contributing
 
