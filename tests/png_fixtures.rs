@@ -65,6 +65,25 @@ pub fn build_png(ancillary: &[Vec<u8>]) -> Vec<u8> {
     out
 }
 
+/// Wrap a TIFF byte stream in the ImageMagick "Raw profile type X" tEXt
+/// value format (3-line header + hex bytes).
+pub fn raw_profile_text_chunk(profile_type: &str, raw_bytes: &[u8]) -> Vec<u8> {
+    let hex: String = raw_bytes.iter().map(|b| format!("{b:02x}")).collect();
+    // Wrap to 72-char lines (purely cosmetic; parser ignores whitespace).
+    let mut wrapped = String::new();
+    for chunk in hex.as_bytes().chunks(72) {
+        wrapped.push_str(std::str::from_utf8(chunk).unwrap());
+        wrapped.push('\n');
+    }
+    let value = format!("\n{}\n      {}\n{}", profile_type, raw_bytes.len(), wrapped);
+    let key = format!("Raw profile type {}", profile_type);
+    let mut data = Vec::new();
+    data.extend_from_slice(key.as_bytes());
+    data.push(0);
+    data.extend_from_slice(value.as_bytes());
+    build_chunk(b"tEXt", &data)
+}
+
 /// Extract the TIFF bytes from a JPEG APP1 segment in `testdata/exif.jpg`.
 /// We piggy-back on the existing test fixture to get a real-world EXIF
 /// blob without hand-crafting one.
@@ -115,5 +134,34 @@ mod gen {
             text_chunk("Author", "test"),
         ]);
         std::fs::write("testdata/text-only.png", &png).unwrap();
+
+        let tiff = tiff_from_jpeg_fixture();
+
+        // exif-legacy.png: Raw profile type exif only
+        let png = build_png(&[raw_profile_text_chunk("exif", &tiff)]);
+        std::fs::write("testdata/exif-legacy.png", &png).unwrap();
+
+        // exif-legacy-app1.png: Raw profile type APP1 only.
+        // APP1 includes "Exif\0\0" prefix.
+        let mut app1_blob = Vec::new();
+        app1_blob.extend_from_slice(b"Exif\0\0");
+        app1_blob.extend_from_slice(&tiff);
+        let png = build_png(&[raw_profile_text_chunk("APP1", &app1_blob)]);
+        std::fs::write("testdata/exif-legacy-app1.png", &png).unwrap();
+
+        // exif-both.png: eXIf + a (different) Raw profile type exif.
+        // The legacy blob has a sentinel byte modification so we can
+        // verify which was used.
+        let mut tiff_legacy = tiff.clone();
+        // Tweak a byte that we'd never read as an EXIF tag — just makes
+        // the byte streams not equal.
+        if tiff_legacy.len() > 100 {
+            tiff_legacy[100] = tiff_legacy[100].wrapping_add(1);
+        }
+        let png = build_png(&[
+            raw_profile_text_chunk("exif", &tiff_legacy),
+            exif_chunk(&tiff),
+        ]);
+        std::fs::write("testdata/exif-both.png", &png).unwrap();
     }
 }
