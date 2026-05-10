@@ -6,17 +6,22 @@
 
 ## Scope
 
-Image format support for `.png` files via the existing `MediaParser` /
-`parse_exif` entry points, covering:
+Image format support for `.png` files, covering:
 
 1. **Standard EXIF** in PNG `eXIf` chunks (PNG 1.5 / 2017 spec extension).
-2. **PNG `tEXt` chunks** as Latin-1 key/value pairs surfaced via a new
-   accessor `Exif::text_chunks()` / `ExifIter::text_chunks()`.
+   Surfaced through the existing `parse_exif` / `read_exif` entry points
+   exactly like every other image format — `read_exif("foo.png")` "just
+   works".
+2. **PNG `tEXt` chunks** as Latin-1 key/value pairs surfaced through a
+   new `parse_image_metadata` / `read_image_metadata` entry point that
+   returns a structured `ImageMetadata { exif, format }`. PNG-specific
+   format metadata lives in the `format` field as
+   `FormatMetadata::Png(PngTextChunks)`.
 3. **Legacy EXIF-in-`tEXt`** transparently merged: ImageMagick's
    `Raw profile type exif` (hex-encoded TIFF) and Photoshop's
    `Raw profile type APP1` (hex-encoded `Exif\0\0` + TIFF). EXIF entries
    become available via `Exif::get(ExifTag::*)` exactly as if they came
-   from `eXIf`.
+   from `eXIf` — *regardless of which entry point the caller uses*.
 
 **Out of scope** (deferred to a future phase):
 
@@ -26,10 +31,51 @@ Image format support for `.png` files via the existing `MediaParser` /
   richer per-entry struct (language tag, translated keyword, compression
   flag) that is not justified by the issue's stated need.
 
+**Out of scope (separate v4 milestone)**:
+
+- `Metadata` enum redesign (e.g. `Metadata::Image(ImageMetadata)`
+  replacing `Metadata::Exif(Exif)`).
+- `MediaParser::parse_metadata` (the symmetric parser-level dispatch
+  that currently exists only as the top-level `read_metadata`).
+- These are deliberately deferred so this PR stays focused. The
+  `ImageMetadata<E>` struct introduced here is shaped to drop into a
+  future `Metadata::Image` variant unchanged.
+
 ## Architecture
 
-PNG runs as a **special-cased path** inside `parse_exif_iter`, peer to
-the existing CR3 path — *not* through the generic
+### Two coexisting entry points
+
+```rust
+// Existing (unchanged behavior contract)
+parser.parse_exif(ms)     -> Result<ExifIter>          // lazy, EXIF-only
+read_exif(path)           -> Result<Exif>              // eager, EXIF-only
+
+// New (PNG-aware, format-extras-aware)
+parser.parse_image_metadata(ms)        -> Result<ImageMetadata<ExifIter>>  // lazy
+parser.parse_image_metadata_from_bytes(ms) -> Result<ImageMetadata<ExifIter>>
+parser.parse_image_metadata_async(ms)  -> Result<ImageMetadata<ExifIter>>  // tokio
+
+read_image_metadata(path)              -> Result<ImageMetadata>            // eager (default = Exif)
+read_image_metadata_from_bytes(bytes)  -> Result<ImageMetadata>
+read_image_metadata_async(path)        -> Result<ImageMetadata>            // tokio
+```
+
+User-facing rule (covered in CHANGELOG / docs):
+
+| Goal | Use |
+|---|---|
+| Just want EXIF (any format including PNG) | `parse_exif` / `read_exif` — unchanged |
+| Want EXIF + any format-specific extras (PNG `tEXt`, future GIF Comment, …) | `parse_image_metadata` / `read_image_metadata` |
+
+`parse_exif` on PNG still applies the legacy `Raw profile type *`
+hex-decode merge — that's part of the EXIF view, not extras. So the
+"just want EXIF" path on PNG transparently picks up legacy-encoded EXIF
+without code changes.
+
+### Special-cased PNG path inside the parser
+
+PNG runs as a **special-cased path** inside the EXIF-iter pipeline,
+peer to the existing CR3 path — *not* through the generic
 `extract_exif_with_mime` dispatch. Reason: that function returns an
 `Option<&[u8]>` that must be a sub-slice of the parser's buffer (the
 `range_to_iter` zero-copy `bytes::Bytes` slice path depends on this
@@ -43,30 +89,46 @@ generic path's contract intact.
 src/
   png.rs                    NEW. Pure chunk-parser + PngParseOut + PngExifSource.
   file.rs                   add MediaMimeImage::Png + signature detection.
-  exif.rs                   add `if Png { return parse_png_exif_iter(…) }` dispatch.
+  exif.rs                   add `if Png { return parse_png_exif_iter(…) }` for parse_exif.
   exif/png_text.rs          NEW. PngTextChunks public type.
-  exif/exif_iter.rs         add text_chunks: PngTextChunks field; accessor.
-  exif/exif_exif.rs         add text_chunks: PngTextChunks field; accessor.
-  lib.rs                    export PngTextChunks.
+  image_metadata.rs         NEW. ImageMetadata<E>, FormatMetadata, ExifRepr trait.
+  parser.rs                 add MediaParser::parse_image_metadata + variants.
+  parser_async.rs           add MediaParser::parse_image_metadata_async (tokio feature).
+  lib.rs                    add read_image_metadata + variants; export new types.
 ```
 
-### Data flow (single `parse_exif` call on a PNG)
+### Data flow
 
+**Path 1 — `parse_exif` on a PNG (existing API)**:
 ```
 PNG bytes
-  → parse_exif_iter dispatches on MediaMimeImage::Png
-  → parse_png_exif_iter calls parser.load_and_parse(reader, skip, png::extract_chunks)
-  → png::extract_chunks walks the PNG chunk stream:
-      ├─ eXIf chunk found       → PngExifSource::EXif(Range) into shared buffer
-      ├─ Raw profile type exif  → hex-decode → PngExifSource::Legacy(Vec<u8>)
-      ├─ Raw profile type APP1  → hex-decode + strip 6-byte "Exif\0\0"
-      │                                       → PngExifSource::Legacy(Vec<u8>)
-      └─ all tEXt entries       → push (key, value) into Vec<(String,String)>
-  → parse_png_exif_iter materializes PngExifSource:
-      ├─ EXif(range)   → zero-copy via parser.share_buf() + Bytes::slice
-      └─ Legacy(bytes) → fresh Bytes::from(vec)  (acceptable: legacy is rare/small)
-  → input_into_iter produces ExifIter; iter.set_text_chunks(out.text_chunks)
+  → parse_exif_iter dispatches on MediaMimeImage::Png to parse_png_exif_iter
+  → parser.load_and_parse(reader, skip, png::extract_chunks)
+  → png::extract_chunks walks chunk stream, returns PngParseOut
+  → parse_png_exif_iter materializes PngExifSource → ExifIter
+  → text_chunks discarded (this entry point doesn't expose them)
+  → if no EXIF source found: Err(Error::ExifNotFound)
 ```
+
+**Path 2 — `parse_image_metadata` on any image (new API)**:
+```
+PNG case:
+  → parse_image_metadata dispatches on MediaMimeImage::Png to parse_png_full
+  → parser.load_and_parse(reader, skip, png::extract_chunks)   // SAME helper
+  → png::extract_chunks walks chunk stream, returns PngParseOut
+  → ImageMetadata {
+       exif: out.exif.map(materialize → ExifIter),
+       format: (!text_chunks.is_empty()).then(|| FormatMetadata::Png(text_chunks)),
+     }
+
+Non-PNG case (jpeg/heic/avif/tiff/raf/cr3):
+  → parse_image_metadata calls existing parse_exif_iter
+  → ImageMetadata { exif: Some(iter), format: None }
+  → zero overhead vs parse_exif
+```
+
+`png::extract_chunks` is shared between both paths — single source of
+truth for PNG parsing.
 
 ### EXIF-source priority (single source, no merging)
 
@@ -79,7 +141,7 @@ When multiple potential EXIF sources are present in the same PNG:
 No merging: each source produces a single TIFF byte stream that is fed
 unchanged to the existing IFD pipeline. The lower-priority sources are
 ignored for EXIF purposes but their original `tEXt` entries remain
-visible via `text_chunks()` (so debug/audit is possible).
+visible via `format.iter()` (so debug/audit is possible).
 
 Rationale: the IFD pipeline does not currently support merging two
 TIFF blobs with (ifd, tag) deduplication; encoders sophisticated
@@ -89,7 +151,54 @@ text chunk is typically stale leftover from an earlier edit chain.
 ## Public API additions
 
 ```rust
-// New public type — exported at crate root.
+// ----- Sealed-trait pattern: which "EXIF representation" can be
+//       held by ImageMetadata<E>. Exactly two impls — Exif (eager) and
+//       ExifIter (lazy) — and the trait is sealed so users cannot add
+//       more.
+mod sealed { pub trait Sealed {} }
+pub trait ExifRepr: sealed::Sealed {}
+
+impl sealed::Sealed for Exif {}      impl ExifRepr for Exif {}
+impl sealed::Sealed for ExifIter {}  impl ExifRepr for ExifIter {}
+
+// ----- The new structured return type for parse_image_metadata /
+//       read_image_metadata. Default `E = Exif` matches the eager
+//       conventions used by `read_exif` and today's
+//       `Metadata::Exif(Exif)`. Callers needing the lazy form spell
+//       out `ImageMetadata<ExifIter>` (or pick the corresponding
+//       method).
+#[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct ImageMetadata<E: ExifRepr = Exif> {
+    pub exif: Option<E>,
+    pub format: Option<FormatMetadata>,
+}
+
+impl From<ImageMetadata<ExifIter>> for ImageMetadata<Exif> {
+    fn from(m: ImageMetadata<ExifIter>) -> Self {
+        ImageMetadata {
+            exif: m.exif.map(Into::into),
+            format: m.format,
+        }
+    }
+}
+
+// ----- Format-specific metadata (the part that does NOT live in
+//       EXIF/IFD). One variant per format that has such metadata.
+//       `#[non_exhaustive]` so adding variants is non-breaking.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[non_exhaustive]
+pub enum FormatMetadata {
+    Png(PngTextChunks),
+    // future: Gif(GifComment), Webp(WebpChunks), …
+}
+
+// ----- PNG `tEXt` chunks as Latin-1-decoded (key, value) pairs.
+//       Opaque wrapper around Vec<(String, String)> so future iTXt /
+//       zTXt extension is non-breaking.
+#[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct PngTextChunks { /* opaque */ }
 
 impl PngTextChunks {
@@ -106,31 +215,43 @@ impl PngTextChunks {
     pub fn is_empty(&self) -> bool;
 }
 
-// Default + Clone + Debug derived. Serde derives behind the `serde` feature.
+// ----- New methods on MediaParser (sync, plus tokio variant).
+impl MediaParser {
+    pub fn parse_image_metadata<R: Read>(&mut self, ms: MediaSource<R>)
+        -> Result<ImageMetadata<ExifIter>>;
 
-impl Exif {
-    /// PNG `tEXt` chunks as Latin-1-decoded key/value pairs, in file
-    /// order. Duplicate keys are preserved (PNG spec permits multiple
-    /// `tEXt` chunks with the same keyword). Returns an empty
-    /// `PngTextChunks` for any non-PNG input.
-    ///
-    /// When a PNG carries EXIF inside a `Raw profile type exif` /
-    /// `Raw profile type APP1` text chunk (legacy ImageMagick /
-    /// Photoshop pattern), the EXIF entries are merged into
-    /// [`Exif::get`] transparently; the original text chunk is also
-    /// visible here.
-    pub fn text_chunks(&self) -> &PngTextChunks;
+    pub fn parse_image_metadata_from_bytes(&mut self, ms: MediaSource<()>)
+        -> Result<ImageMetadata<ExifIter>>;
+
+    #[cfg(feature = "tokio")]
+    pub async fn parse_image_metadata_async<R: AsyncRead + Unpin + Send>(
+        &mut self, ms: AsyncMediaSource<R>,
+    ) -> Result<ImageMetadata<ExifIter>>;
 }
 
-impl ExifIter {
-    pub fn text_chunks(&self) -> &PngTextChunks;
-}
+// ----- New top-level helpers (default eager).
+pub fn read_image_metadata(path: impl AsRef<Path>) -> Result<ImageMetadata>;
+pub fn read_image_metadata_from_bytes(bytes: impl Into<Bytes>) -> Result<ImageMetadata>;
+
+#[cfg(feature = "tokio")]
+pub async fn read_image_metadata_async(path: impl AsRef<Path>)
+    -> Result<ImageMetadata>;
 ```
 
 **Not in `prelude`** (cold path).
 
 **Not exported**: `MediaMimeImage::Png` stays `pub(crate)` like every
-other variant.
+other variant. Users branch on the `FormatMetadata` enum, not on mime.
+
+### Default type parameter rationale
+
+`ImageMetadata<E: ExifRepr = Exif>` — default is the **eager** form.
+
+| Reasoning | Detail |
+|---|---|
+| Most common write site | `read_image_metadata(path) -> Result<ImageMetadata>` is the highest-frequency consumer; default = Exif lets it omit the parameter. |
+| Forward-compat to v4 | If/when v4 introduces `Metadata::Image(ImageMetadata)`, the unparametrized form mirrors today's `Metadata::Exif(Exif)` (eager) — zero behavior change for `read_metadata` callers. |
+| Lazy callers spell it out | `parse_image_metadata` returns `ImageMetadata<ExifIter>` explicitly. Same pattern as `Vec::with_capacity_in(_, alloc) -> Vec<T, A>` — the default doesn't constrain non-default constructors. |
 
 ### Encoding policy (Latin-1, strict)
 
@@ -140,8 +261,8 @@ PNG `tEXt` is Latin-1 by spec. Decode is byte-by-byte
 fallback.** Encoders that violate the spec by writing UTF-8 produce
 mojibake when read; callers needing recovery handle it themselves.
 
-This decision is documented on `Exif::text_chunks` so the contract
-is explicit.
+This decision is documented on `PngTextChunks` so the contract is
+explicit.
 
 ### Storage shape (eager, owned)
 
@@ -150,12 +271,10 @@ single PNG chunk walk; no laziness.
 
 - Lazy is impossible anyway: legacy `Raw profile type exif` detection
   must inspect every `tEXt` key during parse; we walk to `IEND` regardless.
-- `ExifIter` is `Clone`; the Vec is deep-cloned on `clone()`. Acceptable
-  because (a) typical PNGs carry <10 short ASCII strings and (b) clone
-  is rare (used for `clone_rewound` snapshots in tests). Upgrade path to
-  `Arc<[(String, String)]>` is non-breaking if profiling ever shows the
-  cost.
-- `From<ExifIter> for Exif` *moves* the Vec — zero-copy.
+- `PngTextChunks` is `Clone`; the Vec is deep-cloned on `clone()`.
+  Acceptable because typical PNGs carry <10 short ASCII strings.
+  Upgrade path to `Arc<[(String, String)]>` is non-breaking if
+  profiling ever shows the cost.
 
 ## Internal: PNG chunk parser
 
@@ -172,6 +291,10 @@ pub(crate) enum PngExifSource {
     Legacy(Vec<u8>),      // hex-decoded, APP1-prefix-stripped owned bytes
 }
 ```
+
+Both `parse_exif` and `parse_image_metadata` consume the same
+`PngParseOut`. The former discards `text_chunks`; the latter packages
+both fields into `ImageMetadata`.
 
 ### Algorithm
 
@@ -260,25 +383,22 @@ PNG's 8-byte signature `\x89PNG\r\n\x1a\n` is unique and unambiguous.
 Add the check **after** `TiffHeader::parse` (defensive ordering even
 though there is no actual collision). `MediaMimeImage::Png` variant added.
 
-## Contract relaxation: §3a
+## Existing-API contracts preserved
 
-A PNG carrying only `tEXt` (and no EXIF in any form) is a real and
-common case. To surface its `text_chunks`, the contract of
-`MediaParser::parse_exif` is relaxed:
+`parse_exif` / `read_exif` semantics on PNG:
 
-> **Returns `Ok(ExifIter)` if the source contained any image-level
-> metadata — EXIF tags *or* PNG text chunks. Returns
-> `Err(Error::ExifNotFound)` only when both are absent.**
+| PNG content | `parse_exif` / `read_exif` result |
+|---|---|
+| `eXIf` chunk only | `Ok(ExifIter)` / `Ok(Exif)` — same as any other format |
+| Legacy `Raw profile type *` only | `Ok(...)` — legacy hex blob transparent-merged |
+| Both `eXIf` and legacy | `Ok(...)` — `eXIf` wins per priority rules |
+| `tEXt` only, no EXIF anywhere | `Err(Error::ExifNotFound)` — *unchanged contract* |
+| Truly nothing | `Err(Error::ExifNotFound)` |
 
-Concretely, `parse_png_exif_iter` returns `Ok(ExifIter)` whenever
-`out.exif.is_some() || !out.text_chunks.is_empty()`. When EXIF is
-absent, the iter yields no entries but `iter.text_chunks()` carries
-the captured pairs.
-
-This parallels the existing `iter.has_embedded_track()` signal — both
-are auxiliary metadata accessors on `ExifIter`/`Exif`.
-
-Other formats unaffected.
+Users who care about `tEXt`-only PNGs use `parse_image_metadata` /
+`read_image_metadata`. The original `parse_exif` contract is **not**
+relaxed — every format including PNG returns `Ok(ExifIter)` only when
+EXIF is found.
 
 ## Errors and edge cases
 
@@ -289,12 +409,16 @@ Other formats unaffected.
 | Crafted huge `tEXt` length | `Skip` past it; not captured; parse continues |
 | `IEND` missing | Reader EOF → captured chunks returned; partial-but-usable result |
 | `tEXt` with no NUL separator | Skip the entry (not pushed into text_chunks) |
-| Hex-decode failure on legacy EXIF | Legacy ignored; tEXt entry preserved; if no other source → `ExifNotFound` |
+| Hex-decode failure on legacy EXIF | Legacy ignored; tEXt entry preserved; if no other source → ExifNotFound on `parse_exif`; `format: Some(Png(text_chunks))` on `parse_image_metadata` if any tEXt captured |
 | Legacy hex-decoded TIFF header invalid | Same as above |
-| PNG with only `tEXt`, no EXIF | `Ok(ExifIter)` with empty entries + non-empty `text_chunks` (§3a) |
-| PNG with truly nothing | `Err(ExifNotFound)` |
+| PNG with only `tEXt`, no EXIF | `parse_exif` → `Err(ExifNotFound)`. `parse_image_metadata` → `Ok(ImageMetadata { exif: None, format: Some(FormatMetadata::Png(...)) })` |
+| PNG with truly nothing | Both APIs → `Err(ExifNotFound)` |
 | Memory-mode (`from_bytes`) PNG | Same code path, zero-copy `eXIf` slice into shared `Bytes` |
-| Async (`parse_exif_async`) PNG | Same code path via `AsyncBufParser`; no PNG-specific async code |
+| Async (`parse_*_async`) PNG | Same code path via `AsyncBufParser`; no PNG-specific async code |
+
+`parse_image_metadata` returns `Err(ExifNotFound)` when **both** `exif`
+and `format` are `None` — symmetric with `parse_exif`'s contract,
+keeps error semantics consistent across the two APIs.
 
 ## Testing
 
@@ -302,13 +426,13 @@ Other formats unaffected.
 
 | File | Composition | Asserts |
 |---|---|---|
-| `exif.png` | `eXIf` + `Title`/`Software` `tEXt` | EXIF tags + text_chunks both populated |
-| `exif-legacy.png` | `Raw profile type exif` only | EXIF tags via legacy path |
+| `exif.png` | `eXIf` + `Title`/`Software` `tEXt` | `parse_exif` returns EXIF; `parse_image_metadata` returns both fields populated |
+| `exif-legacy.png` | `Raw profile type exif` only | EXIF tags via legacy path under both APIs |
 | `exif-legacy-app1.png` | `Raw profile type APP1` only | APP1 prefix strip works |
 | `exif-both.png` | `eXIf` + a *different* legacy blob | `eXIf` precedence (assert a tag value unique to it) |
-| `text-only.png` | `tEXt` only, no EXIF anywhere | §3a: non-empty iter result, EXIF empty, text_chunks set |
+| `text-only.png` | `tEXt` only, no EXIF anywhere | `parse_exif` → `ExifNotFound`; `parse_image_metadata` → `exif: None, format: Some(Png(...))` |
 | `text-dup.png` | two `tEXt` with same key | `get` first; `get_all` returns both |
-| `no-meta.png` | IHDR + IDAT + IEND | `Error::ExifNotFound` |
+| `no-meta.png` | IHDR + IDAT + IEND | both APIs → `Error::ExifNotFound` |
 | `huge-idat.png` | multi-MB IDAT + post-IEND `tEXt` | streaming Skip works; post-IDAT `tEXt` captured |
 | `malformed-text.png` | declared `tEXt` length = 0xFFFFFFFF | bound defense; parse does not panic |
 
@@ -327,10 +451,15 @@ not verify). No new build-time dependency.
   fixtures under `Exif`/`NoData`/`Invalid` categories.
 - **PngTextChunks** (in `src/exif/png_text.rs`): `get` / `get_all` /
   `iter` / `len` / `is_empty`.
+- **ImageMetadata + FormatMetadata** (in `src/image_metadata.rs`):
+  default value, generic instantiation, `From<ImageMetadata<ExifIter>>`
+  conversion.
 - **Integration** (`tests/png.rs`, NEW): each fixture exercised through
-  `read_exif`, `read_exif_from_bytes`, and (under `#[cfg(feature = "tokio")]`)
-  `read_exif_async`. Verifies parity across sync / memory / async,
-  seekable + unseekable.
+  six entry points — `read_exif`, `read_exif_from_bytes`,
+  `read_image_metadata`, `read_image_metadata_from_bytes`, and (under
+  `#[cfg(feature = "tokio")]`) `read_exif_async` /
+  `read_image_metadata_async`. Verifies parity across sync / memory /
+  async, seekable + unseekable.
 - **Regression baseline**: `png_baseline_exif_full_dump` mirrors
   `p4_5_baseline_exif_jpg_full_dump` to lock the captured-tag set for
   `exif.png`.
@@ -343,31 +472,48 @@ Strictly linear (file overlap precludes parallelism). Each phase ends
 with `cargo test` green and an atomic commit.
 
 1. **Format detection** — `MediaMimeImage::Png` + signature in
-   `file.rs`. Add `if Png { return Err(Error::ExifNotFound) }` short-circuit
-   in `parse_exif_iter` (sync + async) so the new variant compiles
-   without hitting `extract_exif_with_mime`'s exhaustive match. Mime
-   test adds the fixture; phase 4 replaces the short-circuit with
-   `parse_png_exif_iter`.
+   `file.rs`. Add `if Png { return Err(Error::ExifNotFound) }`
+   short-circuit in `parse_exif_iter` (sync + async) so the new variant
+   compiles without hitting `extract_exif_with_mime`'s exhaustive
+   match. Mime test adds the fixture; phase 4 replaces the
+   short-circuit with `parse_png_exif_iter`.
 2. **Pure chunk parser** — `src/png.rs` with `extract_chunks` +
    `PngParseOut` + `PngExifSource`. Pure-function unit tests on
    synthetic buffers: `eXIf`-only, `tEXt`-only, IDAT skip, IEND
-   termination, bound defense, `Need`/`Skip` returns.
-3. **`PngTextChunks` type + plumbing** — `src/exif/png_text.rs`; field
-   + accessor on `ExifIter` and `Exif`; `lib.rs` export. Unit tests of
-   accessor methods. PNG still stubbed in dispatch.
-4. **`parse_png_exif_iter` integration (eXIf path + §3a)** —
-   `exif.rs` dispatch; `EXif(Range)` path only; `text-only.png`
-   exercises §3a. Sync + async + memory + seekable + unseekable
-   covered (no new async code; `load_and_parse` reuse).
+   termination, bound defense, `Need`/`Skip` returns. No integration
+   yet.
+3. **Public types** — `src/exif/png_text.rs` (`PngTextChunks`) +
+   `src/image_metadata.rs` (`ImageMetadata<E>`, `FormatMetadata`,
+   `ExifRepr` sealed trait, `From<ImageMetadata<ExifIter>>` impl).
+   Exports in `lib.rs`. Unit tests of accessors + generic
+   instantiation. PNG still stubbed in dispatch.
+4. **`parse_png_exif_iter` + `parse_image_metadata` integration
+   (eXIf path only)** —
+   - `exif.rs`: dispatch `if Png { parse_png_exif_iter(...) }` for
+     `parse_exif`, materializing `EXif(Range)` to `ExifIter` (the
+     `Legacy(_)` arm is added in phase 5).
+   - `parser.rs`: `MediaParser::parse_image_metadata` (+ `_from_bytes`)
+     dispatching on `MediaMimeImage::Png` to a new `parse_png_full`
+     helper, falling back to `parse_exif_iter` for non-PNG (returns
+     `ImageMetadata { exif: Some(iter), format: None }`).
+   - `parser_async.rs`: `parse_image_metadata_async` mirrors the sync
+     path; reuses `load_and_parse` so no PNG-specific async code.
+   - `lib.rs`: top-level `read_image_metadata{,_from_bytes,_async}`
+     helpers (eager) — internally `parse_image_metadata*`'s lazy result
+     `.into()`.
+   - Tests: `exif.png` and `text-only.png` exercised through all six
+     entry points.
 5. **Legacy EXIF-in-`tEXt`** — hex decode helper; `Raw profile type
-   exif` / `APP1` recognition; `Legacy(bytes)` path in
-   `parse_png_exif_iter`. Tests `exif-legacy*.png` and `exif-both.png`.
-6. **Docs + CLI + changelog** — `README.md` "Supported File Types";
-   `lib.rs` module docs; doctest on `Exif::text_chunks`;
-   `examples/rexiftool.rs` adds `-- PNG Text --` section under
-   existing `--no-track` analog (`--no-text`); `CHANGELOG.md` under
-   `## Unreleased` → `### Added — PNG support (#18)`. Bump to
-   `v3.3.0` happens in a separate release commit (out of scope).
+   exif` / `APP1` recognition; `Legacy(bytes)` path materialized in
+   `parse_png_exif_iter` and `parse_png_full`. Tests `exif-legacy*.png`
+   and `exif-both.png`.
+6. **Docs + CLI + changelog** — `README.md` "Supported File Types" +
+   `parse_image_metadata` example; `lib.rs` module docs; doctest on
+   `read_image_metadata`; `examples/rexiftool.rs` adds `-- Format
+   Metadata --` section under existing `--no-track` analog
+   (`--no-format`); `CHANGELOG.md` under `## Unreleased` →
+   `### Added — PNG support (#18)`. Bump to `v3.3.0` happens in a
+   separate release commit (out of scope).
 
 ### PR shape
 
@@ -379,14 +525,37 @@ phases are an internal review aid, not separate releases.
 No `MIGRATION.md` entry. Purely additive — no v2 → v3 analog, no
 breaking change in v3.x.
 
+### v4 forward-compat
+
+The `ImageMetadata<E>` struct introduced here is shaped to be reused
+unchanged by a future v4 redesign of the `Metadata` enum:
+
+```rust
+// v4 candidate (separate milestone)
+#[non_exhaustive]
+pub enum Metadata<E: ExifRepr = Exif> {
+    Image(ImageMetadata<E>),       // ← reuses this PR's struct
+    Track(TrackInfo),
+}
+```
+
+Default `E = Exif` matches today's `Metadata::Exif(Exif)` eager
+behavior; v4 callers of `read_metadata` see no surprise.
+
+This forward-compat is a *design property*, not a v3.3 commitment —
+v4 may evolve independently. Plant a project seed to revisit during
+v4 milestone planning.
+
 ## Open questions / risks
 
-- **Risk**: `ExifIter::clone()` on a PNG with many `tEXt` entries
+- **Risk**: `PngTextChunks::clone()` on PNGs with many `tEXt` entries
   deep-clones strings. Mitigation: typical PNGs have <10 short entries;
   `Arc<[…]>` upgrade is non-breaking.
-- **Risk**: §3a relaxation changes semantics of `Ok(ExifIter)` for PNG
-  callers. Mitigation: documented contract update; behavior parallels
-  `has_embedded_track`; no other format affected.
-- **Open**: does `rexiftool` JSON output need a `_text_chunks` nested
-  key? Suggested yes (mirrors `_embedded_track` shape) but worth a
-  second look during phase 6.
+- **Risk**: introducing a sealed `ExifRepr` trait + generic public
+  type adds minor cognitive load to `ImageMetadata` doc. Mitigation:
+  default type parameter hides the generic from the most common usage
+  (`read_image_metadata -> ImageMetadata`); doctests demonstrate both
+  forms.
+- **Open**: does `rexiftool` JSON output need a `_format` (or
+  `_text_chunks`) nested key? Suggested yes (mirrors `_embedded_track`
+  shape) but worth a second look during phase 6.
