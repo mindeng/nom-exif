@@ -35,6 +35,7 @@ track metadata** through a single unified API. Built on
 - Image
   - .heic, .heif, etc.
   - .jpg, .jpeg
+  - .png
   - .tiff, .tif, .iiq (Phase One IIQ images), etc.
   - .RAF (Fujifilm RAW)
   - .CR3 (Canon RAW)
@@ -145,6 +146,48 @@ that implement `Into<Bytes>` directly.
 deprecated since v3.3.0 and will be removed in v4. Replace with
 `MediaSource::from_memory` + `parse_exif` / `read_exif`. See
 [`docs/MIGRATION.md`](docs/MIGRATION.md).
+
+## Format-Specific Metadata (`parse_image_metadata`)
+
+Some image formats carry metadata that doesn't fit the EXIF/IFD model
+— PNG `tEXt` chunks are the headline example. The new (v3.3+)
+`MediaParser::parse_image_metadata` returns a structured
+`ImageMetadata { exif, format }` covering both:
+
+```rust
+use nom_exif::{MediaParser, MediaSource, ImageFormatMetadata, ExifTag};
+
+let mut parser = MediaParser::new();
+
+let ms = MediaSource::open("./testdata/exif.png")?;
+let img = parser.parse_image_metadata(ms)?;
+
+// Standard EXIF tags (works for any image format).
+let make = img.exif.as_ref()
+    .and_then(|iter| {
+        let exif: nom_exif::Exif = iter.clone().into();
+        exif.get(ExifTag::Make).and_then(|v| v.as_str()).map(String::from)
+    });
+
+// Format-specific extras.
+if let Some(ImageFormatMetadata::Png(text_chunks)) = img.format {
+    let title = text_chunks.get("Title");
+    let software = text_chunks.get("Software");
+    let _ = (title, software);
+}
+# let _ = make; Ok::<(), nom_exif::Error>(())
+```
+
+For PNG specifically, this also captures legacy EXIF embedded in
+`Raw profile type exif` / `Raw profile type APP1` `tEXt` chunks
+(ImageMagick / Photoshop pattern) — those are transparently
+hex-decoded and merged into `img.exif`. The original `tEXt` entry
+is still visible via `img.format`.
+
+`parse_image_metadata` accepts the same source types as `parse_exif`:
+files, in-memory bytes (via `MediaSource::from_memory`), and async
+sources. The top-level `read_image_metadata` convenience helper is
+deferred to v4 (alongside the planned `Metadata` enum redesign).
 
 ## Embedded Media Tracks (Motion Photos)
 
