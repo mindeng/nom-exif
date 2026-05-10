@@ -339,4 +339,40 @@ mod tests {
             other => panic!("expected ClearAndSkip(>=50_000), got {other:?}"),
         }
     }
+
+    #[test]
+    fn extract_chunks_text_too_large_skipped() {
+        // tEXt chunk declaring 2 MiB length — should be skipped without
+        // entering text_chunks. We don't actually allocate 2 MiB; emit
+        // the header only and let extract_chunks request a Skip.
+        let mut buf = Vec::new();
+        buf.extend_from_slice(PNG_SIGNATURE);
+        buf.extend_from_slice(&build_chunk(b"IHDR", &[0; 13]));
+        // tEXt header claiming length > MAX_TEXT_CHUNK_SIZE
+        let bogus_length = MAX_TEXT_CHUNK_SIZE + 1;
+        buf.extend_from_slice(&bogus_length.to_be_bytes());
+        buf.extend_from_slice(b"tEXt");
+        // No body provided — but since extract_chunks should skip oversized
+        // tEXt, we expect a ClearAndSkip error (not capture).
+
+        let err = extract_chunks(&buf).unwrap_err();
+        assert!(matches!(err.err, ParsingError::ClearAndSkip(_)));
+    }
+
+    #[test]
+    fn extract_chunks_malicious_text_length_max_u32_does_not_panic() {
+        // tEXt with length = u32::MAX. Must not allocate 4 GB or panic.
+        let mut buf = Vec::new();
+        buf.extend_from_slice(PNG_SIGNATURE);
+        buf.extend_from_slice(&build_chunk(b"IHDR", &[0; 13]));
+        buf.extend_from_slice(&u32::MAX.to_be_bytes());
+        buf.extend_from_slice(b"tEXt");
+
+        let err = extract_chunks(&buf).unwrap_err();
+        // Either Need or ClearAndSkip — both acceptable; never panic.
+        match err.err {
+            ParsingError::Need(_) | ParsingError::ClearAndSkip(_) => {}
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
 }
