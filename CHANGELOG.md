@@ -1,5 +1,51 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **PNG support (#18)** — `read_exif("foo.png")` and friends now work
+  for PNG files, covering standard `eXIf` chunks and legacy
+  hex-encoded EXIF in `Raw profile type exif` / `Raw profile type
+  APP1` `tEXt` chunks (ImageMagick / Photoshop pattern). Legacy
+  hex-encoded EXIF is transparently merged into `Exif::get(...)`.
+- **`MediaParser::parse_image_metadata`** — new entry point that
+  returns `ImageMetadata { exif, format }`, surfacing PNG `tEXt`
+  chunks via `ImageFormatMetadata::Png(PngTextChunks)`. Single
+  method handles file/stream/memory inputs (no `_from_bytes`
+  sibling). Async variant under the `tokio` feature.
+- **`MediaSource::from_memory`** — replaces `MediaSource::<()>::from_bytes`.
+  Returns `MediaSource<std::io::Empty>` so `parse_exif<R: Read>`,
+  `parse_track<R: Read>`, and `parse_image_metadata<R: Read>` can
+  all accept memory-mode sources directly.
+- **New public types**: `ImageMetadata<E: ExifRepr = Exif>`,
+  `ImageFormatMetadata` (`#[non_exhaustive]`), `PngTextChunks`,
+  `ExifRepr` sealed trait.
+- `examples/rexiftool` prints PNG `tEXt` chunks under a
+  `-- Format Metadata --` section (and `_format` JSON key); add
+  `--no-format` to suppress.
+
+### Deprecated
+- `MediaSource::<()>::from_bytes` — use `MediaSource::from_memory`.
+- `MediaParser::parse_exif_from_bytes` — use `parse_exif` directly
+  with a `MediaSource::from_memory` source.
+- `MediaParser::parse_track_from_bytes` — analogous.
+- `read_exif_from_bytes`, `read_exif_iter_from_bytes`,
+  `read_track_from_bytes`, `read_metadata_from_bytes` — analogous.
+- All deprecated symbols still compile and pass their original
+  tests in v3.x. Removal scheduled for v4.
+
+### Notes
+- Top-level `read_image_metadata` helpers are deferred to v4
+  alongside the planned `Metadata` enum redesign (a single
+  `read_metadata` returning `Metadata::Image(ImageMetadata)`).
+  Mixed-content batch users on v3.3 still match on
+  `MediaSource::kind()` to dispatch between `parse_image_metadata`
+  and `parse_track`.
+- PNG `iTXt` and `zTXt` chunks are not yet supported (would require
+  a `flate2` dependency for `iTXt`'s optional zlib-compressed
+  variant). Their addition is non-breaking — `PngTextChunks` is
+  shaped to extend.
+
 ## nom-exif v3.2.0 (2026-05-09)
 
 ### Added
