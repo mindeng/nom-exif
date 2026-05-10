@@ -117,16 +117,39 @@ fn parse_file<P: AsRef<Path>>(
     let ms = MediaSource::open(path).inspect_err(handle_parsing_error)?;
     let (values, embedded, format_pairs) = match ms.kind() {
         MediaKind::Image => {
-            // parse_exif may return ExifNotFound for images with no EXIF
-            // (e.g. PNG with only tEXt chunks). Treat that as empty — we
-            // still want to show format metadata below.
-            let exif_result = parser.parse_exif(ms);
-            let (has_embedded, exif_values) = match exif_result {
-                Ok(iter) => {
-                    let has = iter.has_embedded_track();
-                    (has, exif_iter_to_pairs(iter))
+            // Single parse_image_metadata call yields both EXIF and
+            // format-specific metadata; saves a redundant file-reopen per
+            // PNG. parse_image_metadata returns ExifNotFound when neither
+            // EXIF nor format metadata is present (e.g. JPEG with no
+            // EXIF) — treat as empty so non-image-bearing files still
+            // exit cleanly.
+            let img_result = parser.parse_image_metadata(ms);
+            let (exif_values, has_embedded, fmt_pairs) = match img_result {
+                Ok(img) => {
+                    let (has, exif_pairs) = match img.exif {
+                        Some(iter) => (iter.has_embedded_track(), exif_iter_to_pairs(iter)),
+                        None => (false, vec![]),
+                    };
+                    let fmt_pairs: Option<Vec<(String, String)>> = if cli.no_format {
+                        None
+                    } else {
+                        match img.format {
+                            Some(ImageFormatMetadata::Png(text_chunks))
+                                if !text_chunks.is_empty() =>
+                            {
+                                Some(
+                                    text_chunks
+                                        .iter()
+                                        .map(|(k, v)| (k.to_owned(), v.to_owned()))
+                                        .collect(),
+                                )
+                            }
+                            _ => None,
+                        }
+                    };
+                    (exif_pairs, has, fmt_pairs)
                 }
-                Err(nom_exif::Error::ExifNotFound) => (false, vec![]),
+                Err(nom_exif::Error::ExifNotFound) => (vec![], false, None),
                 Err(e) => {
                     handle_parsing_error(&e);
                     return Err(e);
@@ -135,8 +158,8 @@ fn parse_file<P: AsRef<Path>>(
 
             // When the image carries an embedded media track (e.g. a Pixel
             // Motion Photo MP4 trailer), surface its metadata too — unless
-            // the user opted out with --no-track. parse_exif consumed the
-            // MediaSource, so re-open the path.
+            // the user opted out with --no-track. parse_image_metadata
+            // consumed the MediaSource, so re-open the path.
             let track_values = if has_embedded && !cli.no_track {
                 match MediaSource::open(path).and_then(|ms| parser.parse_track(ms)) {
                     Ok(info) => Some(track_info_to_pairs(&info)),
@@ -146,33 +169,6 @@ fn parse_file<P: AsRef<Path>>(
                         );
                         None
                     }
-                }
-            } else {
-                None
-            };
-
-            // Format-specific metadata (e.g. PNG tEXt chunks) — unless the
-            // user opted out with --no-format. parse_exif consumed the
-            // MediaSource, so re-open the path.
-            let fmt_pairs: Option<Vec<(String, String)>> = if !cli.no_format {
-                match MediaSource::open(path).and_then(|ms| parser.parse_image_metadata(ms)) {
-                    Ok(img) => {
-                        if let Some(ImageFormatMetadata::Png(text_chunks)) = img.format {
-                            if !text_chunks.is_empty() {
-                                Some(
-                                    text_chunks
-                                        .iter()
-                                        .map(|(k, v)| (k.to_owned(), v.to_owned()))
-                                        .collect(),
-                                )
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    }
-                    Err(_) => None,
                 }
             } else {
                 None
