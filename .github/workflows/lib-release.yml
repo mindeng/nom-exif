@@ -1,0 +1,53 @@
+name: Create lib release draft
+
+on:
+  push:
+    tags:
+      - 'v[0-9]*'
+
+permissions:
+  contents: write
+
+jobs:
+  draft-release:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.ref_name }}
+      REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build release notes from CHANGELOG
+        shell: bash
+        run: |
+          version="${TAG#v}"
+
+          # Pull lines from `## nom-exif vX.Y.Z` (allowing trailing space or paren)
+          # until the next `## ` heading.
+          notes=$(awk -v ver="$version" '
+            $0 ~ "^## nom-exif v" ver "[ (]" { found=1; next }
+            found && $0 ~ "^## " { exit }
+            found { print }
+          ' CHANGELOG.md)
+
+          # Trim trailing blank lines.
+          notes=$(printf '%s\n' "$notes" | awk 'BEGIN{n=0} {a[n++]=$0} END{while(n>0 && a[n-1]=="") n--; for(i=0;i<n;i++) print a[i]}')
+
+          if [ -z "$notes" ]; then
+            echo "::error::no CHANGELOG section found for v${version}"
+            exit 1
+          fi
+
+          {
+            printf '%s\n' "$notes"
+            echo ""
+            echo "---"
+            echo ""
+            echo "Full changelog: [CHANGELOG.md](https://github.com/${REPO}/blob/${TAG}/CHANGELOG.md) · crates.io: [nom-exif ${version}](https://crates.io/crates/nom-exif/${version})"
+          } > release-notes.md
+
+      - name: Create draft GitHub release
+        shell: bash
+        run: gh release create "$TAG" --title "$TAG" --notes-file release-notes.md --draft
