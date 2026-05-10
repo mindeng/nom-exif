@@ -304,6 +304,17 @@ pub(crate) fn extract_exif_with_mime(
             .map(|res| (res.1.exif_data, state.clone()))
             .map_err(|e| nom_error_to_parsing_error_with_state(e, state))?,
         MediaMimeImage::Cr3 => cr3_extract_exif(state, buf)?,
+        MediaMimeImage::Png => {
+            // Phase 1 stub: PNG dispatch lands in phase 4 via a
+            // special-cased path inside `parse_exif_iter` (peer to
+            // CR3). This arm exists only so the match stays
+            // exhaustive. Phase 4 routes around it before this code
+            // is reached.
+            return Err(ParsingErrorState::new(
+                ParsingError::Failed("PNG: parse_exif_iter dispatch missing (phase 1 stub)".into()),
+                None,
+            ));
+        }
     };
     Ok((exif_data, state))
 }
