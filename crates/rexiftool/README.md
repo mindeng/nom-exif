@@ -36,11 +36,17 @@ rexiftool --debug photo.heic
 
 Flags:
 
-- `-j, --json` — JSON output instead of `key => value`.
+- `-j, --json` — JSON output instead of `key : value`. JSON is never
+  truncated and always includes thumbnail (IFD1) entries.
 - `--no-track` — skip embedded media tracks (e.g. Pixel Motion Photo
   MP4 trailers).
 - `--no-format` — skip format-specific metadata (e.g. PNG `tEXt`
   chunks).
+- `--with-thumbnail` — include thumbnail (IFD1) entries; hidden by
+  default because they mostly duplicate the main image's tags.
+- `--full` — print full values without per-line / per-value
+  truncation. By default each line is capped at 200 chars and each
+  value at 10 lines.
 - `--debug` — write tracing logs to `./debug.log`.
 
 ## Supported formats
