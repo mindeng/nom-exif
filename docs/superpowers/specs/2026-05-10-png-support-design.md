@@ -13,7 +13,8 @@ Image format support for `.png` files, covering:
    exactly like every other image format — `read_exif("foo.png")` "just
    works".
 2. **PNG `tEXt` chunks** as Latin-1 key/value pairs surfaced through a
-   new `parse_image_metadata` / `read_image_metadata` entry point that
+   new `MediaParser::parse_image_metadata` entry point (parser-level
+   only in v3.3 — top-level `read_*` helpers deferred to v4) that
    returns a structured `ImageMetadata { exif, format }`. PNG-specific
    format metadata lives in the `format` field as
    `FormatMetadata::Png(PngTextChunks)`.
@@ -37,6 +38,14 @@ Image format support for `.png` files, covering:
   replacing `Metadata::Exif(Exif)`).
 - `MediaParser::parse_metadata` (the symmetric parser-level dispatch
   that currently exists only as the top-level `read_metadata`).
+- **Top-level `read_image_metadata` helpers**. Adding them in v3.3
+  alongside the existing `read_metadata` would create two adjacent
+  top-level entry points with overlapping-but-not-identical semantics
+  (`read_metadata` returns the legacy `Metadata::Exif(Exif)`,
+  `read_image_metadata` would return the richer `ImageMetadata`). The
+  v4 redesign collapses these into a single coherent `read_metadata`
+  story; introducing the asymmetry now and undoing it in v4 is API
+  churn.
 - These are deliberately deferred so this PR stays focused. The
   `ImageMetadata<E>` struct introduced here is shaped to drop into a
   future `Metadata::Image` variant unchanged.
@@ -50,14 +59,11 @@ Image format support for `.png` files, covering:
 parser.parse_exif(ms)     -> Result<ExifIter>          // lazy, EXIF-only
 read_exif(path)           -> Result<Exif>              // eager, EXIF-only
 
-// New (PNG-aware, format-extras-aware)
+// New (PNG-aware, format-extras-aware) — MediaParser layer only in v3.3.
+// Top-level read_image_metadata helpers are deferred to v4 (see Scope).
 parser.parse_image_metadata(ms)        -> Result<ImageMetadata<ExifIter>>  // lazy
 parser.parse_image_metadata_from_bytes(ms) -> Result<ImageMetadata<ExifIter>>
 parser.parse_image_metadata_async(ms)  -> Result<ImageMetadata<ExifIter>>  // tokio
-
-read_image_metadata(path)              -> Result<ImageMetadata>            // eager (default = Exif)
-read_image_metadata_from_bytes(bytes)  -> Result<ImageMetadata>
-read_image_metadata_async(path)        -> Result<ImageMetadata>            // tokio
 ```
 
 User-facing rule (covered in CHANGELOG / docs):
@@ -65,7 +71,7 @@ User-facing rule (covered in CHANGELOG / docs):
 | Goal | Use |
 |---|---|
 | Just want EXIF (any format including PNG) | `parse_exif` / `read_exif` — unchanged |
-| Want EXIF + any format-specific extras (PNG `tEXt`, future GIF Comment, …) | `parse_image_metadata` / `read_image_metadata` |
+| Want EXIF + any format-specific extras (PNG `tEXt`, future GIF Comment, …) | `MediaParser::parse_image_metadata` (parser-level only in v3.3) |
 
 `parse_exif` on PNG still applies the legacy `Raw profile type *`
 hex-decode merge — that's part of the EXIF view, not extras. So the
@@ -94,7 +100,7 @@ src/
   image_metadata.rs         NEW. ImageMetadata<E>, FormatMetadata, ExifRepr trait.
   parser.rs                 add MediaParser::parse_image_metadata + variants.
   parser_async.rs           add MediaParser::parse_image_metadata_async (tokio feature).
-  lib.rs                    add read_image_metadata + variants; export new types.
+  lib.rs                    export new types (ImageMetadata, FormatMetadata, ExifRepr, PngTextChunks).
 ```
 
 ### Data flow
@@ -161,12 +167,14 @@ pub trait ExifRepr: sealed::Sealed {}
 impl sealed::Sealed for Exif {}      impl ExifRepr for Exif {}
 impl sealed::Sealed for ExifIter {}  impl ExifRepr for ExifIter {}
 
-// ----- The new structured return type for parse_image_metadata /
-//       read_image_metadata. Default `E = Exif` matches the eager
-//       conventions used by `read_exif` and today's
-//       `Metadata::Exif(Exif)`. Callers needing the lazy form spell
-//       out `ImageMetadata<ExifIter>` (or pick the corresponding
-//       method).
+// ----- The new structured return type for parse_image_metadata.
+//       Default `E = Exif` matches the eager conventions used by
+//       `read_exif` and today's `Metadata::Exif(Exif)`, and lines up
+//       with the v4 `Metadata::Image(ImageMetadata)` candidate.
+//       Callers receiving the lazy form from
+//       MediaParser::parse_image_metadata get
+//       `ImageMetadata<ExifIter>` explicitly; conversion to eager via
+//       the `From` impl below.
 #[derive(Debug, Clone, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ImageMetadata<E: ExifRepr = Exif> {
@@ -216,6 +224,8 @@ impl PngTextChunks {
 }
 
 // ----- New methods on MediaParser (sync, plus tokio variant).
+//       Top-level read_image_metadata helpers are deferred to v4 — see
+//       "Out of scope" in the Scope section.
 impl MediaParser {
     pub fn parse_image_metadata<R: Read>(&mut self, ms: MediaSource<R>)
         -> Result<ImageMetadata<ExifIter>>;
@@ -228,14 +238,6 @@ impl MediaParser {
         &mut self, ms: AsyncMediaSource<R>,
     ) -> Result<ImageMetadata<ExifIter>>;
 }
-
-// ----- New top-level helpers (default eager).
-pub fn read_image_metadata(path: impl AsRef<Path>) -> Result<ImageMetadata>;
-pub fn read_image_metadata_from_bytes(bytes: impl Into<Bytes>) -> Result<ImageMetadata>;
-
-#[cfg(feature = "tokio")]
-pub async fn read_image_metadata_async(path: impl AsRef<Path>)
-    -> Result<ImageMetadata>;
 ```
 
 **Not in `prelude`** (cold path).
@@ -249,9 +251,9 @@ other variant. Users branch on the `FormatMetadata` enum, not on mime.
 
 | Reasoning | Detail |
 |---|---|
-| Most common write site | `read_image_metadata(path) -> Result<ImageMetadata>` is the highest-frequency consumer; default = Exif lets it omit the parameter. |
-| Forward-compat to v4 | If/when v4 introduces `Metadata::Image(ImageMetadata)`, the unparametrized form mirrors today's `Metadata::Exif(Exif)` (eager) — zero behavior change for `read_metadata` callers. |
+| Forward-compat to v4 | If/when v4 introduces `Metadata::Image(ImageMetadata)`, the unparametrized form mirrors today's `Metadata::Exif(Exif)` (eager) — zero behavior change for `read_metadata` callers. The `From<ImageMetadata<ExifIter>> for ImageMetadata<Exif>` impl is also the natural target type for that conversion. |
 | Lazy callers spell it out | `parse_image_metadata` returns `ImageMetadata<ExifIter>` explicitly. Same pattern as `Vec::with_capacity_in(_, alloc) -> Vec<T, A>` — the default doesn't constrain non-default constructors. |
+| Container/storage type | When users store / pass `ImageMetadata` around (e.g. as a function parameter or struct field), they typically want the eager Exif form — defaulted parameter keeps these write-sites short. |
 
 ### Encoding policy (Latin-1, strict)
 
@@ -395,10 +397,10 @@ though there is no actual collision). `MediaMimeImage::Png` variant added.
 | `tEXt` only, no EXIF anywhere | `Err(Error::ExifNotFound)` — *unchanged contract* |
 | Truly nothing | `Err(Error::ExifNotFound)` |
 
-Users who care about `tEXt`-only PNGs use `parse_image_metadata` /
-`read_image_metadata`. The original `parse_exif` contract is **not**
-relaxed — every format including PNG returns `Ok(ExifIter)` only when
-EXIF is found.
+Users who care about `tEXt`-only PNGs use
+`MediaParser::parse_image_metadata`. The original `parse_exif`
+contract is **not** relaxed — every format including PNG returns
+`Ok(ExifIter)` only when EXIF is found.
 
 ## Errors and edge cases
 
@@ -455,10 +457,12 @@ not verify). No new build-time dependency.
   default value, generic instantiation, `From<ImageMetadata<ExifIter>>`
   conversion.
 - **Integration** (`tests/png.rs`, NEW): each fixture exercised through
-  six entry points — `read_exif`, `read_exif_from_bytes`,
-  `read_image_metadata`, `read_image_metadata_from_bytes`, and (under
-  `#[cfg(feature = "tokio")]`) `read_exif_async` /
-  `read_image_metadata_async`. Verifies parity across sync / memory /
+  six entry points — three EXIF-only (`read_exif`,
+  `read_exif_from_bytes`, and under `#[cfg(feature = "tokio")]`
+  `read_exif_async`) plus three image-metadata
+  (`MediaParser::parse_image_metadata`,
+  `parse_image_metadata_from_bytes`, and under `#[cfg(feature = "tokio")]`
+  `parse_image_metadata_async`). Verifies parity across sync / memory /
   async, seekable + unseekable.
 - **Regression baseline**: `png_baseline_exif_full_dump` mirrors
   `p4_5_baseline_exif_jpg_full_dump` to lock the captured-tag set for
@@ -498,22 +502,22 @@ with `cargo test` green and an atomic commit.
      `ImageMetadata { exif: Some(iter), format: None }`).
    - `parser_async.rs`: `parse_image_metadata_async` mirrors the sync
      path; reuses `load_and_parse` so no PNG-specific async code.
-   - `lib.rs`: top-level `read_image_metadata{,_from_bytes,_async}`
-     helpers (eager) — internally `parse_image_metadata*`'s lazy result
-     `.into()`.
    - Tests: `exif.png` and `text-only.png` exercised through all six
-     entry points.
+     entry points (3 EXIF-only `read_exif*` + 3 image-metadata
+     `MediaParser::parse_image_metadata*`).
 5. **Legacy EXIF-in-`tEXt`** — hex decode helper; `Raw profile type
    exif` / `APP1` recognition; `Legacy(bytes)` path materialized in
    `parse_png_exif_iter` and `parse_png_full`. Tests `exif-legacy*.png`
    and `exif-both.png`.
 6. **Docs + CLI + changelog** — `README.md` "Supported File Types" +
-   `parse_image_metadata` example; `lib.rs` module docs; doctest on
-   `read_image_metadata`; `examples/rexiftool.rs` adds `-- Format
-   Metadata --` section under existing `--no-track` analog
-   (`--no-format`); `CHANGELOG.md` under `## Unreleased` →
-   `### Added — PNG support (#18)`. Bump to `v3.3.0` happens in a
-   separate release commit (out of scope).
+   `MediaParser::parse_image_metadata` example showing the lazy-iter
+   shape and the optional `.into()` to eager `ImageMetadata<Exif>`;
+   `lib.rs` module docs; doctest on `parse_image_metadata`;
+   `examples/rexiftool.rs` adds `-- Format Metadata --` section under
+   existing `--no-track` analog (`--no-format`); `CHANGELOG.md` under
+   `## Unreleased` → `### Added — PNG support (#18)` noting that
+   top-level `read_image_metadata` helpers are deferred to v4. Bump to
+   `v3.3.0` happens in a separate release commit (out of scope).
 
 ### PR shape
 
@@ -542,6 +546,11 @@ pub enum Metadata<E: ExifRepr = Exif> {
 Default `E = Exif` matches today's `Metadata::Exif(Exif)` eager
 behavior; v4 callers of `read_metadata` see no surprise.
 
+In addition, v4 is the natural place to introduce **top-level
+`read_image_metadata` helpers** alongside a redesigned `read_metadata`
+— deliberately deferred from v3.3 to avoid two adjacent top-level
+entry points with overlapping semantics during the v3 → v4 transition.
+
 This forward-compat is a *design property*, not a v3.3 commitment —
 v4 may evolve independently. Plant a project seed to revisit during
 v4 milestone planning.
@@ -553,9 +562,10 @@ v4 milestone planning.
   `Arc<[…]>` upgrade is non-breaking.
 - **Risk**: introducing a sealed `ExifRepr` trait + generic public
   type adds minor cognitive load to `ImageMetadata` doc. Mitigation:
-  default type parameter hides the generic from the most common usage
-  (`read_image_metadata -> ImageMetadata`); doctests demonstrate both
-  forms.
+  default type parameter hides the generic where users name the type
+  in storage / function signatures; the parser-level entry points
+  return `ImageMetadata<ExifIter>` explicitly so the lazy form is
+  obvious from the signature; doctests demonstrate both forms.
 - **Open**: does `rexiftool` JSON output need a `_format` (or
   `_text_chunks`) nested key? Suggested yes (mirrors `_embedded_track`
   shape) but worth a second look during phase 6.
