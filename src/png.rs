@@ -54,6 +54,54 @@ fn decode_latin1(bytes: &[u8]) -> String {
     bytes.iter().map(|&b| b as char).collect()
 }
 
+/// Decode the value of a `Raw profile type *` `tEXt` chunk.
+///
+/// ImageMagick writes these chunks with a header preamble:
+/// ```text
+/// \n
+/// exif\n
+///        54\n           <- length in bytes (decimal, with leading whitespace)
+/// 4949 2a00 0800 0000 ...   <- hex bytes
+/// ```
+///
+/// This helper:
+/// 1. Skips the leading `\n` line.
+/// 2. Skips the second line (`exif`, `app1`, etc).
+/// 3. Skips the third line (length).
+/// 4. Hex-decodes the rest, ignoring all whitespace.
+fn decode_raw_profile_value(s: &str) -> Result<Vec<u8>, ()> {
+    let mut lines = s.lines();
+    // Skip the empty first line, the type line, and the length line.
+    // Tolerate variations: just consume the first 3 newlines worth of header.
+    lines.next().ok_or(())?;
+    lines.next().ok_or(())?;
+    lines.next().ok_or(())?;
+    let body: String = lines.collect();
+    hex_decode(&body)
+}
+
+fn hex_decode(s: &str) -> Result<Vec<u8>, ()> {
+    let mut out = Vec::with_capacity(s.len() / 2);
+    let mut high: Option<u8> = None;
+    for c in s.bytes() {
+        let nibble = match c {
+            b'0'..=b'9' => c - b'0',
+            b'a'..=b'f' => c - b'a' + 10,
+            b'A'..=b'F' => c - b'A' + 10,
+            b' ' | b'\n' | b'\r' | b'\t' => continue,
+            _ => return Err(()),
+        };
+        match high.take() {
+            None => high = Some(nibble),
+            Some(h) => out.push((h << 4) | nibble),
+        }
+    }
+    if high.is_some() {
+        return Err(());
+    }
+    Ok(out)
+}
+
 /// Walk the PNG chunk stream and extract EXIF + tEXt entries.
 ///
 /// Pure function: no I/O, takes a buffer slice, returns either output
@@ -357,6 +405,28 @@ mod tests {
 
         let err = extract_chunks(&buf).unwrap_err();
         assert!(matches!(err.err, ParsingError::ClearAndSkip(_)));
+    }
+
+    #[test]
+    fn hex_decode_basic() {
+        assert_eq!(hex_decode("4849").unwrap(), b"HI");
+        assert_eq!(hex_decode("48 49").unwrap(), b"HI");
+        assert_eq!(hex_decode("48\n49").unwrap(), b"HI");
+        assert_eq!(hex_decode("aBcD").unwrap(), vec![0xab, 0xcd]);
+    }
+
+    #[test]
+    fn hex_decode_rejects_invalid() {
+        assert!(hex_decode("XX").is_err());
+        assert!(hex_decode("48a").is_err()); // odd-length
+    }
+
+    #[test]
+    fn decode_raw_profile_imagemagick_format() {
+        // Mimics ImageMagick's "Raw profile type exif" value layout.
+        let v = "\nexif\n      4\n4849 5050\n";
+        let bytes = decode_raw_profile_value(v).unwrap();
+        assert_eq!(bytes, b"HIPP");
     }
 
     #[test]
