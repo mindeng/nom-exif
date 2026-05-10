@@ -1072,7 +1072,25 @@ mod tokio_impl {
                 } else {
                     self.acquire_buf();
                     self.buf_mut().append(&mut ms.buf);
-                    <Self as AsyncBufParser>::fill_buf(self, &mut ms.reader, INIT_BUF_SIZE).await?;
+                    // PNG-only EOF tolerance mirrors the sync path: small
+                    // tEXt-only PNGs (<HEADER_PARSE_BUF_SIZE) are fully
+                    // consumed during mime detection, so fill_buf returns
+                    // UnexpectedEof. The bytes are already in the parse
+                    // buffer; proceed.
+                    let is_png = matches!(
+                        ms.mime,
+                        crate::file::MediaMime::Image(crate::file::MediaMimeImage::Png)
+                    );
+                    match <Self as AsyncBufParser>::fill_buf(self, &mut ms.reader, INIT_BUF_SIZE)
+                        .await
+                    {
+                        Ok(_) => {}
+                        Err(e)
+                            if is_png
+                                && !self.buffer().is_empty()
+                                && e.kind() == io::ErrorKind::UnexpectedEof => {}
+                        Err(e) => return Err(e.into()),
+                    }
                     if !matches!(ms.mime, crate::file::MediaMime::Image(_)) {
                         return Err(crate::Error::ExifNotFound);
                     }
@@ -2002,12 +2020,76 @@ mod tests {
     #[cfg(feature = "tokio")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn parse_image_metadata_async_from_memory_text_only_png() {
-        // The 117-byte text-only.png exercises the PNG-scoped EOF tolerance
-        // on the async path.
+        // Memory route: bypasses fill_buf entirely, just verifies the
+        // memory-mode path returns format-only metadata for a PNG with
+        // no EXIF.
         use crate::parser_async::AsyncMediaSource;
         let raw = std::fs::read("testdata/text-only.png").unwrap();
         let mut parser = MediaParser::new();
         let ms = AsyncMediaSource::from_memory(raw).unwrap();
+        let img = parser.parse_image_metadata_async(ms).await.unwrap();
+        assert!(img.exif.is_none());
+        assert!(img.format.is_some());
+    }
+
+    // Streaming-path coverage for the PNG-scoped EOF tolerance. The
+    // 117-byte text-only.png is fully consumed during mime detection
+    // (HEADER_PARSE_BUF_SIZE = 128), so the parse-time fill_buf hits
+    // UnexpectedEof. The PNG-scoped tolerance must let the bytes already
+    // in the parse buffer drive the parse to completion. These tests
+    // would have caught the missed-async-tolerance bug the previous
+    // memory-mode tests did not.
+
+    #[test]
+    fn parse_exif_streaming_text_only_png_returns_exif_not_found() {
+        // text-only.png has no EXIF — the contract is ExifNotFound, not
+        // UnexpectedEof. Pre-EOF-tolerance, this would surface
+        // UnexpectedEof because mime detection consumed all 117 bytes.
+        let mut parser = MediaParser::new();
+        let ms = MediaSource::open("testdata/text-only.png").unwrap();
+        let res = parser.parse_exif(ms);
+        assert!(
+            matches!(res, Err(crate::Error::ExifNotFound)),
+            "expected ExifNotFound for tEXt-only PNG, got {:?}",
+            res
+        );
+    }
+
+    #[test]
+    fn parse_image_metadata_streaming_text_only_png() {
+        let mut parser = MediaParser::new();
+        let ms = MediaSource::open("testdata/text-only.png").unwrap();
+        let img = parser.parse_image_metadata(ms).unwrap();
+        assert!(img.exif.is_none());
+        assert!(img.format.is_some());
+    }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn parse_exif_async_streaming_text_only_png_returns_exif_not_found() {
+        use crate::parser_async::AsyncMediaSource;
+        let mut parser = MediaParser::new();
+        let f = tokio::fs::File::open("testdata/text-only.png")
+            .await
+            .unwrap();
+        let ms = AsyncMediaSource::seekable(f).await.unwrap();
+        let res = parser.parse_exif_async(ms).await;
+        assert!(
+            matches!(res, Err(crate::Error::ExifNotFound)),
+            "expected ExifNotFound for tEXt-only PNG via async streaming, got {:?}",
+            res
+        );
+    }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn parse_image_metadata_async_streaming_text_only_png() {
+        use crate::parser_async::AsyncMediaSource;
+        let mut parser = MediaParser::new();
+        let f = tokio::fs::File::open("testdata/text-only.png")
+            .await
+            .unwrap();
+        let ms = AsyncMediaSource::seekable(f).await.unwrap();
         let img = parser.parse_image_metadata_async(ms).await.unwrap();
         assert!(img.exif.is_none());
         assert!(img.format.is_some());
