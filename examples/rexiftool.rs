@@ -7,7 +7,7 @@ use std::{
 };
 
 use clap::Parser;
-use nom_exif::{ExifIter, MediaKind, MediaParser, MediaSource, TrackInfo};
+use nom_exif::{ExifIter, ImageFormatMetadata, MediaKind, MediaParser, MediaSource, TrackInfo};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Registry};
 
 #[derive(Parser, Debug)]
@@ -23,6 +23,12 @@ struct Cli {
     /// its metadata is appended after the EXIF entries.
     #[arg(long)]
     no_track: bool,
+
+    /// Skip printing format-specific metadata (e.g. PNG tEXt chunks).
+    /// By default, when an image carries format-specific metadata,
+    /// it is appended under a "-- Format Metadata --" section.
+    #[arg(long)]
+    no_format: bool,
 
     #[arg(long)]
     debug: bool,
@@ -109,7 +115,7 @@ fn parse_file<P: AsRef<Path>>(
 ) -> Result<(), nom_exif::Error> {
     let path = path.as_ref();
     let ms = MediaSource::open(path).inspect_err(handle_parsing_error)?;
-    let (values, embedded) = match ms.kind() {
+    let (values, embedded, format_pairs) = match ms.kind() {
         MediaKind::Image => {
             let iter: ExifIter = parser.parse_exif(ms).inspect_err(handle_parsing_error)?;
             let has_embedded = iter.has_embedded_track();
@@ -132,16 +138,44 @@ fn parse_file<P: AsRef<Path>>(
             } else {
                 None
             };
-            (exif_values, track_values)
+
+            // Format-specific metadata (e.g. PNG tEXt chunks) — unless the
+            // user opted out with --no-format. parse_exif consumed the
+            // MediaSource, so re-open the path.
+            let fmt_pairs: Option<Vec<(String, String)>> = if !cli.no_format {
+                match MediaSource::open(path).and_then(|ms| parser.parse_image_metadata(ms)) {
+                    Ok(img) => {
+                        if let Some(ImageFormatMetadata::Png(text_chunks)) = img.format {
+                            if !text_chunks.is_empty() {
+                                Some(
+                                    text_chunks
+                                        .iter()
+                                        .map(|(k, v)| (k.to_owned(), v.to_owned()))
+                                        .collect(),
+                                )
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    }
+                    Err(_) => None,
+                }
+            } else {
+                None
+            };
+
+            (exif_values, track_values, fmt_pairs)
         }
         MediaKind::Track => {
             let info: TrackInfo = parser.parse_track(ms)?;
-            (track_info_to_pairs(&info), None)
+            (track_info_to_pairs(&info), None, None)
         }
     };
     if cli.json {
         #[cfg(feature = "serde")]
-        emit_json(&values, embedded.as_deref());
+        emit_json(&values, embedded.as_deref(), format_pairs.as_deref());
     } else {
         values.iter().for_each(|x| {
             println!("{:<32}=> {}", x.0, x.1);
@@ -150,6 +184,12 @@ fn parse_file<P: AsRef<Path>>(
             println!("-- Embedded Track ------------------------------");
             track.iter().for_each(|x| {
                 println!("{:<32}=> {}", x.0, x.1);
+            });
+        }
+        if let Some(fmt) = &format_pairs {
+            println!("-- Format Metadata --");
+            fmt.iter().for_each(|(k, v)| {
+                println!("{:<32}=> {}", k, v);
             });
         }
     };
@@ -187,6 +227,7 @@ fn track_info_to_pairs(info: &TrackInfo) -> Vec<(String, nom_exif::EntryValue)> 
 fn emit_json(
     values: &[(String, nom_exif::EntryValue)],
     embedded: Option<&[(String, nom_exif::EntryValue)]>,
+    format_pairs: Option<&[(String, String)]>,
 ) {
     use serde_json::{Map, Value};
     let mut root = Map::with_capacity(values.len() + 1);
@@ -203,6 +244,13 @@ fn emit_json(
             }
         }
         root.insert("_embedded_track".into(), Value::Object(nested));
+    }
+    if let Some(fmt) = format_pairs {
+        let mut nested = Map::with_capacity(fmt.len());
+        for (k, v) in fmt {
+            nested.insert(k.clone(), Value::String(v.clone()));
+        }
+        root.insert("_format".into(), Value::Object(nested));
     }
     match serde_json::to_string_pretty(&Value::Object(root)) {
         Ok(s) => println!("{s}"),
