@@ -17,6 +17,10 @@
   Returns `MediaSource<std::io::Empty>` so `parse_exif<R: Read>`,
   `parse_track<R: Read>`, and `parse_image_metadata<R: Read>` can
   all accept memory-mode sources directly.
+- **`AsyncMediaSource::from_memory`** (tokio feature) — async
+  counterpart, returns `AsyncMediaSource<tokio::io::Empty>`. The
+  three `parse_*_async` methods all accept memory-mode sources
+  directly with the same zero-copy `bytes::Bytes` story as sync.
 - **New public types**: `ImageMetadata<E: ExifRepr = Exif>`,
   `ImageFormatMetadata` (`#[non_exhaustive]`), `PngTextChunks`,
   `ExifRepr` sealed trait.
