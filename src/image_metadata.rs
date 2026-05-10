@@ -1,5 +1,5 @@
 //! Structured image-metadata view returned by
-//! [`crate::MediaParser::parse_image_metadata`].
+//! `MediaParser::parse_image_metadata` (lands in phase 4).
 //!
 //! See [`ImageMetadata`].
 //!
@@ -42,9 +42,9 @@ impl ExifRepr for crate::ExifIter {}
 /// metadata (if any).
 ///
 /// Default `E = Exif` — eager EXIF representation. The
-/// [`MediaParser::parse_image_metadata`](crate::MediaParser::parse_image_metadata)
-/// method returns `ImageMetadata<ExifIter>` (lazy); convert to the
-/// default eager form via `.into()` when desired.
+/// `MediaParser::parse_image_metadata` method returns
+/// `ImageMetadata<ExifIter>` (lazy); convert to the default eager form
+/// via `.into()` when desired.
 ///
 /// **Forward-compat note**: this struct is shaped to be reused
 /// unchanged by a future v4 redesign of the [`Metadata`](crate::Metadata)
