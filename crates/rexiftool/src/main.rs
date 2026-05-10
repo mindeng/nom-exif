@@ -84,9 +84,10 @@ fn parse_dir(path: &Path, mut parser: MediaParser, cli: &Cli) -> Result<(), Box<
                 if !ft.is_file() {
                     continue;
                 }
-                println!("File: {:?}", entry.path().as_os_str());
-                println!("------------------------------------------------");
-                let _ = parse_file(&mut parser, entry.path(), cli);
+                let p = entry.path();
+                println!("File: {}", p.display());
+                println!("{}", "-".repeat(SECTION_WIDTH));
+                let _ = parse_file(&mut parser, p, cli);
             }
             Err(e) => {
                 eprintln!("Read dir entry failed: {e}");
@@ -173,23 +174,56 @@ fn parse_file<P: AsRef<Path>>(
     if cli.json {
         emit_json(&values, embedded.as_deref(), format_pairs.as_deref());
     } else {
+        let has_extra = embedded.is_some() || format_pairs.is_some();
+        let key_width = compute_key_width(
+            values.iter().map(|(k, _)| k.as_str()).chain(
+                embedded
+                    .iter()
+                    .flat_map(|t| t.iter().map(|(k, _)| k.as_str())),
+            ),
+        );
+        let fmt_key_width = format_pairs
+            .as_deref()
+            .map(|p| compute_key_width(p.iter().map(|(k, _)| k.as_str())))
+            .unwrap_or(MIN_KEY_WIDTH);
+
+        if has_extra && !values.is_empty() {
+            println!("{}", section_header("EXIF"));
+        }
         values.iter().for_each(|x| {
-            println!("{:<32}=> {}", x.0, x.1);
+            println!("{:<width$}=> {}", x.0, x.1, width = key_width);
         });
         if let Some(track) = &embedded {
-            println!("-- Embedded Track ------------------------------");
+            println!("{}", section_header("Embedded Track"));
             track.iter().for_each(|x| {
-                println!("{:<32}=> {}", x.0, x.1);
+                println!("{:<width$}=> {}", x.0, x.1, width = key_width);
             });
         }
         if let Some(fmt) = &format_pairs {
-            println!("-- Format Metadata --");
+            println!("{}", section_header("Format Metadata"));
             fmt.iter().for_each(|(k, v)| {
-                println!("{:<32}=> {}", k, v);
+                println!("{:<width$}=> {}", k, v, width = fmt_key_width);
             });
         }
     };
     Ok(())
+}
+
+const SECTION_WIDTH: usize = 48;
+const MIN_KEY_WIDTH: usize = 32;
+const MAX_KEY_WIDTH: usize = 48;
+
+fn section_header(title: &str) -> String {
+    let prefix = format!("-- {title} ");
+    let pad = SECTION_WIDTH.saturating_sub(prefix.chars().count());
+    format!("{prefix}{}", "-".repeat(pad))
+}
+
+fn compute_key_width<'a, I: Iterator<Item = &'a str>>(keys: I) -> usize {
+    keys.map(|k| k.chars().count())
+        .max()
+        .map(|m| m.saturating_add(1).clamp(MIN_KEY_WIDTH, MAX_KEY_WIDTH))
+        .unwrap_or(MIN_KEY_WIDTH)
 }
 
 fn exif_iter_to_pairs(iter: ExifIter) -> Vec<(String, nom_exif::EntryValue)> {
