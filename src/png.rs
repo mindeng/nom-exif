@@ -47,6 +47,13 @@ const MAX_TEXT_CHUNK_SIZE: u32 = 1024 * 1024; // 1 MiB
 /// further `tEXt` chunks are skipped (already-captured entries kept).
 const MAX_TEXT_CHUNKS_TOTAL: usize = 16 * 1024 * 1024; // 16 MiB
 
+/// Decode bytes as Latin-1 into a `String`. Infallible — every Latin-1
+/// byte maps to a Unicode code point (U+0000..U+00FF). Per PNG spec, `tEXt`
+/// chunks use Latin-1 encoding; we do not sniff for UTF-8.
+fn decode_latin1(bytes: &[u8]) -> String {
+    bytes.iter().map(|&b| b as char).collect()
+}
+
 /// Walk the PNG chunk stream and extract EXIF + tEXt entries.
 ///
 /// Pure function: no I/O, takes a buffer slice, returns either output
@@ -72,7 +79,6 @@ pub(crate) fn extract_chunks(buf: &[u8]) -> Result<PngParseOut, ParsingErrorStat
         text_chunks: Vec::new(),
     };
     let mut text_total: usize = 0;
-    let _ = text_total;
 
     let mut cursor = PNG_SIGNATURE.len();
 
@@ -107,6 +113,43 @@ pub(crate) fn extract_chunks(buf: &[u8]) -> Result<PngParseOut, ParsingErrorStat
                 let data_end = data_start + length as usize;
                 // Priority: eXIf always wins (highest precedence).
                 out.exif = Some(PngExifSource::EXif(data_start..data_end));
+                cursor += total;
+            }
+            b"tEXt" => {
+                if length > MAX_TEXT_CHUNK_SIZE {
+                    // Defensive: skip oversized chunks.
+                    let total = 8 + length as usize + 4;
+                    let remaining = buf.len() - cursor;
+                    if total > remaining {
+                        return Err(ParsingErrorState::new(
+                            ParsingError::ClearAndSkip(total - remaining),
+                            None,
+                        ));
+                    }
+                    cursor += total;
+                    continue;
+                }
+                let total = 8 + length as usize + 4;
+                let remaining = buf.len() - cursor;
+                if total > remaining {
+                    return Err(ParsingErrorState::new(
+                        ParsingError::Need(total - remaining),
+                        None,
+                    ));
+                }
+                let data = &buf[cursor + 8..cursor + 8 + length as usize];
+                // tEXt format: Latin-1 keyword + 0x00 + Latin-1 text
+                if let Some(nul_pos) = data.iter().position(|&b| b == 0) {
+                    let key = decode_latin1(&data[..nul_pos]);
+                    let value = decode_latin1(&data[nul_pos + 1..]);
+                    let entry_size = key.len() + value.len();
+                    if text_total + entry_size <= MAX_TEXT_CHUNKS_TOTAL {
+                        text_total += entry_size;
+                        out.text_chunks.push((key, value));
+                    }
+                    // else: silently skip (already-captured entries kept).
+                }
+                // else: malformed tEXt (no NUL separator) — silently skip.
                 cursor += total;
             }
             _ => {
@@ -203,5 +246,60 @@ mod tests {
         };
         assert_eq!(&buf[exif_range], exif_payload);
         assert!(result.text_chunks.is_empty());
+    }
+
+    #[test]
+    fn extract_chunks_with_text() {
+        let mut text_data = Vec::new();
+        text_data.extend_from_slice(b"Title");
+        text_data.push(0);
+        text_data.extend_from_slice(b"Hello world");
+        let chunks = vec![build_chunk(b"tEXt", &text_data)];
+        let buf = build_png_with_chunks(&chunks);
+        let result = extract_chunks(&buf).unwrap();
+        assert!(result.exif.is_none());
+        assert_eq!(result.text_chunks.len(), 1);
+        assert_eq!(result.text_chunks[0].0, "Title");
+        assert_eq!(result.text_chunks[0].1, "Hello world");
+    }
+
+    #[test]
+    fn extract_chunks_text_duplicate_keys() {
+        let mut t1 = Vec::new();
+        t1.extend_from_slice(b"Comment");
+        t1.push(0);
+        t1.extend_from_slice(b"first");
+        let mut t2 = Vec::new();
+        t2.extend_from_slice(b"Comment");
+        t2.push(0);
+        t2.extend_from_slice(b"second");
+        let chunks = vec![build_chunk(b"tEXt", &t1), build_chunk(b"tEXt", &t2)];
+        let buf = build_png_with_chunks(&chunks);
+        let result = extract_chunks(&buf).unwrap();
+        assert_eq!(result.text_chunks.len(), 2);
+        assert_eq!(result.text_chunks[0], ("Comment".into(), "first".into()));
+        assert_eq!(result.text_chunks[1], ("Comment".into(), "second".into()));
+    }
+
+    #[test]
+    fn extract_chunks_text_no_nul_separator() {
+        // Malformed tEXt with no NUL byte — should be silently skipped.
+        let chunks = vec![build_chunk(b"tEXt", b"NoNulSeparator")];
+        let buf = build_png_with_chunks(&chunks);
+        let result = extract_chunks(&buf).unwrap();
+        assert!(result.text_chunks.is_empty());
+    }
+
+    #[test]
+    fn extract_chunks_text_latin1_decode() {
+        // Latin-1 character outside ASCII (é = 0xE9)
+        let mut data = Vec::new();
+        data.extend_from_slice(b"Caption");
+        data.push(0);
+        data.extend_from_slice(b"caf\xE9");
+        let chunks = vec![build_chunk(b"tEXt", &data)];
+        let buf = build_png_with_chunks(&chunks);
+        let result = extract_chunks(&buf).unwrap();
+        assert_eq!(result.text_chunks[0].1, "café");
     }
 }
