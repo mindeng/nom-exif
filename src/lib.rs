@@ -57,29 +57,37 @@
 //! # Reading from in-memory bytes
 //!
 //! When the payload is already in RAM (WASM, mobile, HTTP proxy, decoded
-//! response body), use the `*_from_bytes` helpers to skip the `File` /
+//! response body), use [`MediaSource::from_memory`] to skip the `File` /
 //! `Read` round-trip entirely. Memory mode is **zero-copy**: the underlying
 //! allocation is shared with the returned [`Exif`] / [`ExifIter`] /
 //! [`TrackInfo`] via [`bytes::Bytes`] reference counting.
 //!
 //! ```rust
-//! use nom_exif::{read_exif_from_bytes, ExifTag};
+//! use nom_exif::{MediaSource, MediaParser, ExifTag};
 //!
 //! let raw = std::fs::read("./testdata/exif.jpg")?;
-//! let exif = read_exif_from_bytes(raw)?;
+//! let ms = MediaSource::from_memory(raw)?;
+//! let mut parser = MediaParser::new();
+//! let iter = parser.parse_exif(ms)?;
+//! let exif: nom_exif::Exif = iter.into();
 //! assert_eq!(exif.get(ExifTag::Make).and_then(|v| v.as_str()), Some("vivo"));
 //! # Ok::<(), nom_exif::Error>(())
 //! ```
 //!
 //! For batch processing of many in-memory payloads, build a [`MediaParser`]
-//! once and call [`MediaParser::parse_exif_from_bytes`] /
-//! [`MediaParser::parse_track_from_bytes`] per payload.
+//! once and call [`MediaParser::parse_exif`] / [`MediaParser::parse_track`]
+//! with sources built via [`MediaSource::from_memory`] per payload.
+//!
+//! v3.0-style API (deprecated since v3.3): the top-level
+//! `read_exif_from_bytes` family and `MediaSource::<()>::from_bytes`
+//! still compile but produce deprecation warnings. Migrate to
+//! `MediaSource::from_memory` + `parse_exif` / `read_exif`.
 //!
 //! # API surface
 //!
 //! - **One-shot helpers**: [`read_exif`], [`read_exif_iter`], [`read_track`], [`read_metadata`]
 //!   for files; [`read_exif_from_bytes`], [`read_exif_iter_from_bytes`],
-//!   [`read_track_from_bytes`], [`read_metadata_from_bytes`] for in-memory bytes.
+//!   [`read_track_from_bytes`], [`read_metadata_from_bytes`] for in-memory bytes (deprecated since v3.3).
 //! - **Reusable parser**: [`MediaParser`] + [`MediaSource`] (or [`AsyncMediaSource`])
 //!   + [`MediaKind`].
 //! - **Image metadata**: [`Exif`] (eager, get-by-tag) or [`ExifIter`]
