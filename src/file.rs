@@ -65,6 +65,7 @@ pub(crate) enum MediaMimeImage {
     Tiff,
     Raf,
     Cr3,
+    Png,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
@@ -89,6 +90,8 @@ impl TryFrom<&[u8]> for MediaMime {
             }
         } else if TiffHeader::parse(input).is_ok() {
             MediaMime::Image(MediaMimeImage::Tiff)
+        } else if check_png(input).is_ok() {
+            MediaMime::Image(MediaMimeImage::Png)
         } else if check_jpeg(input).is_ok() {
             MediaMime::Image(MediaMimeImage::Jpeg)
         } else if RafInfo::check(input).is_ok() {
@@ -205,6 +208,16 @@ fn parse_bmff_mime(input: &[u8]) -> crate::Result<MediaMime> {
     Err(crate::Error::UnsupportedFormat)
 }
 
+const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
+
+fn check_png(input: &[u8]) -> Result<(), ()> {
+    if input.len() >= PNG_SIGNATURE.len() && &input[..PNG_SIGNATURE.len()] == PNG_SIGNATURE {
+        Ok(())
+    } else {
+        Err(())
+    }
+}
+
 fn get_ftyp_and_major_brand(input: &[u8]) -> crate::Result<(BoxHolder<'_>, Option<&[u8]>)> {
     let (_, bbox) = BoxHolder::parse(input).map_err(|e| crate::Error::Malformed {
         kind: MalformedKind::IsoBmffBox,
@@ -249,6 +262,7 @@ mod tests {
     #[test_case("exif.heic", Image(Heic))]
     #[test_case("exif.avif", Image(Avif))]
     #[test_case("exif.jpg", Image(Jpeg))]
+    #[test_case("exif.png", Image(Png))]
     #[test_case("fujifilm_x_t1_01.raf.meta", Image(Raf))]
     #[test_case("meta.mp4", Track(Mp4))]
     #[test_case("meta.mov", Track(QuickTime))]
