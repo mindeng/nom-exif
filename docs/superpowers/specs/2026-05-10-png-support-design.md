@@ -6,7 +6,9 @@
 
 ## Scope
 
-Image format support for `.png` files, covering:
+Two coupled changes ship together in v3.3:
+
+**A. Image format support for `.png` files**, covering:
 
 1. **Standard EXIF** in PNG `eXIf` chunks (PNG 1.5 / 2017 spec extension).
    Surfaced through the existing `parse_exif` / `read_exif` entry points
@@ -17,12 +19,32 @@ Image format support for `.png` files, covering:
    only in v3.3 — top-level `read_*` helpers deferred to v4) that
    returns a structured `ImageMetadata { exif, format }`. PNG-specific
    format metadata lives in the `format` field as
-   `FormatMetadata::Png(PngTextChunks)`.
+   `ImageFormatMetadata::Png(PngTextChunks)`.
 3. **Legacy EXIF-in-`tEXt`** transparently merged: ImageMagick's
    `Raw profile type exif` (hex-encoded TIFF) and Photoshop's
    `Raw profile type APP1` (hex-encoded `Exif\0\0` + TIFF). EXIF entries
    become available via `Exif::get(ExifTag::*)` exactly as if they came
    from `eXIf` — *regardless of which entry point the caller uses*.
+
+**B. Source-input model unification** — prerequisite that lets the new
+`parse_image_metadata` ship without an `_from_bytes` sibling, and
+brings the existing `parse_exif` / `parse_track` family in line:
+
+- New `MediaSource::from_memory(bytes) -> MediaSource<std::io::Empty>`
+  constructor.
+- Existing `parse_exif<R: Read>` / `parse_track<R: Read>` extended to
+  accept memory-mode sources (signatures unchanged; runtime branch on
+  the existing `memory: Option<Bytes>` field; zero-copy preserved).
+- `#[deprecated]` markers on `MediaSource::<()>::from_bytes`,
+  `parse_exif_from_bytes`, `parse_track_from_bytes`, and all top-level
+  `read_*_from_bytes` helpers. Removed in v4. **No breaking change in
+  v3.x** — old code keeps compiling with deprecation warnings.
+
+Bundling A and B is deliberate: shipping the new PNG API alongside an
+unchanged triplet pattern (`parse_*` + `parse_*_from_bytes` +
+`parse_*_async`) would lock the inconsistency into a public release.
+B is small (~50 lines) and self-contained; bundled it yields one
+coherent v3.3 story.
 
 **Out of scope** (deferred to a future phase):
 
@@ -52,25 +74,56 @@ Image format support for `.png` files, covering:
 
 ## Architecture
 
+### Source-input model (unified in v3.3 via deprecation)
+
+This PR also unifies the source-input model so that **a single
+`parse_*` method accepts file/stream/memory sources**. The triplet
+pattern (`parse_exif` + `parse_exif_from_bytes` + `parse_exif_async`)
+collapses to a duplet (`parse_exif` + `parse_exif_async`), with the
+sync method handling both file/stream and memory inputs.
+
+Mechanism: introduce a new constructor
+`MediaSource::from_memory(bytes) -> MediaSource<std::io::Empty>`.
+`std::io::Empty` impls `Read` (returning 0 bytes always), so
+`MediaSource<Empty>` satisfies the existing `<R: Read>` bound on every
+`parse_*<R: Read>(MediaSource<R>)` method. The parser dispatches on
+the existing `memory: Option<bytes::Bytes>` field at runtime — exact
+same fast path that `parse_exif_from_bytes` already takes today,
+zero-copy preserved.
+
+Legacy API is kept and `#[deprecated]`-marked through v3.x; removed in
+v4:
+
+| v3.3 status | Symbol |
+|---|---|
+| New (preferred) | `MediaSource::from_memory` |
+| Deprecated | `MediaSource::<()>::from_bytes`, `MediaParser::parse_exif_from_bytes`, `MediaParser::parse_track_from_bytes`, `read_exif_from_bytes`, `read_track_from_bytes`, `read_metadata_from_bytes` |
+| Unchanged | `MediaSource::open`, `MediaSource::seekable`, `MediaSource::unseekable`, `parse_exif<R: Read>`, `parse_track<R: Read>`, `parse_*_async` |
+
+The new `parse_image_metadata` is **born unified** — no `_from_bytes`
+sibling at all, since memory-mode sources flow through the same
+`<R: Read>` signature via `MediaSource<Empty>`.
+
 ### Two coexisting entry points
 
 ```rust
-// Existing (unchanged behavior contract)
+// Existing (unchanged behavior contract; signature unchanged)
 parser.parse_exif(ms)     -> Result<ExifIter>          // lazy, EXIF-only
 read_exif(path)           -> Result<Exif>              // eager, EXIF-only
+// `parse_exif` now also accepts `MediaSource<Empty>` built from
+// `MediaSource::from_memory(bytes)` — same method, no _from_bytes sibling.
 
 // New (PNG-aware, format-extras-aware) — MediaParser layer only in v3.3.
 // Top-level read_image_metadata helpers are deferred to v4 (see Scope).
-parser.parse_image_metadata(ms)        -> Result<ImageMetadata<ExifIter>>  // lazy
-parser.parse_image_metadata_from_bytes(ms) -> Result<ImageMetadata<ExifIter>>
-parser.parse_image_metadata_async(ms)  -> Result<ImageMetadata<ExifIter>>  // tokio
+parser.parse_image_metadata<R: Read>(ms)         -> Result<ImageMetadata<ExifIter>>  // lazy; sync
+parser.parse_image_metadata_async<R: AsyncRead>(ms) -> Result<ImageMetadata<ExifIter>>  // lazy; tokio
 ```
 
 User-facing rule (covered in CHANGELOG / docs):
 
 | Goal | Use |
 |---|---|
-| Just want EXIF (any format including PNG) | `parse_exif` / `read_exif` — unchanged |
+| Just want EXIF (any format including PNG, any source kind) | `parse_exif` / `read_exif` — unchanged |
 | Want EXIF + any format-specific extras (PNG `tEXt`, future GIF Comment, …) | `MediaParser::parse_image_metadata` (parser-level only in v3.3) |
 
 `parse_exif` on PNG still applies the legacy `Raw profile type *`
@@ -97,10 +150,18 @@ src/
   file.rs                   add MediaMimeImage::Png + signature detection.
   exif.rs                   add `if Png { return parse_png_exif_iter(…) }` for parse_exif.
   exif/png_text.rs          NEW. PngTextChunks public type.
-  image_metadata.rs         NEW. ImageMetadata<E>, FormatMetadata, ExifRepr trait.
-  parser.rs                 add MediaParser::parse_image_metadata + variants.
+  image_metadata.rs         NEW. ImageMetadata<E>, ImageFormatMetadata, ExifRepr trait.
+  parser.rs                 - add MediaSource<Empty>::from_memory constructor.
+                            - extend MediaSource<R: Read>::build to accept Empty too.
+                            - add memory-mode branch to parse_exif/parse_track
+                              (preserving zero-copy via existing memory field).
+                            - #[deprecated] MediaSource::<()>::from_bytes,
+                              parse_exif_from_bytes, parse_track_from_bytes.
+                            - add MediaParser::parse_image_metadata (unified).
   parser_async.rs           add MediaParser::parse_image_metadata_async (tokio feature).
-  lib.rs                    export new types (ImageMetadata, FormatMetadata, ExifRepr, PngTextChunks).
+  lib.rs                    - #[deprecated] read_*_from_bytes top-level helpers.
+                            - export new types (ImageMetadata, ImageFormatMetadata,
+                              ExifRepr, PngTextChunks).
 ```
 
 ### Data flow
@@ -124,7 +185,7 @@ PNG case:
   → png::extract_chunks walks chunk stream, returns PngParseOut
   → ImageMetadata {
        exif: out.exif.map(materialize → ExifIter),
-       format: (!text_chunks.is_empty()).then(|| FormatMetadata::Png(text_chunks)),
+       format: (!text_chunks.is_empty()).then(|| ImageFormatMetadata::Png(text_chunks)),
      }
 
 Non-PNG case (jpeg/heic/avif/tiff/raf/cr3):
@@ -179,7 +240,7 @@ impl sealed::Sealed for ExifIter {}  impl ExifRepr for ExifIter {}
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ImageMetadata<E: ExifRepr = Exif> {
     pub exif: Option<E>,
-    pub format: Option<FormatMetadata>,
+    pub format: Option<ImageFormatMetadata>,
 }
 
 impl From<ImageMetadata<ExifIter>> for ImageMetadata<Exif> {
@@ -197,7 +258,7 @@ impl From<ImageMetadata<ExifIter>> for ImageMetadata<Exif> {
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[non_exhaustive]
-pub enum FormatMetadata {
+pub enum ImageFormatMetadata {
     Png(PngTextChunks),
     // future: Gif(GifComment), Webp(WebpChunks), …
 }
@@ -223,14 +284,14 @@ impl PngTextChunks {
     pub fn is_empty(&self) -> bool;
 }
 
-// ----- New methods on MediaParser (sync, plus tokio variant).
-//       Top-level read_image_metadata helpers are deferred to v4 — see
-//       "Out of scope" in the Scope section.
+// ----- New methods on MediaParser. Single sync method handles
+//       file/stream/memory sources via the unified <R: Read> bound
+//       (memory mode flows through `MediaSource<std::io::Empty>`
+//       built from `MediaSource::from_memory`). Top-level
+//       read_image_metadata helpers are deferred to v4 — see "Out of
+//       scope" in the Scope section.
 impl MediaParser {
     pub fn parse_image_metadata<R: Read>(&mut self, ms: MediaSource<R>)
-        -> Result<ImageMetadata<ExifIter>>;
-
-    pub fn parse_image_metadata_from_bytes(&mut self, ms: MediaSource<()>)
         -> Result<ImageMetadata<ExifIter>>;
 
     #[cfg(feature = "tokio")]
@@ -238,12 +299,57 @@ impl MediaParser {
         &mut self, ms: AsyncMediaSource<R>,
     ) -> Result<ImageMetadata<ExifIter>>;
 }
+
+// ----- Source-input model unification. New constructor + deprecation
+//       of the old MediaSource<()> shape and all parse_*_from_bytes
+//       siblings. Removed in v4.
+impl MediaSource<std::io::Empty> {
+    /// Build a `MediaSource` from in-memory bytes. Replaces the v3.0
+    /// `MediaSource::<()>::from_bytes` (now deprecated).
+    pub fn from_memory(bytes: impl Into<bytes::Bytes>) -> Result<Self>;
+}
+
+impl MediaSource<()> {
+    #[deprecated(
+        since = "3.3.0",
+        note = "Use `MediaSource::from_memory` and the unified \
+                `parse_*` methods. The `MediaSource<()>` shape will \
+                be removed in v4."
+    )]
+    pub fn from_bytes(bytes: impl Into<bytes::Bytes>) -> Result<Self>;
+}
+
+impl MediaParser {
+    #[deprecated(since = "3.3.0", note = "Use `parse_exif` directly — \
+        it accepts memory-mode sources built via `MediaSource::from_memory`.")]
+    pub fn parse_exif_from_bytes(&mut self, ms: MediaSource<()>) -> Result<ExifIter>;
+
+    #[deprecated(since = "3.3.0", note = "Use `parse_track` with \
+        `MediaSource::from_memory`.")]
+    pub fn parse_track_from_bytes(&mut self, ms: MediaSource<()>) -> Result<TrackInfo>;
+}
+
+#[deprecated(since = "3.3.0", note = "Use `read_exif` with \
+    `MediaSource::from_memory`.")]
+pub fn read_exif_from_bytes(bytes: impl Into<bytes::Bytes>) -> Result<Exif>;
+
+#[deprecated(since = "3.3.0", note = "Use `read_exif_iter` with \
+    `MediaSource::from_memory`.")]
+pub fn read_exif_iter_from_bytes(bytes: impl Into<bytes::Bytes>) -> Result<ExifIter>;
+
+#[deprecated(since = "3.3.0", note = "Use `read_track` with \
+    `MediaSource::from_memory`.")]
+pub fn read_track_from_bytes(bytes: impl Into<bytes::Bytes>) -> Result<TrackInfo>;
+
+#[deprecated(since = "3.3.0", note = "Use `read_metadata` with \
+    `MediaSource::from_memory`.")]
+pub fn read_metadata_from_bytes(bytes: impl Into<bytes::Bytes>) -> Result<Metadata>;
 ```
 
 **Not in `prelude`** (cold path).
 
 **Not exported**: `MediaMimeImage::Png` stays `pub(crate)` like every
-other variant. Users branch on the `FormatMetadata` enum, not on mime.
+other variant. Users branch on the `ImageFormatMetadata` enum, not on mime.
 
 ### Default type parameter rationale
 
@@ -413,7 +519,7 @@ contract is **not** relaxed — every format including PNG returns
 | `tEXt` with no NUL separator | Skip the entry (not pushed into text_chunks) |
 | Hex-decode failure on legacy EXIF | Legacy ignored; tEXt entry preserved; if no other source → ExifNotFound on `parse_exif`; `format: Some(Png(text_chunks))` on `parse_image_metadata` if any tEXt captured |
 | Legacy hex-decoded TIFF header invalid | Same as above |
-| PNG with only `tEXt`, no EXIF | `parse_exif` → `Err(ExifNotFound)`. `parse_image_metadata` → `Ok(ImageMetadata { exif: None, format: Some(FormatMetadata::Png(...)) })` |
+| PNG with only `tEXt`, no EXIF | `parse_exif` → `Err(ExifNotFound)`. `parse_image_metadata` → `Ok(ImageMetadata { exif: None, format: Some(ImageFormatMetadata::Png(...)) })` |
 | PNG with truly nothing | Both APIs → `Err(ExifNotFound)` |
 | Memory-mode (`from_bytes`) PNG | Same code path, zero-copy `eXIf` slice into shared `Bytes` |
 | Async (`parse_*_async`) PNG | Same code path via `AsyncBufParser`; no PNG-specific async code |
@@ -453,17 +559,24 @@ not verify). No new build-time dependency.
   fixtures under `Exif`/`NoData`/`Invalid` categories.
 - **PngTextChunks** (in `src/exif/png_text.rs`): `get` / `get_all` /
   `iter` / `len` / `is_empty`.
-- **ImageMetadata + FormatMetadata** (in `src/image_metadata.rs`):
+- **ImageMetadata + ImageFormatMetadata** (in `src/image_metadata.rs`):
   default value, generic instantiation, `From<ImageMetadata<ExifIter>>`
   conversion.
 - **Integration** (`tests/png.rs`, NEW): each fixture exercised through
-  six entry points — three EXIF-only (`read_exif`,
-  `read_exif_from_bytes`, and under `#[cfg(feature = "tokio")]`
-  `read_exif_async`) plus three image-metadata
-  (`MediaParser::parse_image_metadata`,
-  `parse_image_metadata_from_bytes`, and under `#[cfg(feature = "tokio")]`
-  `parse_image_metadata_async`). Verifies parity across sync / memory /
-  async, seekable + unseekable.
+  the EXIF-only entry points (`read_exif` for files,
+  `read_exif` with `MediaSource::from_memory` for in-memory bytes,
+  and under `#[cfg(feature = "tokio")]` `read_exif_async`) and the
+  image-metadata entry points (`MediaParser::parse_image_metadata`
+  for both file-backed and memory-backed sources, and under
+  `#[cfg(feature = "tokio")]` `parse_image_metadata_async`). Verifies
+  parity across file / stream / memory / async, seekable +
+  unseekable.
+- **Source-input unification** (in `src/parser.rs` tests): regression
+  fixture re-runs the existing memory-mode tests through the new
+  `from_memory` path, asserting (a) `parse_exif(MediaSource::from_memory(...))`
+  succeeds and (b) the cached-pointer / share_buf zero-copy invariant
+  is preserved. Plus a `#[allow(deprecated)]` test confirming
+  `parse_exif_from_bytes` still works.
 - **Regression baseline**: `png_baseline_exif_full_dump` mirrors
   `p4_5_baseline_exif_jpg_full_dump` to lock the captured-tag set for
   `exif.png`.
@@ -475,6 +588,32 @@ not verify). No new build-time dependency.
 Strictly linear (file overlap precludes parallelism). Each phase ends
 with `cargo test` green and an atomic commit.
 
+0. **Source-input unification + deprecation** —
+   - `parser.rs`: add `MediaSource::<std::io::Empty>::from_memory`
+     constructor (mirrors `from_bytes` but uses `std::io::empty()` as
+     reader and stashes bytes in `memory: Some(...)` exactly as
+     `from_bytes` already does).
+   - `parser.rs`: extend `parse_exif<R: Read>` and `parse_track<R: Read>`
+     internals with `if ms.memory.is_some()` branch — same body as
+     today's `parse_exif_from_bytes` / `parse_track_from_bytes`. Method
+     signatures unchanged. Existing zero-copy memory mode preserved
+     verbatim.
+   - `parser.rs`: `#[deprecated(since = "3.3.0")]` on
+     `MediaSource::<()>::from_bytes`, `parse_exif_from_bytes`,
+     `parse_track_from_bytes`. `#[allow(deprecated)]` inside this
+     crate's own tests/internals that still exercise these paths.
+   - `lib.rs`: `#[deprecated]` on `read_exif_from_bytes`,
+     `read_exif_iter_from_bytes`, `read_track_from_bytes`,
+     `read_metadata_from_bytes`.
+   - Tests: existing `parse_exif_from_bytes_*` / similar tests stay,
+     plus a parallel set using `from_memory` route, asserting
+     identical behavior + zero-copy invariant
+     (`cached_ptr_for_test` semantics).
+   - Docs: README + `lib.rs` module docs migrate code samples from
+     `from_bytes` → `from_memory`. `MIGRATION.md` gets a small
+     "v3.0 → v3.3" subsection documenting the deprecation/migration.
+   - No PNG yet; CI green; all existing user code still compiles
+     (with deprecation warnings on old paths only).
 1. **Format detection** — `MediaMimeImage::Png` + signature in
    `file.rs`. Add `if Png { return Err(Error::ExifNotFound) }`
    short-circuit in `parse_exif_iter` (sync + async) so the new variant
@@ -487,7 +626,7 @@ with `cargo test` green and an atomic commit.
    termination, bound defense, `Need`/`Skip` returns. No integration
    yet.
 3. **Public types** — `src/exif/png_text.rs` (`PngTextChunks`) +
-   `src/image_metadata.rs` (`ImageMetadata<E>`, `FormatMetadata`,
+   `src/image_metadata.rs` (`ImageMetadata<E>`, `ImageFormatMetadata`,
    `ExifRepr` sealed trait, `From<ImageMetadata<ExifIter>>` impl).
    Exports in `lib.rs`. Unit tests of accessors + generic
    instantiation. PNG still stubbed in dispatch.
@@ -496,43 +635,89 @@ with `cargo test` green and an atomic commit.
    - `exif.rs`: dispatch `if Png { parse_png_exif_iter(...) }` for
      `parse_exif`, materializing `EXif(Range)` to `ExifIter` (the
      `Legacy(_)` arm is added in phase 5).
-   - `parser.rs`: `MediaParser::parse_image_metadata` (+ `_from_bytes`)
+   - `parser.rs`: `MediaParser::parse_image_metadata<R: Read>`
      dispatching on `MediaMimeImage::Png` to a new `parse_png_full`
      helper, falling back to `parse_exif_iter` for non-PNG (returns
-     `ImageMetadata { exif: Some(iter), format: None }`).
+     `ImageMetadata { exif: Some(iter), format: None }`). Single
+     method handles file/stream/memory thanks to phase 0.
    - `parser_async.rs`: `parse_image_metadata_async` mirrors the sync
      path; reuses `load_and_parse` so no PNG-specific async code.
-   - Tests: `exif.png` and `text-only.png` exercised through all six
-     entry points (3 EXIF-only `read_exif*` + 3 image-metadata
-     `MediaParser::parse_image_metadata*`).
+   - Tests: `exif.png` and `text-only.png` exercised through file
+     and memory (`from_memory`) inputs, sync + async.
 5. **Legacy EXIF-in-`tEXt`** — hex decode helper; `Raw profile type
    exif` / `APP1` recognition; `Legacy(bytes)` path materialized in
    `parse_png_exif_iter` and `parse_png_full`. Tests `exif-legacy*.png`
    and `exif-both.png`.
-6. **Docs + CLI + changelog** — `README.md` "Supported File Types" +
-   `MediaParser::parse_image_metadata` example showing the lazy-iter
-   shape and the optional `.into()` to eager `ImageMetadata<Exif>`;
-   `lib.rs` module docs; doctest on `parse_image_metadata`;
-   `examples/rexiftool.rs` adds `-- Format Metadata --` section under
-   existing `--no-track` analog (`--no-format`); `CHANGELOG.md` under
-   `## Unreleased` → `### Added — PNG support (#18)` noting that
-   top-level `read_image_metadata` helpers are deferred to v4. Bump to
-   `v3.3.0` happens in a separate release commit (out of scope).
+6. **Docs + CLI + changelog** —
+   - `README.md`: add `.png` under "Supported File Types"; add a
+     `parse_image_metadata` usage example (lazy iter + optional
+     `.into()` to eager `ImageMetadata<Exif>`); migrate any
+     `from_bytes` examples in the doc to `from_memory` and add a
+     short note at the bottom of the In-Memory Bytes section about
+     the deprecation.
+   - `lib.rs`: module-level docs updated with PNG entry, the new
+     `parse_image_metadata` story, and the `from_memory`/deprecation
+     migration note. All existing in-file doc examples that use
+     `from_bytes` switched to `from_memory`.
+   - Doctest on `parse_image_metadata` (file + memory both
+     compile-pass).
+   - `examples/rexiftool.rs`: print `-- Format Metadata --` section
+     mirroring `-- Embedded Track --`; opt-out flag `--no-format`
+     (parallel to `--no-track`); migrate the example's own usage to
+     `from_memory` if it uses memory mode anywhere.
+   - `CHANGELOG.md`:
+     `## Unreleased`
+       `### Added` — PNG support (#18) + `MediaSource::from_memory`
+                    + `MediaParser::parse_image_metadata`.
+       `### Deprecated` — `MediaSource::<()>::from_bytes`,
+                          `parse_exif_from_bytes`,
+                          `parse_track_from_bytes`,
+                          all top-level `read_*_from_bytes`.
+                          Removed in v4.
+       `### Notes` — top-level `read_image_metadata` helpers are
+                     deferred to v4 alongside the planned `Metadata`
+                     enum redesign.
+   - Bump to `v3.3.0` happens in a separate release commit (out of
+     scope of this PR).
 
 ### PR shape
 
-Single PR, six commits. PNG support is one user-visible feature; the
-phases are an internal review aid, not separate releases.
+Single PR, seven commits (phases 0–6). PNG support is one
+user-visible feature; the source-input unification (phase 0) is a
+prerequisite that makes the new API consistent with the unified form,
+not a standalone change worth its own PR.
 
 ### Migration
 
-No `MIGRATION.md` entry. Purely additive — no v2 → v3 analog, no
-breaking change in v3.x.
+`MIGRATION.md` gets a small "v3.0 → v3.3" subsection covering the
+deprecations:
 
-### v4 forward-compat
+- `MediaSource::<()>::from_bytes` → `MediaSource::from_memory`
+- `parse_exif_from_bytes` → `parse_exif` (now accepts memory-mode
+  sources directly)
+- `parse_track_from_bytes` → `parse_track`
+- `read_exif_from_bytes` → `read_exif` (after `from_memory`)
+- `read_exif_iter_from_bytes`, `read_track_from_bytes`,
+  `read_metadata_from_bytes` — analogous
 
-The `ImageMetadata<E>` struct introduced here is shaped to be reused
-unchanged by a future v4 redesign of the `Metadata` enum:
+All deprecated symbols still compile in v3.x; removal scheduled for v4.
+
+PNG support itself is purely additive — no user code change needed
+unless they want the new `parse_image_metadata` capabilities.
+
+### v4 plan
+
+Two threads queue up for the v4 milestone:
+
+**(1) Removals** — drop the `#[deprecated]` items introduced in v3.3:
+
+- `MediaSource::<()>::from_bytes` (entire `MediaSource<()>` impl block)
+- `MediaParser::parse_exif_from_bytes`, `parse_track_from_bytes`
+- top-level `read_*_from_bytes` helpers
+
+**(2) `Metadata` redesign** — the `ImageMetadata<E>` struct introduced
+in v3.3 is shaped to be reused unchanged by a future v4 redesign of
+the `Metadata` enum:
 
 ```rust
 // v4 candidate (separate milestone)
@@ -547,9 +732,10 @@ Default `E = Exif` matches today's `Metadata::Exif(Exif)` eager
 behavior; v4 callers of `read_metadata` see no surprise.
 
 In addition, v4 is the natural place to introduce **top-level
-`read_image_metadata` helpers** alongside a redesigned `read_metadata`
-— deliberately deferred from v3.3 to avoid two adjacent top-level
-entry points with overlapping semantics during the v3 → v4 transition.
+`read_image_metadata` helpers** alongside the redesigned
+`read_metadata` — deliberately deferred from v3.3 to avoid two
+adjacent top-level entry points with overlapping semantics during the
+v3 → v4 transition.
 
 This forward-compat is a *design property*, not a v3.3 commitment —
 v4 may evolve independently. Plant a project seed to revisit during
@@ -566,6 +752,21 @@ v4 milestone planning.
   in storage / function signatures; the parser-level entry points
   return `ImageMetadata<ExifIter>` explicitly so the lazy form is
   obvious from the signature; doctests demonstrate both forms.
+- **Risk**: in-crate uses of the deprecated `_from_bytes` symbols
+  (tests, examples) will produce deprecation warnings. Mitigation:
+  add `#[allow(deprecated)]` to the existing test functions that
+  exercise those paths (we still want them tested through v3.x);
+  ensure CI doesn't treat warnings as errors. Phase 0 explicitly
+  audits this so v3.3 ships green.
+- **Risk**: PR scope expanded by phase 0 (source-input unification +
+  global deprecation) beyond the initial "PNG only" charter.
+  Mitigation: phase 0 is mechanical and self-contained (no behavior
+  change for non-deprecated paths); the unification is a *prerequisite*
+  for the new `parse_image_metadata` to be born without
+  `_from_bytes` siblings. Splitting into two PRs would force the new
+  PNG API to either match the old triplet pattern (defeating
+  consistency goal) or land before the unification is in place
+  (leaving a window of inconsistency).
 - **Open**: does `rexiftool` JSON output need a `_format` (or
   `_text_chunks`) nested key? Suggested yes (mirrors `_embedded_track`
   shape) but worth a second look during phase 6.
