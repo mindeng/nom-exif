@@ -175,6 +175,12 @@ impl MediaSource<()> {
     /// let _iter = parser.parse_exif_from_bytes(ms)?;
     /// # Ok::<(), nom_exif::Error>(())
     /// ```
+    #[deprecated(
+        since = "3.3.0",
+        note = "Use `MediaSource::from_memory` and the unified `parse_*` \
+                methods (which now accept memory-mode sources directly). \
+                The `MediaSource<()>` shape will be removed in v4."
+    )]
     pub fn from_bytes(bytes: impl Into<bytes::Bytes>) -> crate::Result<Self> {
         let bytes = bytes.into();
         let head_end = bytes.len().min(HEADER_PARSE_BUF_SIZE);
@@ -877,69 +883,27 @@ impl MediaParser {
     }
 
     /// Parse Exif metadata from an in-memory byte payload built via
-    /// [`MediaSource::<()>::from_bytes`]. Returns `Error::ExifNotFound` if the
-    /// payload is a `Track` (use [`Self::parse_track_from_bytes`] instead).
+    /// the deprecated [`MediaSource::<()>::from_bytes`].
     ///
-    /// Memory-mode parsing is **zero-copy**: the underlying `Bytes` is shared
-    /// with the returned [`ExifIter`] (and its sub-IFDs / CR3 CMT blocks) via
-    /// reference counting. No `Vec<u8>` is allocated for the parse buffer.
-    pub fn parse_exif_from_bytes(&mut self, mut ms: MediaSource<()>) -> crate::Result<ExifIter> {
-        self.reset();
-        let memory = ms
-            .memory
-            .take()
-            .expect("MediaSource<()> must have memory (only constructor is from_bytes)");
-        self.state.set_memory(memory);
-        let res: crate::Result<ExifIter> = (|| {
-            if !matches!(ms.mime, crate::file::MediaMime::Image(_)) {
-                return Err(crate::Error::ExifNotFound);
-            }
-            // Placeholder reader: never read from in memory mode (fill_buf
-            // short-circuits; clear_and_skip uses AdvanceOnly).
-            let mut empty = std::io::empty();
-            crate::exif::parse_exif_iter(
-                self,
-                ms.mime.unwrap_image(),
-                &mut empty,
-                // Placeholder skip-by-seek: never invoked.
-                |_, _| Ok(false),
-            )
-        })();
-        self.reset();
-        res
+    /// **Deprecated since v3.3.0**: use [`Self::parse_exif`] with
+    /// [`MediaSource::from_memory`] directly.
+    #[deprecated(
+        since = "3.3.0",
+        note = "Use `parse_exif` directly — it now accepts memory-mode \
+                sources built via `MediaSource::from_memory`."
+    )]
+    pub fn parse_exif_from_bytes(&mut self, ms: MediaSource<()>) -> crate::Result<ExifIter> {
+        self.parse_exif(ms.into_empty())
     }
 
-    /// Parse track info from an in-memory video/audio byte payload built via
-    /// [`MediaSource::<()>::from_bytes`]. Returns `Error::TrackNotFound` if the
-    /// payload is an `Image` (use [`Self::parse_exif_from_bytes`] instead).
-    ///
-    /// Like [`Self::parse_exif_from_bytes`], the parse is zero-copy with respect to
-    /// the user-supplied `Bytes`.
-    pub fn parse_track_from_bytes(&mut self, mut ms: MediaSource<()>) -> crate::Result<TrackInfo> {
-        self.reset();
-        let memory = ms
-            .memory
-            .take()
-            .expect("MediaSource<()> must have memory (only constructor is from_bytes)");
-        self.state.set_memory(memory);
-        let res: crate::Result<TrackInfo> = (|| {
-            let mime_track = match ms.mime {
-                crate::file::MediaMime::Image(_) => return Err(crate::Error::TrackNotFound),
-                crate::file::MediaMime::Track(t) => t,
-            };
-            let mut empty = std::io::empty();
-            let out = self.load_and_parse(
-                &mut empty,
-                |_, _| Ok(false),
-                |data, _| {
-                    crate::video::parse_track_info(data, mime_track)
-                        .map_err(|e| ParsingErrorState::new(e, None))
-                },
-            )?;
-            Ok(out)
-        })();
-        self.reset();
-        res
+    /// **Deprecated since v3.3.0**: use [`Self::parse_track`] with
+    /// [`MediaSource::from_memory`] directly.
+    #[deprecated(
+        since = "3.3.0",
+        note = "Use `parse_track` with `MediaSource::from_memory`."
+    )]
+    pub fn parse_track_from_bytes(&mut self, ms: MediaSource<()>) -> crate::Result<TrackInfo> {
+        self.parse_track(ms.into_empty())
     }
 
     fn reset(&mut self) {
