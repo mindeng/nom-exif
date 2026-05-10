@@ -302,4 +302,41 @@ mod tests {
         let result = extract_chunks(&buf).unwrap();
         assert_eq!(result.text_chunks[0].1, "café");
     }
+
+    #[test]
+    fn extract_chunks_truncated_inside_exif() {
+        // PNG signature + IHDR + start of eXIf chunk header (claiming a 100-byte
+        // body) but the body is missing.
+        let mut buf = Vec::new();
+        buf.extend_from_slice(PNG_SIGNATURE);
+        buf.extend_from_slice(&build_chunk(b"IHDR", &[0; 13]));
+        // Manually emit eXIf header claiming 100 bytes
+        buf.extend_from_slice(&100u32.to_be_bytes());
+        buf.extend_from_slice(b"eXIf");
+        // No body — caller must request Need.
+
+        let err = extract_chunks(&buf).unwrap_err();
+        match err.err {
+            ParsingError::Need(n) => assert!(n >= 100),
+            other => panic!("expected Need(>=100), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn extract_chunks_skips_large_idat() {
+        // IDAT chunk declaring a 50_000-byte body that is NOT in the buffer —
+        // should produce ParsingError::ClearAndSkip.
+        let mut buf = Vec::new();
+        buf.extend_from_slice(PNG_SIGNATURE);
+        buf.extend_from_slice(&build_chunk(b"IHDR", &[0; 13]));
+        // IDAT header only, claiming 50_000 bytes
+        buf.extend_from_slice(&50_000u32.to_be_bytes());
+        buf.extend_from_slice(b"IDAT");
+
+        let err = extract_chunks(&buf).unwrap_err();
+        match err.err {
+            ParsingError::ClearAndSkip(n) => assert!(n >= 50_000),
+            other => panic!("expected ClearAndSkip(>=50_000), got {other:?}"),
+        }
+    }
 }
