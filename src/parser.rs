@@ -780,7 +780,15 @@ impl MediaParser {
                 // Streaming-mode: existing path verbatim.
                 self.acquire_buf();
                 self.buf_mut().append(&mut ms.buf);
-                self.fill_buf(&mut ms.reader, INIT_BUF_SIZE)?;
+                // Ignore EOF if the header-detection already consumed the
+                // entire file (files smaller than HEADER_PARSE_BUF_SIZE).
+                match self.fill_buf(&mut ms.reader, INIT_BUF_SIZE) {
+                    Ok(_) => {}
+                    Err(e)
+                        if !self.buffer().is_empty()
+                            && e.kind() == io::ErrorKind::UnexpectedEof => {}
+                    Err(e) => return Err(e.into()),
+                }
                 if !matches!(ms.mime, crate::file::MediaMime::Image(_)) {
                     return Err(crate::Error::ExifNotFound);
                 }
@@ -929,7 +937,15 @@ impl MediaParser {
             } else {
                 self.acquire_buf();
                 self.buf_mut().append(&mut ms.buf);
-                self.fill_buf(&mut ms.reader, INIT_BUF_SIZE)?;
+                // Ignore EOF if header-detection already consumed the entire
+                // file (files smaller than HEADER_PARSE_BUF_SIZE).
+                match self.fill_buf(&mut ms.reader, INIT_BUF_SIZE) {
+                    Ok(_) => {}
+                    Err(e)
+                        if !self.buffer().is_empty()
+                            && e.kind() == io::ErrorKind::UnexpectedEof => {}
+                    Err(e) => return Err(e.into()),
+                }
             }
 
             // Reject track inputs (parse_track is the right API).
