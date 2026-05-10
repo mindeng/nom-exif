@@ -94,10 +94,23 @@ pub(crate) fn extract_chunks(buf: &[u8]) -> Result<PngParseOut, ParsingErrorStat
 
         match ctype {
             b"IEND" => break,
-            // Other chunks handled in subsequent commits.
+            b"eXIf" => {
+                let total = 8 + length as usize + 4;
+                let remaining = buf.len() - cursor;
+                if total > remaining {
+                    return Err(ParsingErrorState::new(
+                        ParsingError::Need(total - remaining),
+                        None,
+                    ));
+                }
+                let data_start = cursor + 8;
+                let data_end = data_start + length as usize;
+                // Priority: eXIf always wins (highest precedence).
+                out.exif = Some(PngExifSource::EXif(data_start..data_end));
+                cursor += total;
+            }
             _ => {
-                // For now, skip everything that isn't IEND.
-                let total = 8 + length as usize + 4; // header + data + CRC
+                let total = 8 + length as usize + 4;
                 let remaining = buf.len() - cursor;
                 if total > remaining {
                     return Err(ParsingErrorState::new(
@@ -152,5 +165,43 @@ mod tests {
         let buf = b"\x89PNG".to_vec();
         let err = extract_chunks(&buf).unwrap_err();
         assert!(matches!(err.err, ParsingError::Need(_)));
+    }
+
+    fn build_chunk(ctype: &[u8; 4], data: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(&(data.len() as u32).to_be_bytes());
+        out.extend_from_slice(ctype);
+        out.extend_from_slice(data);
+        out.extend_from_slice(&[0, 0, 0, 0]); // CRC (unverified)
+        out
+    }
+
+    fn build_png_with_chunks(chunks: &[Vec<u8>]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(PNG_SIGNATURE);
+        out.extend_from_slice(&build_chunk(
+            b"IHDR",
+            &[0, 0, 0, 1, 0, 0, 0, 1, 8, 0, 0, 0, 0],
+        ));
+        for c in chunks {
+            out.extend_from_slice(c);
+        }
+        out.extend_from_slice(&build_chunk(b"IEND", &[]));
+        out
+    }
+
+    #[test]
+    fn extract_chunks_with_exif() {
+        // Tiny "TIFF" body — content doesn't matter at this layer.
+        let exif_payload = b"II*\x00\x08\x00\x00\x00MM\x00\x2a";
+        let exif_chunk = build_chunk(b"eXIf", exif_payload);
+        let buf = build_png_with_chunks(&[exif_chunk]);
+        let result = extract_chunks(&buf).unwrap();
+        let exif_range = match result.exif {
+            Some(PngExifSource::EXif(r)) => r,
+            _ => panic!("expected EXif source"),
+        };
+        assert_eq!(&buf[exif_range], exif_payload);
+        assert!(result.text_chunks.is_empty());
     }
 }
