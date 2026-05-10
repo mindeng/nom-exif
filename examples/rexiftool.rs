@@ -117,9 +117,21 @@ fn parse_file<P: AsRef<Path>>(
     let ms = MediaSource::open(path).inspect_err(handle_parsing_error)?;
     let (values, embedded, format_pairs) = match ms.kind() {
         MediaKind::Image => {
-            let iter: ExifIter = parser.parse_exif(ms).inspect_err(handle_parsing_error)?;
-            let has_embedded = iter.has_embedded_track();
-            let exif_values = exif_iter_to_pairs(iter);
+            // parse_exif may return ExifNotFound for images with no EXIF
+            // (e.g. PNG with only tEXt chunks). Treat that as empty — we
+            // still want to show format metadata below.
+            let exif_result = parser.parse_exif(ms);
+            let (has_embedded, exif_values) = match exif_result {
+                Ok(iter) => {
+                    let has = iter.has_embedded_track();
+                    (has, exif_iter_to_pairs(iter))
+                }
+                Err(nom_exif::Error::ExifNotFound) => (false, vec![]),
+                Err(e) => {
+                    handle_parsing_error(&e);
+                    return Err(e);
+                }
+            };
 
             // When the image carries an embedded media track (e.g. a Pixel
             // Motion Photo MP4 trailer), surface its metadata too — unless
