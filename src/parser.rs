@@ -208,6 +208,55 @@ impl MediaSource<()> {
     }
 }
 
+impl MediaSource<std::io::Empty> {
+    /// Build a [`MediaSource`] from an in-memory byte payload.
+    ///
+    /// This is the v3.3 replacement for [`MediaSource::<()>::from_bytes`]
+    /// (which is now `#[deprecated]`). Functionally identical — same
+    /// zero-copy semantics, same accepted input types — but produces a
+    /// `MediaSource<std::io::Empty>` so that the unified `parse_*<R: Read>`
+    /// methods can accept it directly without a separate `_from_bytes`
+    /// sibling.
+    ///
+    /// Accepts any type convertible into [`bytes::Bytes`] — `Bytes`,
+    /// `Vec<u8>`, `&'static [u8]`, `String`, `Box<[u8]>`, and HTTP-stack
+    /// body types that implement `Into<Bytes>` directly.
+    ///
+    /// The header (first up to 128 bytes) is sniffed for media kind, the
+    /// same way [`MediaSource::open`] does it for files. The full payload
+    /// is stored zero-copy: subsequent parsing through
+    /// [`MediaParser::parse_exif`] / [`MediaParser::parse_track`] shares
+    /// this `Bytes` directly with the returned `ExifIter` / sub-IFDs via
+    /// reference counting.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use nom_exif::{MediaSource, MediaParser, MediaKind};
+    ///
+    /// let bytes = std::fs::read("./testdata/exif.jpg")?;
+    /// let ms = MediaSource::from_memory(bytes)?;
+    /// assert_eq!(ms.kind(), MediaKind::Image);
+    ///
+    /// let mut parser = MediaParser::new();
+    /// let _iter = parser.parse_exif(ms)?;  // unified entry point
+    /// # Ok::<(), nom_exif::Error>(())
+    /// ```
+    pub fn from_memory(bytes: impl Into<bytes::Bytes>) -> crate::Result<Self> {
+        let bytes = bytes.into();
+        let head_end = bytes.len().min(HEADER_PARSE_BUF_SIZE);
+        let mime: MediaMime = bytes[..head_end].try_into()?;
+        Ok(Self {
+            reader: std::io::empty(),
+            buf: Vec::new(),
+            mime,
+            // Placeholder: never invoked in memory mode (AdvanceOnly path).
+            skip_by_seek: |_, _| Ok(false),
+            memory: Some(bytes),
+        })
+    }
+}
+
 // ----- Parse-time buffer policy -----
 //
 // Layered by lifecycle:
@@ -1283,6 +1332,42 @@ mod tests {
         assert!(s.buf.is_none());
         // Memory still readable.
         assert_eq!(s.buffer(), b"data");
+    }
+
+    #[test]
+    fn media_source_from_memory_image_jpg() {
+        let raw = std::fs::read("testdata/exif.jpg").unwrap();
+        let ms = MediaSource::from_memory(raw).unwrap();
+        assert_eq!(ms.kind(), MediaKind::Image);
+        assert!(ms.memory.is_some());
+    }
+
+    #[test]
+    fn media_source_from_memory_track_mov() {
+        let raw = std::fs::read("testdata/meta.mov").unwrap();
+        let ms = MediaSource::from_memory(raw).unwrap();
+        assert_eq!(ms.kind(), MediaKind::Track);
+    }
+
+    #[test]
+    fn media_source_from_memory_static_slice() {
+        let raw: &'static [u8] = include_bytes!("../testdata/exif.jpg");
+        let ms = MediaSource::from_memory(raw).unwrap();
+        assert_eq!(ms.kind(), MediaKind::Image);
+    }
+
+    #[test]
+    fn media_source_from_memory_rejects_too_short() {
+        let raw = vec![0u8; 4];
+        let res = MediaSource::from_memory(raw);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn media_source_from_memory_rejects_unknown_mime() {
+        let raw = vec![0xAAu8; 256];
+        let res = MediaSource::from_memory(raw);
+        assert!(res.is_err());
     }
 
     #[test]
