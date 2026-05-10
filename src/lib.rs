@@ -9,6 +9,10 @@
 //!   to the right backend by detected MIME, no per-format wrappers.
 //! - RAW format support — Canon CR3, Fujifilm RAF, Phase One IIQ,
 //!   alongside JPEG / HEIC / TIFF.
+//! - PNG support — `eXIf`, `tEXt`, and legacy hex-encoded EXIF
+//!   (ImageMagick/Photoshop `Raw profile type *`) all surfaced via
+//!   the standard `parse_exif` and the new `parse_image_metadata`
+//!   entry point.
 //! - Three input modes — files, arbitrary `Read` / `Read + Seek`
 //!   (network streams, pipes), or in-RAM bytes (WASM, mobile, HTTP
 //!   proxies).
@@ -82,6 +86,32 @@
 //! `read_exif_from_bytes` family and `MediaSource::<()>::from_bytes`
 //! still compile but produce deprecation warnings. Migrate to
 //! `MediaSource::from_memory` + `parse_exif` / `read_exif`.
+//!
+//! # Image metadata beyond EXIF
+//!
+//! Some image formats carry metadata that does not fit the EXIF / IFD
+//! model. PNG's `tEXt` chunks are the headline example: arbitrary
+//! Latin-1 key/value pairs (`Title`, `Author`, `Comment`, …). For
+//! PNG-aware (or future GIF / WebP / JXL extras-aware) callers, use
+//! [`MediaParser::parse_image_metadata`]:
+//!
+//! ```rust
+//! use nom_exif::{MediaParser, MediaSource, ImageFormatMetadata};
+//!
+//! let mut parser = MediaParser::new();
+//! let ms = MediaSource::open("./testdata/exif.png")?;
+//! let img = parser.parse_image_metadata(ms)?;
+//!
+//! if let Some(ImageFormatMetadata::Png(text_chunks)) = img.format {
+//!     let _title = text_chunks.get("Title");
+//! }
+//! # Ok::<(), nom_exif::Error>(())
+//! ```
+//!
+//! Returns [`ImageMetadata<ExifIter>`](ImageMetadata) (lazy form);
+//! convert to the eager `ImageMetadata<Exif>` via `.into()` if
+//! needed. Top-level `read_image_metadata` helpers are deferred to
+//! v4 alongside the [`Metadata`] enum redesign.
 //!
 //! # API surface
 //!
