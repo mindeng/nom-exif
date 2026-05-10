@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## nom-exif v3.3.0 (2026-05-10)
 
 ### Added
 - **PNG support (#18)** — `read_exif("foo.png")` and friends now work
