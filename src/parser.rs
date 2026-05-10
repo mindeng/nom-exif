@@ -780,12 +780,21 @@ impl MediaParser {
                 // Streaming-mode: existing path verbatim.
                 self.acquire_buf();
                 self.buf_mut().append(&mut ms.buf);
-                // Ignore EOF if the header-detection already consumed the
-                // entire file (files smaller than HEADER_PARSE_BUF_SIZE).
+                // PNG-only EOF tolerance: a tEXt-only PNG can be smaller
+                // than HEADER_PARSE_BUF_SIZE (e.g. 117-byte text-only.png),
+                // so the mime-detection prefill consumes the whole reader
+                // and fill_buf returns UnexpectedEof. The bytes we need
+                // are already in the parse buffer — proceed. Other formats
+                // keep the strict-EOF contract.
+                let is_png = matches!(
+                    ms.mime,
+                    crate::file::MediaMime::Image(crate::file::MediaMimeImage::Png)
+                );
                 match self.fill_buf(&mut ms.reader, INIT_BUF_SIZE) {
                     Ok(_) => {}
                     Err(e)
-                        if !self.buffer().is_empty()
+                        if is_png
+                            && !self.buffer().is_empty()
                             && e.kind() == io::ErrorKind::UnexpectedEof => {}
                     Err(e) => return Err(e.into()),
                 }
@@ -931,28 +940,34 @@ impl MediaParser {
     ) -> crate::Result<crate::image_metadata::ImageMetadata<crate::ExifIter>> {
         self.reset();
         let res: crate::Result<crate::image_metadata::ImageMetadata<crate::ExifIter>> = (|| {
+            // Reject track inputs early (parse_track is the right API).
+            let mime_img = match ms.mime {
+                crate::file::MediaMime::Image(img) => img,
+                crate::file::MediaMime::Track(_) => return Err(crate::Error::ExifNotFound),
+            };
+
             // Memory-mode shortcut + buffer setup mirrors parse_exif.
             if let Some(memory) = ms.memory.take() {
                 self.state.set_memory(memory);
             } else {
                 self.acquire_buf();
                 self.buf_mut().append(&mut ms.buf);
-                // Ignore EOF if header-detection already consumed the entire
-                // file (files smaller than HEADER_PARSE_BUF_SIZE).
+                // PNG-only EOF tolerance: a tEXt-only PNG can be smaller than
+                // HEADER_PARSE_BUF_SIZE (e.g. 117-byte text-only.png) so the
+                // mime-detection prefill consumes the whole reader and
+                // fill_buf returns UnexpectedEof. The bytes we need are
+                // already in the parse buffer — proceed. Other formats keep
+                // the strict-EOF contract.
+                let is_png = mime_img == crate::file::MediaMimeImage::Png;
                 match self.fill_buf(&mut ms.reader, INIT_BUF_SIZE) {
                     Ok(_) => {}
                     Err(e)
-                        if !self.buffer().is_empty()
+                        if is_png
+                            && !self.buffer().is_empty()
                             && e.kind() == io::ErrorKind::UnexpectedEof => {}
                     Err(e) => return Err(e.into()),
                 }
             }
-
-            // Reject track inputs (parse_track is the right API).
-            let mime_img = match ms.mime {
-                crate::file::MediaMime::Image(img) => img,
-                crate::file::MediaMime::Track(_) => return Err(crate::Error::ExifNotFound),
-            };
 
             if mime_img == crate::file::MediaMimeImage::Png {
                 let (exif, text_chunks) =
@@ -1559,6 +1574,19 @@ mod tests {
             "expected error on truncated bytes, got {:?}",
             res
         );
+    }
+
+    #[test]
+    fn parse_exif_streaming_tiny_non_png_keeps_strict_eof() {
+        // The PNG EOF-tolerance branch is scoped to PNG. A tiny non-PNG file
+        // (here: the 36-byte compatible-brands.heic fixture) consumes its
+        // entire reader during mime-detection prefill, so the subsequent
+        // fill_buf hits UnexpectedEof. parse_exif must surface an error
+        // (any error) — never Ok — for non-PNG inputs.
+        let mut parser = MediaParser::new();
+        let ms = MediaSource::open("testdata/compatible-brands.heic").unwrap();
+        let res = parser.parse_exif(ms);
+        assert!(res.is_err(), "expected Err for tiny HEIC, got {:?}", res);
     }
 
     #[test]
