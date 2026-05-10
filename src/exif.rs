@@ -36,6 +36,10 @@ pub(crate) fn parse_exif_iter<R: Read>(
     if mime_img == MediaMimeImage::Cr3 {
         return parse_cr3_exif_iter(parser, reader, skip_by_seek);
     }
+    // PNG: special-cased path peer to CR3.
+    if mime_img == MediaMimeImage::Png {
+        return parse_png_exif_iter(parser, reader, skip_by_seek);
+    }
 
     let out = parser.load_and_parse(reader, skip_by_seek, |buf, state| {
         extract_exif_range(mime_img, buf, state)
@@ -162,6 +166,71 @@ fn parse_cr3_exif_iter<R: Read>(
     Ok(iter)
 }
 
+/// Special parser for PNG files: walks the chunk stream via
+/// `png::extract_chunks`, materializes the resulting [`PngExifSource`]
+/// into an [`ExifIter`]. Phase 4: handles only the `eXIf` chunk path
+/// (legacy `Raw profile type *` decoding lands in phase 5).
+#[tracing::instrument(skip(reader, skip_by_seek))]
+fn parse_png_exif_iter<R: Read>(
+    parser: &mut MediaParser,
+    reader: &mut R,
+    skip_by_seek: crate::parser::SkipBySeekFn<R>,
+) -> Result<ExifIter, crate::Error> {
+    use crate::png::{PngExifSource, PngParseOut};
+
+    let out: PngParseOut = parser.load_and_parse(reader, skip_by_seek, |buf, _| {
+        crate::png::extract_chunks(buf)
+    })?;
+
+    let Some(source) = out.exif else {
+        return Err(crate::Error::ExifNotFound);
+    };
+
+    match source {
+        PngExifSource::EXif(range) => {
+            let (full, position) = parser.share_buf();
+            let abs = (range.start + position)..(range.end + position);
+            let view = full.slice(abs);
+            input_into_iter(view, None)
+        }
+        PngExifSource::Legacy(_) => {
+            // Phase 5 implements legacy path. For now, treat as
+            // "EXIF not found" — this branch is unreachable in
+            // phase 4 because extract_chunks never produces Legacy
+            // until phase 5 adds the recognition logic.
+            Err(crate::Error::ExifNotFound)
+        }
+    }
+}
+
+/// Like [`parse_png_exif_iter`] but also returns the captured `tEXt`
+/// chunks. Used by `MediaParser::parse_image_metadata` for PNG.
+#[tracing::instrument(skip(reader, skip_by_seek))]
+pub(crate) fn parse_png_full<R: Read>(
+    parser: &mut MediaParser,
+    reader: &mut R,
+    skip_by_seek: crate::parser::SkipBySeekFn<R>,
+) -> Result<(Option<ExifIter>, Vec<(String, String)>), crate::Error> {
+    use crate::png::{PngExifSource, PngParseOut};
+
+    let out: PngParseOut = parser.load_and_parse(reader, skip_by_seek, |buf, _| {
+        crate::png::extract_chunks(buf)
+    })?;
+
+    let exif_iter = match out.exif {
+        Some(PngExifSource::EXif(range)) => {
+            let (full, position) = parser.share_buf();
+            let abs = (range.start + position)..(range.end + position);
+            let view = full.slice(abs);
+            Some(input_into_iter(view, None)?)
+        }
+        Some(PngExifSource::Legacy(_)) => None, // P5 fills this in
+        None => None,
+    };
+
+    Ok((exif_iter, out.text_chunks))
+}
+
 type ExifRangeResult = Result<Option<(Range<usize>, Option<TiffHeader>)>, ParsingErrorState>;
 
 fn extract_exif_range(
@@ -210,6 +279,10 @@ pub(crate) async fn parse_exif_iter_async<P, R: AsyncRead + Unpin + Send>(
 where
     P: crate::parser_async::AsyncBufParser + crate::parser::ShareBuf,
 {
+    if mime_img == MediaMimeImage::Png {
+        return parse_png_exif_iter_async(parser, reader, skip_by_seek).await;
+    }
+
     let out = parser
         .load_and_parse(reader, skip_by_seek, |buf, state| {
             extract_exif_range(mime_img, buf, state)
@@ -306,15 +379,9 @@ pub(crate) fn extract_exif_with_mime(
             .map_err(|e| nom_error_to_parsing_error_with_state(e, state))?,
         MediaMimeImage::Cr3 => cr3_extract_exif(state, buf)?,
         MediaMimeImage::Png => {
-            // Phase 1 stub: PNG dispatch lands in phase 4 via a
-            // special-cased path inside `parse_exif_iter` (peer to
-            // CR3). This arm exists only so the match stays
-            // exhaustive. Phase 4 routes around it before this code
-            // is reached.
-            return Err(ParsingErrorState::new(
-                ParsingError::Failed("PNG: parse_exif_iter dispatch missing (phase 1 stub)".into()),
-                None,
-            ));
+            // PNG is dispatched to parse_png_exif_iter at the top of
+            // parse_exif_iter; this arm is unreachable in v3.3.
+            unreachable!("PNG should have been dispatched at parse_exif_iter top");
         }
     };
     Ok((exif_data, state))
@@ -332,6 +399,71 @@ fn cr3_extract_exif(
     buf: &[u8],
 ) -> Result<(Option<&[u8]>, Option<ParsingState>), ParsingErrorState> {
     cr3::extract_exif_data(state, buf)
+}
+
+#[cfg(feature = "tokio")]
+async fn parse_png_exif_iter_async<P, R>(
+    parser: &mut P,
+    reader: &mut R,
+    skip_by_seek: crate::parser_async::AsyncSkipBySeekFn<R>,
+) -> Result<ExifIter, crate::Error>
+where
+    P: crate::parser_async::AsyncBufParser + crate::parser::ShareBuf,
+    R: AsyncRead + Unpin + Send,
+{
+    use crate::png::{PngExifSource, PngParseOut};
+
+    let out: PngParseOut = parser
+        .load_and_parse(reader, skip_by_seek, |buf, _| {
+            crate::png::extract_chunks(buf)
+        })
+        .await?;
+
+    let Some(source) = out.exif else {
+        return Err(crate::Error::ExifNotFound);
+    };
+
+    match source {
+        PngExifSource::EXif(range) => {
+            let (full, position) = parser.share_buf();
+            let abs = (range.start + position)..(range.end + position);
+            let view = full.slice(abs);
+            input_into_iter(view, None)
+        }
+        PngExifSource::Legacy(_) => Err(crate::Error::ExifNotFound),
+    }
+}
+
+#[cfg(feature = "tokio")]
+pub(crate) async fn parse_png_full_async<P, R>(
+    parser: &mut P,
+    reader: &mut R,
+    skip_by_seek: crate::parser_async::AsyncSkipBySeekFn<R>,
+) -> Result<(Option<ExifIter>, Vec<(String, String)>), crate::Error>
+where
+    P: crate::parser_async::AsyncBufParser + crate::parser::ShareBuf,
+    R: AsyncRead + Unpin + Send,
+{
+    use crate::png::{PngExifSource, PngParseOut};
+
+    let out: PngParseOut = parser
+        .load_and_parse(reader, skip_by_seek, |buf, _| {
+            crate::png::extract_chunks(buf)
+        })
+        .await?;
+
+    let exif_iter = match out.exif {
+        Some(PngExifSource::EXif(range)) => {
+            let (full, position) = parser.share_buf();
+            let abs = (range.start + position)..(range.end + position);
+            let view = full.slice(abs);
+            Some(input_into_iter(view, None)?)
+        }
+        Some(PngExifSource::Legacy(_)) => None,
+        None => None,
+    };
+
+    Ok((exif_iter, out.text_chunks))
 }
 
 #[cfg(feature = "tokio")]
