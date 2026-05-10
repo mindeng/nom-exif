@@ -165,3 +165,51 @@ Feature names only — semantics and functionality are unchanged.
 | `From<BTreeMap<TrackInfoTag, EntryValue>> for TrackInfo` | Removed — internal construction detail, not part of the public API |
 | `IntoIterator for TrackInfo` (owned iteration) | Removed — use `info.iter()` instead |
 | `TrackInfo::has_embedded_media()` | Deprecated, no replacement. 3.0.0 reserved this for "track source carries another embedded track" detection that was never wired up (always returned `false`). v3.1 leaves it as a deprecated no-op until a real use case emerges; the symmetric `has_embedded_track` was added to `Exif`/`ExifIter` only. |
+
+## v3.0 → v3.3 (in-memory bytes API rename)
+
+v3.3 unifies the in-memory-bytes parsing path with file/stream
+parsing. The v3.0 `*_from_bytes` family is deprecated (still
+compiles in v3.x; removed in v4). Migration is mechanical:
+
+| Old (v3.0–v3.2, deprecated) | New (v3.3+) |
+|---|---|
+| `MediaSource::<()>::from_bytes(bytes)` | `MediaSource::from_memory(bytes)` |
+| `parser.parse_exif_from_bytes(ms)` | `parser.parse_exif(ms)` (after `from_memory`) |
+| `parser.parse_track_from_bytes(ms)` | `parser.parse_track(ms)` (after `from_memory`) |
+| `read_exif_from_bytes(bytes)` | `read_exif(...)` after wrapping bytes via `MediaSource::from_memory`; or just keep the old call (deprecated, still works) |
+| `read_exif_iter_from_bytes(bytes)` | `read_exif_iter(...)` analog |
+| `read_track_from_bytes(bytes)` | `read_track(...)` analog |
+| `read_metadata_from_bytes(bytes)` | `read_metadata(...)` analog |
+
+Behavior and zero-copy semantics are preserved verbatim — `from_memory`
+returns `MediaSource<std::io::Empty>` instead of `MediaSource<()>`,
+satisfying the existing `<R: Read>` bound on `parse_exif` /
+`parse_track` so the unified methods can dispatch on the
+`memory: Option<bytes::Bytes>` field at runtime.
+
+Example:
+
+```rust
+// v3.0 (deprecated since v3.3)
+use nom_exif::{MediaParser, MediaSource};
+let raw = std::fs::read("./testdata/exif.jpg")?;
+#[allow(deprecated)]
+let ms = MediaSource::<()>::from_bytes(raw)?;
+let mut parser = MediaParser::new();
+#[allow(deprecated)]
+let iter = parser.parse_exif_from_bytes(ms)?;
+# let _ = iter;
+# Ok::<(), nom_exif::Error>(())
+```
+
+```rust
+// v3.3+ (preferred)
+use nom_exif::{MediaParser, MediaSource};
+let raw = std::fs::read("./testdata/exif.jpg")?;
+let ms = MediaSource::from_memory(raw)?;
+let mut parser = MediaParser::new();
+let iter = parser.parse_exif(ms)?;
+# let _ = iter;
+# Ok::<(), nom_exif::Error>(())
+```
