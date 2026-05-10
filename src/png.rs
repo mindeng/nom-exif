@@ -147,10 +147,22 @@ pub(crate) fn extract_chunks(buf: &[u8]) -> Result<PngParseOut, ParsingErrorStat
         ]);
         let ctype = &buf[cursor + 4..cursor + 8];
 
+        // Compute total chunk size = 8 (header) + length (data) + 4 (CRC).
+        // On 32-bit targets, `length as usize + 12` can wrap when length is
+        // close to u32::MAX; bail out as malformed instead.
+        let total = match (length as usize).checked_add(12) {
+            Some(t) => t,
+            None => {
+                return Err(ParsingErrorState::new(
+                    ParsingError::Failed("PNG: chunk length overflows addressable size".into()),
+                    None,
+                ));
+            }
+        };
+
         match ctype {
             b"IEND" => break,
             b"eXIf" => {
-                let total = 8 + length as usize + 4;
                 let remaining = buf.len() - cursor;
                 if total > remaining {
                     return Err(ParsingErrorState::new(
@@ -168,7 +180,6 @@ pub(crate) fn extract_chunks(buf: &[u8]) -> Result<PngParseOut, ParsingErrorStat
             b"tEXt" => {
                 if length > MAX_TEXT_CHUNK_SIZE {
                     // Defensive: skip oversized chunks.
-                    let total = 8 + length as usize + 4;
                     let remaining = buf.len() - cursor;
                     if total > remaining {
                         return Err(ParsingErrorState::new(
@@ -179,7 +190,6 @@ pub(crate) fn extract_chunks(buf: &[u8]) -> Result<PngParseOut, ParsingErrorStat
                     cursor += total;
                     continue;
                 }
-                let total = 8 + length as usize + 4;
                 let remaining = buf.len() - cursor;
                 if total > remaining {
                     return Err(ParsingErrorState::new(
@@ -227,7 +237,6 @@ pub(crate) fn extract_chunks(buf: &[u8]) -> Result<PngParseOut, ParsingErrorStat
                 cursor += total;
             }
             _ => {
-                let total = 8 + length as usize + 4;
                 let remaining = buf.len() - cursor;
                 if total > remaining {
                     return Err(ParsingErrorState::new(
@@ -458,18 +467,36 @@ mod tests {
     #[test]
     fn extract_chunks_malicious_text_length_max_u32_does_not_panic() {
         // tEXt with length = u32::MAX. Must not allocate 4 GB or panic.
+        // On 32-bit targets, length + 12 overflows usize — the parser must
+        // bail with Failed rather than wrap. On 64-bit, length + 12 fits
+        // and the buffer-shortage check produces Need/ClearAndSkip.
         let mut buf = Vec::new();
         buf.extend_from_slice(PNG_SIGNATURE);
         buf.extend_from_slice(&build_chunk(b"IHDR", &[0; 13]));
         buf.extend_from_slice(&u32::MAX.to_be_bytes());
         buf.extend_from_slice(b"tEXt");
 
-        let err = extract_chunks(&buf).unwrap_err();
-        // Either Need or ClearAndSkip — both acceptable; never panic.
-        match err.err {
-            ParsingError::Need(_) | ParsingError::ClearAndSkip(_) => {}
-            other => panic!("unexpected error: {other:?}"),
-        }
+        // ParsingError has only Need / ClearAndSkip / Failed variants — any
+        // of the three is acceptable here; the contract is "no panic, no
+        // wrap-around, no infinite loop".
+        let _err = extract_chunks(&buf).unwrap_err();
+    }
+
+    #[test]
+    fn extract_chunks_chunk_length_overflow_is_rejected() {
+        // Synthesize a length that always overflows usize regardless of
+        // target pointer width: only achievable on 32-bit usize because
+        // u32::MAX as u64 + 12 fits u64. We assert the more general
+        // contract: u32::MAX-length chunks never advance the cursor by a
+        // wrapped value (no panic, no infinite loop, no out-of-bounds read).
+        let mut buf = Vec::new();
+        buf.extend_from_slice(PNG_SIGNATURE);
+        buf.extend_from_slice(&build_chunk(b"IHDR", &[0; 13]));
+        // Chunk length = u32::MAX, type = unknown ("XXXX") — the `_` arm.
+        buf.extend_from_slice(&u32::MAX.to_be_bytes());
+        buf.extend_from_slice(b"XXXX");
+
+        let _err = extract_chunks(&buf).unwrap_err();
     }
 
     /// Minimal little-endian TIFF: II + 0x002A + IFD0 offset = 8 + IFD0 with 0 entries.
