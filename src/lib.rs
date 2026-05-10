@@ -8,11 +8,10 @@
 //! - Image **and** video / audio in one crate — [`MediaParser`] dispatches
 //!   to the right backend by detected MIME, no per-format wrappers.
 //! - RAW format support — Canon CR3, Fujifilm RAF, Phase One IIQ,
-//!   alongside JPEG / HEIC / TIFF.
-//! - PNG support — `eXIf`, `tEXt`, and legacy hex-encoded EXIF
-//!   (ImageMagick/Photoshop `Raw profile type *`) all surfaced via
-//!   the standard `parse_exif` and the new `parse_image_metadata`
-//!   entry point.
+//!   alongside JPEG / HEIC / PNG / TIFF.
+//! - **Motion Photo** support — Pixel and Samsung Motion Photos (JPEG
+//!   with an embedded MP4) are detected automatically; `parse_track`
+//!   extracts the embedded video's track metadata.
 //! - Three input modes — files, arbitrary `Read` / `Read + Seek`
 //!   (network streams, pipes), or in-RAM bytes (WASM, mobile, HTTP
 //!   proxies).
@@ -58,6 +57,35 @@
 //! [`read_exif_async`], [`read_track_async`], [`read_metadata_async`],
 //! plus [`MediaParser::parse_exif_async`] / [`MediaParser::parse_track_async`].
 //!
+//! # Motion Photos (embedded media tracks)
+//!
+//! Some images embed a media track that `parse_exif` doesn't surface —
+//! most commonly **Pixel/Google Motion Photo** JPEGs, which carry a short
+//! MP4 video appended after the JPEG image data. The
+//! [`Exif::has_embedded_track`] / [`ExifIter::has_embedded_track`] flags
+//! are set by `parse_exif` when it observes a concrete content signal
+//! (e.g. the `GCamera:MotionPhoto="1"` XMP attribute). When the flag is
+//! `true`, call [`MediaParser::parse_track`] on the same source to
+//! extract the embedded MP4's metadata — `parse_track` automatically
+//! locates and parses the trailer.
+//!
+//! ```no_run
+//! use nom_exif::{MediaParser, MediaSource};
+//! let mut parser = MediaParser::new();
+//! let path = "PXL_20240101_120000000.MP.jpg";
+//! let iter = parser.parse_exif(MediaSource::open(path)?)?;
+//! if iter.has_embedded_track() {
+//!     // Re-open: MediaSource is consumed by parse_exif.
+//!     let track = parser.parse_track(MediaSource::open(path)?)?;
+//!     // ...
+//! }
+//! # Ok::<(), nom_exif::Error>(())
+//! ```
+//!
+//! **Coverage**: Pixel/Google Motion Photos and Samsung Galaxy Motion
+//! Photos that use the Adobe XMP Container directory format (modern
+//! Pixel including Ultra HDR, modern Galaxy JPEGs).
+//!
 //! # Reading from in-memory bytes
 //!
 //! When the payload is already in RAM (WASM, mobile, HTTP proxy, decoded
@@ -77,15 +105,6 @@
 //! assert_eq!(exif.get(ExifTag::Make).and_then(|v| v.as_str()), Some("vivo"));
 //! # Ok::<(), nom_exif::Error>(())
 //! ```
-//!
-//! For batch processing of many in-memory payloads, build a [`MediaParser`]
-//! once and call [`MediaParser::parse_exif`] / [`MediaParser::parse_track`]
-//! with sources built via [`MediaSource::from_memory`] per payload.
-//!
-//! v3.0-style API (deprecated since v3.3): the top-level
-//! `read_exif_from_bytes` family and `MediaSource::<()>::from_bytes`
-//! still compile but produce deprecation warnings. Migrate to
-//! `MediaSource::from_memory` + `parse_exif` / `read_exif`.
 //!
 //! # Image metadata beyond EXIF
 //!
@@ -115,11 +134,9 @@
 //!
 //! # API surface
 //!
-//! - **One-shot helpers**: [`read_exif`], [`read_exif_iter`], [`read_track`], [`read_metadata`]
-//!   for files; [`read_exif_from_bytes`], [`read_exif_iter_from_bytes`],
-//!   [`read_track_from_bytes`], [`read_metadata_from_bytes`] for in-memory bytes (deprecated since v3.3).
+//! - **One-shot helpers**: [`read_exif`], [`read_exif_iter`], [`read_track`], [`read_metadata`].
 //! - **Reusable parser**: [`MediaParser`] + [`MediaSource`] (or [`AsyncMediaSource`])
-//!   + [`MediaKind`].
+//!   + [`MediaKind`]. Use [`MediaSource::from_memory`] for in-RAM bytes.
 //! - **Image metadata**: [`Exif`] (eager, get-by-tag) or [`ExifIter`]
 //!   (lazy iterator with per-entry errors). Convert: `let exif: Exif = iter.into();`.
 //! - **Track metadata**: [`TrackInfo`] (audio/video container metadata).
@@ -136,38 +153,6 @@
 //! - `tokio` — async API via tokio (`AsyncMediaSource`, `read_*_async`,
 //!   `MediaParser::parse_*_async`).
 //! - `serde` — derives `Serialize`/`Deserialize` on the public types.
-//!
-//! # Embedded media tracks
-//!
-//! Some images embed a media track that `parse_exif` doesn't surface —
-//! most commonly **Pixel/Google Motion Photo** JPEGs, which carry a short
-//! MP4 video appended after the JPEG image data. The
-//! [`Exif::has_embedded_track`] / [`ExifIter::has_embedded_track`] flags
-//! are set by `parse_exif` when it observes a concrete content signal
-//! (e.g. the `GCamera:MotionPhoto="1"` XMP attribute). When the flag is
-//! `true`, call [`MediaParser::parse_track`] on the same source to
-//! extract the embedded MP4's metadata — `parse_track` automatically
-//! locates and parses the trailer.
-//!
-//! ```no_run
-//! use nom_exif::{MediaParser, MediaSource};
-//! let mut parser = MediaParser::new();
-//! let path = "PXL_20240101_120000000.MP.jpg";
-//! let iter = parser.parse_exif(MediaSource::open(path)?)?;
-//! if iter.has_embedded_track() {
-//!     // Re-open: MediaSource is consumed by parse_exif.
-//!     let track = parser.parse_track(MediaSource::open(path)?)?;
-//!     // ...
-//! }
-//! # Ok::<(), nom_exif::Error>(())
-//! ```
-//!
-//! **Coverage**: Pixel/Google Motion Photos and Samsung Galaxy Motion
-//! Photos that use the Adobe XMP Container directory format (modern
-//! Pixel including Ultra HDR, modern Galaxy JPEGs).
-//!
-//! The pre-3.1 names (`has_embedded_media`) are `#[deprecated]` aliases
-//! that forward to the new methods.
 
 pub use parser::{MediaKind, MediaParser, MediaSource};
 pub use video::{TrackInfo, TrackInfoTag};

@@ -105,93 +105,9 @@ for f in files {
   stream); slower for formats that store metadata at the end of the file
   (such as `.mov`).
 
-## In-Memory Bytes
+## Motion Photos
 
-When the payload is already in RAM (decoded HTTP body, WASM-loaded
-asset, mobile-cached blob), use `MediaSource::from_memory` to skip the
-`File` / `Read` round-trip. Memory mode is **zero-copy**: the underlying
-allocation is shared with the returned `Exif` / `ExifIter` / `TrackInfo`
-via `bytes::Bytes` reference counting.
-
-```rust
-use nom_exif::{MediaSource, MediaParser, ExifTag};
-
-let raw: Vec<u8> = std::fs::read("./testdata/exif.jpg")?;
-let ms = MediaSource::from_memory(raw)?;
-let mut parser = MediaParser::new();
-let iter = parser.parse_exif(ms)?;
-let exif: nom_exif::Exif = iter.into();
-let make = exif.get(ExifTag::Make).and_then(|v| v.as_str());
-# let _ = make; Ok::<(), nom_exif::Error>(())
-```
-
-For batch processing many in-memory payloads, reuse a `MediaParser`:
-
-```rust
-use nom_exif::{MediaParser, MediaSource};
-
-let mut parser = MediaParser::new();
-let raw = std::fs::read("./testdata/exif.jpg")?;
-let ms = MediaSource::from_memory(raw)?;
-let iter = parser.parse_exif(ms)?;
-# let _ = iter; Ok::<(), nom_exif::Error>(())
-```
-
-`MediaSource::from_memory` accepts anything convertible into
-`bytes::Bytes`: `Vec<u8>`, `&'static [u8]`, `Bytes`, and HTTP-body types
-that implement `Into<Bytes>` directly.
-
-**Migration note (v3.3+)**: `MediaSource::<()>::from_bytes`,
-`read_exif_from_bytes`, and the other `*_from_bytes` helpers are
-deprecated since v3.3.0 and will be removed in v4. Replace with
-`MediaSource::from_memory` + `parse_exif` / `read_exif`. See
-[`docs/MIGRATION.md`](docs/MIGRATION.md).
-
-## Format-Specific Metadata (`parse_image_metadata`)
-
-Some image formats carry metadata that doesn't fit the EXIF/IFD model
-— PNG `tEXt` chunks are the headline example. The new (v3.3+)
-`MediaParser::parse_image_metadata` returns a structured
-`ImageMetadata { exif, format }` covering both:
-
-```rust
-use nom_exif::{MediaParser, MediaSource, ImageFormatMetadata, ExifTag};
-
-let mut parser = MediaParser::new();
-
-let ms = MediaSource::open("./testdata/exif.png")?;
-let img = parser.parse_image_metadata(ms)?;
-
-// Standard EXIF tags (works for any image format).
-let make = img.exif.as_ref()
-    .and_then(|iter| {
-        let exif: nom_exif::Exif = iter.clone().into();
-        exif.get(ExifTag::Make).and_then(|v| v.as_str()).map(String::from)
-    });
-
-// Format-specific extras.
-if let Some(ImageFormatMetadata::Png(text_chunks)) = img.format {
-    let title = text_chunks.get("Title");
-    let software = text_chunks.get("Software");
-    let _ = (title, software);
-}
-# let _ = make; Ok::<(), nom_exif::Error>(())
-```
-
-For PNG specifically, this also captures legacy EXIF embedded in
-`Raw profile type exif` / `Raw profile type APP1` `tEXt` chunks
-(ImageMagick / Photoshop pattern) — those are transparently
-hex-decoded and merged into `img.exif`. The original `tEXt` entry
-is still visible via `img.format`.
-
-`parse_image_metadata` accepts the same source types as `parse_exif`:
-files, in-memory bytes (via `MediaSource::from_memory`), and async
-sources. The top-level `read_image_metadata` convenience helper is
-deferred to v4 (alongside the planned `Metadata` enum redesign).
-
-## Embedded Media Tracks (Motion Photos)
-
-Pixel and Google phones store **Motion Photos** as a single JPEG with a
+Pixel and Samsung phones store **Motion Photos** as a single JPEG with a
 short MP4 video appended after the image data. `parse_exif` reads the
 photo's EXIF as usual and sets a flag when it sees the
 `GCamera:MotionPhoto="1"` XMP signal; `parse_track` on the same source
@@ -225,6 +141,65 @@ returns `Error::TrackNotFound`.
 **Coverage**: Pixel/Google Motion Photos and Samsung Galaxy Motion
 Photos that use the Adobe XMP Container directory format (modern Pixel
 including Ultra HDR, modern Galaxy JPEGs).
+
+## In-Memory Bytes
+
+When the payload is already in RAM (decoded HTTP body, WASM-loaded
+asset, mobile-cached blob), use `MediaSource::from_memory` to skip the
+`File` / `Read` round-trip. Memory mode is **zero-copy**: the underlying
+allocation is shared with the returned `Exif` / `ExifIter` / `TrackInfo`
+via `bytes::Bytes` reference counting.
+
+```rust
+use nom_exif::{MediaSource, MediaParser, ExifTag};
+
+let raw: Vec<u8> = std::fs::read("./testdata/exif.jpg")?;
+let ms = MediaSource::from_memory(raw)?;
+let mut parser = MediaParser::new();
+let iter = parser.parse_exif(ms)?;
+let exif: nom_exif::Exif = iter.into();
+let make = exif.get(ExifTag::Make).and_then(|v| v.as_str());
+# let _ = make; Ok::<(), nom_exif::Error>(())
+```
+
+`MediaSource::from_memory` accepts anything convertible into
+`bytes::Bytes`: `Vec<u8>`, `&'static [u8]`, `Bytes`, and HTTP-body types
+that implement `Into<Bytes>` directly.
+
+## Format-Specific Metadata (`parse_image_metadata`)
+
+Some image formats carry metadata that doesn't fit the EXIF/IFD model
+— PNG `tEXt` chunks are the headline example. The new (v3.3+)
+`MediaParser::parse_image_metadata` returns a structured
+`ImageMetadata { exif, format }` covering both:
+
+```rust
+use nom_exif::{MediaParser, MediaSource, ImageFormatMetadata};
+
+let mut parser = MediaParser::new();
+let ms = MediaSource::open("./testdata/exif.png")?;
+let img = parser.parse_image_metadata(ms)?;
+
+if let Some(ImageFormatMetadata::Png(text_chunks)) = img.format {
+    let _title = text_chunks.get("Title");
+    let _software = text_chunks.get("Software");
+}
+# Ok::<(), nom_exif::Error>(())
+```
+
+`img.exif` is the standard `Option<ExifIter>` — convert to `Exif`
+with `.into()` and read tags as in any other example.
+
+For PNG specifically, this also captures legacy EXIF embedded in
+`Raw profile type exif` / `Raw profile type APP1` `tEXt` chunks
+(ImageMagick / Photoshop pattern) — those are transparently
+hex-decoded and merged into `img.exif`. The original `tEXt` entry
+is still visible via `img.format`.
+
+`parse_image_metadata` accepts the same source types as `parse_exif`:
+files, in-memory bytes (via `MediaSource::from_memory`), and async
+sources. The top-level `read_image_metadata` convenience helper is
+deferred to v4 (alongside the planned `Metadata` enum redesign).
 
 ## Two API styles for Exif
 
