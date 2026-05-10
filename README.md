@@ -34,6 +34,7 @@ track metadata** through a single unified API. Built on
 
 - Image
   - .heic, .heif, etc.
+  - .avif (AVIF)
   - .jpg, .jpeg
   - .png
   - .tiff, .tif, .iiq (Phase One IIQ images), etc.

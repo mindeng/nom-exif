@@ -8,7 +8,7 @@
 //! - Image **and** video / audio in one crate — [`MediaParser`] dispatches
 //!   to the right backend by detected MIME, no per-format wrappers.
 //! - RAW format support — Canon CR3, Fujifilm RAF, Phase One IIQ,
-//!   alongside JPEG / HEIC / PNG / TIFF.
+//!   alongside JPEG / HEIC / AVIF / PNG / TIFF.
 //! - **Motion Photo** support — Pixel and Samsung Motion Photos (JPEG
 //!   with an embedded MP4) are detected automatically; `parse_track`
 //!   extracts the embedded video's track metadata.
