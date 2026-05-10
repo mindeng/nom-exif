@@ -226,48 +226,48 @@ pub fn read_metadata(path: impl AsRef<Path>) -> Result<Metadata> {
     }
 }
 
-/// Read EXIF metadata from an in-memory byte payload in a single call.
-/// Zero-copy: the underlying allocation is shared with the returned
-/// [`Exif`] via [`bytes::Bytes`] reference counting.
-///
-/// Accepts anything convertible into [`bytes::Bytes`] — `Vec<u8>`,
-/// `&'static [u8]`, an existing `Bytes`, or HTTP-body types that implement
-/// `Into<Bytes>` directly.
-///
-/// For batch processing or multiple parses against the same buffer, prefer
-/// constructing a [`MediaParser`] once and reusing it via
-/// [`MediaParser::parse_exif_from_bytes`].
+/// **Deprecated since v3.3.0**: use [`read_exif`] with
+/// [`MediaSource::from_memory`] directly.
+#[deprecated(
+    since = "3.3.0",
+    note = "Use `read_exif` with `MediaSource::from_memory`."
+)]
 pub fn read_exif_from_bytes(bytes: impl Into<bytes::Bytes>) -> Result<Exif> {
+    #[allow(deprecated)]
     let iter = read_exif_iter_from_bytes(bytes)?;
     Ok(iter.into())
 }
 
-/// Read EXIF metadata from an in-memory byte payload as a lazy iterator.
-/// Like [`read_exif_from_bytes`] but returns an [`ExifIter`].
+#[deprecated(
+    since = "3.3.0",
+    note = "Use `read_exif_iter` with `MediaSource::from_memory`."
+)]
 pub fn read_exif_iter_from_bytes(bytes: impl Into<bytes::Bytes>) -> Result<ExifIter> {
-    let ms = MediaSource::from_bytes(bytes)?;
+    let ms = MediaSource::from_memory(bytes)?;
     let mut parser = MediaParser::new();
-    parser.parse_exif_from_bytes(ms)
+    parser.parse_exif(ms)
 }
 
-/// Read track metadata from an in-memory video/audio payload.
+#[deprecated(
+    since = "3.3.0",
+    note = "Use `read_track` with `MediaSource::from_memory`."
+)]
 pub fn read_track_from_bytes(bytes: impl Into<bytes::Bytes>) -> Result<TrackInfo> {
-    let ms = MediaSource::from_bytes(bytes)?;
+    let ms = MediaSource::from_memory(bytes)?;
     let mut parser = MediaParser::new();
-    parser.parse_track_from_bytes(ms)
+    parser.parse_track(ms)
 }
 
-/// Read metadata from an in-memory payload, dispatching by detected
-/// [`MediaKind`]: images return [`Metadata::Exif`], video/audio containers
-/// return [`Metadata::Track`].
+#[deprecated(
+    since = "3.3.0",
+    note = "Use `read_metadata` with `MediaSource::from_memory`."
+)]
 pub fn read_metadata_from_bytes(bytes: impl Into<bytes::Bytes>) -> Result<Metadata> {
-    let ms = MediaSource::from_bytes(bytes)?;
+    let ms = MediaSource::from_memory(bytes)?;
     let mut parser = MediaParser::new();
     match ms.kind() {
-        MediaKind::Image => parser
-            .parse_exif_from_bytes(ms)
-            .map(|i| Metadata::Exif(i.into())),
-        MediaKind::Track => parser.parse_track_from_bytes(ms).map(Metadata::Track),
+        MediaKind::Image => parser.parse_exif(ms).map(|i| Metadata::Exif(i.into())),
+        MediaKind::Track => parser.parse_track(ms).map(Metadata::Track),
     }
 }
 
