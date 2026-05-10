@@ -1,6 +1,25 @@
-//! Structured image-metadata view returned by [`crate::MediaParser::parse_image_metadata`].
+//! Structured image-metadata view returned by
+//! [`crate::MediaParser::parse_image_metadata`].
 //!
 //! See [`ImageMetadata`].
+//!
+//! # Example: lazy and eager forms compose
+//!
+//! ```rust
+//! use nom_exif::{ImageMetadata, ImageFormatMetadata, ExifIter, Exif};
+//!
+//! // Default form (eager — type parameter defaults to Exif).
+//! let _eager_default: ImageMetadata = ImageMetadata::default();
+//!
+//! // Explicit lazy form.
+//! let lazy: ImageMetadata<ExifIter> = ImageMetadata {
+//!     exif: None,
+//!     format: None,
+//! };
+//!
+//! // Lazy → eager conversion via From.
+//! let _eager: ImageMetadata<Exif> = lazy.into();
+//! ```
 
 use crate::exif::png_text::PngTextChunks;
 
