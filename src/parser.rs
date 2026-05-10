@@ -1917,4 +1917,99 @@ mod tests {
         assert!(img.exif.is_some());
         assert!(img.format.is_none());
     }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn async_media_source_from_memory_image_jpg() {
+        use crate::parser_async::AsyncMediaSource;
+        let raw = std::fs::read("testdata/exif.jpg").unwrap();
+        let ms = AsyncMediaSource::from_memory(raw).unwrap();
+        assert_eq!(ms.kind(), MediaKind::Image);
+        assert!(ms.memory.is_some());
+    }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn async_media_source_from_memory_track_mov() {
+        use crate::parser_async::AsyncMediaSource;
+        let raw = std::fs::read("testdata/meta.mov").unwrap();
+        let ms = AsyncMediaSource::from_memory(raw).unwrap();
+        assert_eq!(ms.kind(), MediaKind::Track);
+    }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn async_media_source_from_memory_rejects_unknown_mime() {
+        use crate::parser_async::AsyncMediaSource;
+        let raw = vec![0xAAu8; 256];
+        let res = AsyncMediaSource::from_memory(raw);
+        assert!(res.is_err());
+    }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn parse_exif_async_from_memory_jpg() {
+        use crate::parser_async::AsyncMediaSource;
+        let raw = std::fs::read("testdata/exif.jpg").unwrap();
+        let mut parser = MediaParser::new();
+        let ms = AsyncMediaSource::from_memory(raw).unwrap();
+        let iter = parser.parse_exif_async(ms).await.unwrap();
+        let exif: crate::Exif = iter.into();
+        assert!(exif.get(crate::ExifTag::Make).is_some());
+    }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn parse_exif_async_from_memory_zero_copy_preserved() {
+        use crate::parser_async::AsyncMediaSource;
+        let raw = std::fs::read("testdata/exif.jpg").unwrap();
+        let bytes = bytes::Bytes::from(raw);
+        let mut parser = MediaParser::new();
+        let ms = AsyncMediaSource::from_memory(bytes).unwrap();
+        let iter = parser.parse_exif_async(ms).await.unwrap();
+        // Memory mode must not poison the recycle cache — same invariant
+        // as the sync route asserts.
+        assert!(
+            parser.state.cached_ptr_for_test().is_none(),
+            "async memory mode must not write to the streaming-buf recycle cache"
+        );
+        drop(iter);
+    }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn parse_track_async_from_memory_mov() {
+        use crate::parser_async::AsyncMediaSource;
+        let raw = std::fs::read("testdata/meta.mov").unwrap();
+        let mut parser = MediaParser::new();
+        let ms = AsyncMediaSource::from_memory(raw).unwrap();
+        let info = parser.parse_track_async(ms).await.unwrap();
+        assert_eq!(info.get(crate::TrackInfoTag::Make), Some(&"Apple".into()));
+    }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn parse_image_metadata_async_from_memory_png() {
+        use crate::parser_async::AsyncMediaSource;
+        let raw = std::fs::read("testdata/exif.png").unwrap();
+        let mut parser = MediaParser::new();
+        let ms = AsyncMediaSource::from_memory(raw).unwrap();
+        let img = parser.parse_image_metadata_async(ms).await.unwrap();
+        assert!(img.exif.is_some());
+        assert!(img.format.is_some());
+    }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn parse_image_metadata_async_from_memory_text_only_png() {
+        // The 117-byte text-only.png exercises the PNG-scoped EOF tolerance
+        // on the async path.
+        use crate::parser_async::AsyncMediaSource;
+        let raw = std::fs::read("testdata/text-only.png").unwrap();
+        let mut parser = MediaParser::new();
+        let ms = AsyncMediaSource::from_memory(raw).unwrap();
+        let img = parser.parse_image_metadata_async(ms).await.unwrap();
+        assert!(img.exif.is_none());
+        assert!(img.format.is_some());
+    }
 }
