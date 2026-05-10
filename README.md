@@ -32,17 +32,8 @@ track metadata** through a single unified API. Built on
 
 ## Supported File Types
 
-- Image
-  - .heic, .heif, etc.
-  - .avif (AVIF)
-  - .jpg, .jpeg
-  - .png
-  - .tiff, .tif, .iiq (Phase One IIQ images), etc.
-  - .RAF (Fujifilm RAW)
-  - .CR3 (Canon RAW)
-- Video/Audio
-  - ISO base media file format (ISOBMFF): .mp4, .mov, .3gp, etc.
-  - Matroska based file format: .webm, .mkv, .mka, etc.
+- **Image**: JPEG, PNG, HEIC/HEIF, AVIF, TIFF, Phase One IIQ, Fujifilm RAF, Canon CR3
+- **Video/Audio**: MP4, MOV, 3GP (ISOBMFF); MKV, WEBM, MKA (Matroska)
 
 ## Quick Start
 
