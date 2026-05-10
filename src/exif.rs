@@ -193,12 +193,12 @@ fn parse_png_exif_iter<R: Read>(
             let view = full.slice(abs);
             input_into_iter(view, None)
         }
-        PngExifSource::Legacy(_) => {
-            // Phase 5 implements legacy path. For now, treat as
-            // "EXIF not found" — this branch is unreachable in
-            // phase 4 because extract_chunks never produces Legacy
-            // until phase 5 adds the recognition logic.
-            Err(crate::Error::ExifNotFound)
+        PngExifSource::Legacy(bytes) => {
+            // Owned bytes — wrap in a fresh Bytes (separate allocation
+            // from the parser buffer; acceptable because legacy is
+            // rare and typically small).
+            let view = bytes::Bytes::from(bytes);
+            input_into_iter(view, None)
         }
     }
 }
@@ -224,7 +224,10 @@ pub(crate) fn parse_png_full<R: Read>(
             let view = full.slice(abs);
             Some(input_into_iter(view, None)?)
         }
-        Some(PngExifSource::Legacy(_)) => None, // P5 fills this in
+        Some(PngExifSource::Legacy(bytes)) => {
+            let view = bytes::Bytes::from(bytes);
+            Some(input_into_iter(view, None)?)
+        }
         None => None,
     };
 
@@ -430,7 +433,10 @@ where
             let view = full.slice(abs);
             input_into_iter(view, None)
         }
-        PngExifSource::Legacy(_) => Err(crate::Error::ExifNotFound),
+        PngExifSource::Legacy(bytes) => {
+            let view = bytes::Bytes::from(bytes);
+            input_into_iter(view, None)
+        }
     }
 }
 
@@ -459,7 +465,10 @@ where
             let view = full.slice(abs);
             Some(input_into_iter(view, None)?)
         }
-        Some(PngExifSource::Legacy(_)) => None,
+        Some(PngExifSource::Legacy(bytes)) => {
+            let view = bytes::Bytes::from(bytes);
+            Some(input_into_iter(view, None)?)
+        }
         None => None,
     };
 
