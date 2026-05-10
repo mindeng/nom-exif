@@ -127,6 +127,7 @@ pub(crate) fn extract_chunks(buf: &[u8]) -> Result<PngParseOut, ParsingErrorStat
         text_chunks: Vec::new(),
     };
     let mut text_total: usize = 0;
+    let mut exif_priority: u8 = 0; // 0 = none, 1 = legacy exif, 2 = legacy APP1, 3 = eXIf
 
     let mut cursor = PNG_SIGNATURE.len();
 
@@ -159,8 +160,9 @@ pub(crate) fn extract_chunks(buf: &[u8]) -> Result<PngParseOut, ParsingErrorStat
                 }
                 let data_start = cursor + 8;
                 let data_end = data_start + length as usize;
-                // Priority: eXIf always wins (highest precedence).
+                // eXIf has priority 3 (highest), always wins.
                 out.exif = Some(PngExifSource::EXif(data_start..data_end));
+                exif_priority = 3;
                 cursor += total;
             }
             b"tEXt" => {
@@ -190,6 +192,30 @@ pub(crate) fn extract_chunks(buf: &[u8]) -> Result<PngParseOut, ParsingErrorStat
                 if let Some(nul_pos) = data.iter().position(|&b| b == 0) {
                     let key = decode_latin1(&data[..nul_pos]);
                     let value = decode_latin1(&data[nul_pos + 1..]);
+
+                    // Legacy EXIF detection
+                    let candidate_priority: u8 = match key.as_str() {
+                        "Raw profile type APP1" => 2,
+                        "Raw profile type exif" => 1,
+                        _ => 0,
+                    };
+                    if candidate_priority > 0 && candidate_priority > exif_priority {
+                        if let Ok(mut bytes) = decode_raw_profile_value(&value) {
+                            // Strip APP1's leading "Exif\0\0" if present.
+                            if key.ends_with("APP1") && bytes.starts_with(b"Exif\0\0") {
+                                bytes.drain(0..6);
+                            }
+                            // Validate as TIFF (must have a valid byte-order marker
+                            // + magic number) before accepting.
+                            if bytes.len() >= 8 && crate::exif::TiffHeader::parse(&bytes).is_ok() {
+                                out.exif = Some(PngExifSource::Legacy(bytes));
+                                exif_priority = candidate_priority;
+                            }
+                            // else: silently drop the legacy candidate, keep raw text entry below
+                        }
+                        // hex_decode failure → silently drop too
+                    }
+
                     let entry_size = key.len() + value.len();
                     if text_total + entry_size <= MAX_TEXT_CHUNKS_TOTAL {
                         text_total += entry_size;
@@ -444,5 +470,120 @@ mod tests {
             ParsingError::Need(_) | ParsingError::ClearAndSkip(_) => {}
             other => panic!("unexpected error: {other:?}"),
         }
+    }
+
+    /// Minimal little-endian TIFF: II + 0x002A + IFD0 offset = 8 + IFD0 with 0 entries.
+    fn minimal_tiff_le() -> Vec<u8> {
+        let mut t = Vec::new();
+        t.extend_from_slice(b"II"); // little-endian
+        t.extend_from_slice(&[0x2a, 0x00]); // magic 42
+        t.extend_from_slice(&[0x08, 0, 0, 0]); // IFD0 offset = 8
+        t.extend_from_slice(&[0, 0]); // IFD0: 0 entries
+        t.extend_from_slice(&[0, 0, 0, 0]); // next IFD = 0
+        t
+    }
+
+    /// Encode a TIFF blob into the ImageMagick "Raw profile type X" tEXt
+    /// value layout: 3-line header + hex bytes.
+    fn raw_profile_value(profile_type: &str, tiff: &[u8]) -> String {
+        let hex: String = tiff.iter().map(|b| format!("{b:02x}")).collect();
+        // Wrap the hex into 72-char lines like ImageMagick (not strictly
+        // necessary for our parser; ignored as whitespace).
+        let mut wrapped = String::new();
+        for chunk in hex.as_bytes().chunks(72) {
+            wrapped.push_str(std::str::from_utf8(chunk).unwrap());
+            wrapped.push('\n');
+        }
+        format!("\n{}\n      {}\n{}", profile_type, tiff.len(), wrapped)
+    }
+
+    #[test]
+    fn extract_chunks_legacy_exif() {
+        let tiff = minimal_tiff_le();
+        let value = raw_profile_value("exif", &tiff);
+        let mut data = Vec::new();
+        data.extend_from_slice(b"Raw profile type exif");
+        data.push(0);
+        data.extend_from_slice(value.as_bytes());
+        let chunks = vec![build_chunk(b"tEXt", &data)];
+        let buf = build_png_with_chunks(&chunks);
+
+        let result = extract_chunks(&buf).unwrap();
+        match result.exif {
+            Some(PngExifSource::Legacy(bytes)) => assert_eq!(bytes, tiff),
+            other => panic!("expected Legacy, got {:?}", other),
+        }
+        // Original tEXt entry is preserved.
+        assert_eq!(result.text_chunks.len(), 1);
+        assert_eq!(result.text_chunks[0].0, "Raw profile type exif");
+    }
+
+    #[test]
+    fn extract_chunks_legacy_app1() {
+        let tiff = minimal_tiff_le();
+        // APP1 carries an "Exif\0\0" prefix before TIFF.
+        let mut app1 = Vec::new();
+        app1.extend_from_slice(b"Exif\0\0");
+        app1.extend_from_slice(&tiff);
+        let value = raw_profile_value("app1", &app1);
+        let mut data = Vec::new();
+        data.extend_from_slice(b"Raw profile type APP1");
+        data.push(0);
+        data.extend_from_slice(value.as_bytes());
+        let chunks = vec![build_chunk(b"tEXt", &data)];
+        let buf = build_png_with_chunks(&chunks);
+
+        let result = extract_chunks(&buf).unwrap();
+        match result.exif {
+            Some(PngExifSource::Legacy(bytes)) => assert_eq!(bytes, tiff),
+            other => panic!("expected Legacy, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn extract_chunks_exif_overrides_legacy() {
+        let tiff_legacy = minimal_tiff_le();
+        let tiff_exif = {
+            let mut t = minimal_tiff_le();
+            // Differentiate so we can verify which one was kept.
+            t.extend_from_slice(&[0xFF; 4]);
+            t
+        };
+        let legacy_value = raw_profile_value("exif", &tiff_legacy);
+        let mut legacy_data = Vec::new();
+        legacy_data.extend_from_slice(b"Raw profile type exif");
+        legacy_data.push(0);
+        legacy_data.extend_from_slice(legacy_value.as_bytes());
+
+        // Order: legacy first, then eXIf. eXIf must still win.
+        let chunks = vec![
+            build_chunk(b"tEXt", &legacy_data),
+            build_chunk(b"eXIf", &tiff_exif),
+        ];
+        let buf = build_png_with_chunks(&chunks);
+
+        let result = extract_chunks(&buf).unwrap();
+        match result.exif {
+            Some(PngExifSource::EXif(range)) => {
+                assert_eq!(&buf[range], tiff_exif);
+            }
+            other => panic!("expected EXif (eXIf wins), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn extract_chunks_invalid_legacy_silently_dropped() {
+        // Malformed value: not valid hex.
+        let mut data = Vec::new();
+        data.extend_from_slice(b"Raw profile type exif");
+        data.push(0);
+        data.extend_from_slice(b"not hex at all\nzzz");
+        let chunks = vec![build_chunk(b"tEXt", &data)];
+        let buf = build_png_with_chunks(&chunks);
+
+        let result = extract_chunks(&buf).unwrap();
+        assert!(result.exif.is_none(), "malformed legacy must be dropped");
+        // Raw tEXt entry still preserved.
+        assert_eq!(result.text_chunks.len(), 1);
     }
 }
