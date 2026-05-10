@@ -333,6 +333,7 @@ mod mov;
 mod parser;
 #[cfg(feature = "tokio")]
 mod parser_async;
+mod png;
 mod raf;
 mod slice;
 mod utils;
