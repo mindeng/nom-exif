@@ -205,6 +205,7 @@ fn parse_png_exif_iter<R: Read>(
 
 /// Like [`parse_png_exif_iter`] but also returns the captured `tEXt`
 /// chunks. Used by `MediaParser::parse_image_metadata` for PNG.
+#[allow(clippy::type_complexity)]
 #[tracing::instrument(skip(reader, skip_by_seek))]
 pub(crate) fn parse_png_full<R: Read>(
     parser: &mut MediaParser,
@@ -441,6 +442,7 @@ where
 }
 
 #[cfg(feature = "tokio")]
+#[allow(clippy::type_complexity)]
 pub(crate) async fn parse_png_full_async<P, R>(
     parser: &mut P,
     reader: &mut R,
