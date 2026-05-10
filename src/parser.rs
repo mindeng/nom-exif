@@ -792,28 +792,45 @@ impl MediaParser {
 
     /// Parse track info from a video/audio source.
     ///
+    /// Parse track info from a video/audio source.
+    ///
     /// In v3.1, this also accepts JPEG images that carry an embedded
-    /// Pixel/Google Motion Photo trailer: when [`ExifIter::has_embedded_track`]
-    /// returned `true` for such a JPEG, calling `parse_track` on the same
-    /// source extracts the embedded MP4's metadata. Other image formats
-    /// without an embedded track return [`crate::Error::TrackNotFound`].
+    /// Pixel/Google Motion Photo trailer. As of v3.3, it also accepts
+    /// memory-mode sources built via [`MediaSource::from_memory`]; the
+    /// deprecated [`Self::parse_track_from_bytes`] is now a thin
+    /// adapter that delegates here.
     pub fn parse_track<R: Read>(&mut self, mut ms: MediaSource<R>) -> crate::Result<TrackInfo> {
         self.reset();
-        self.acquire_buf();
-        self.buf_mut().append(&mut ms.buf);
         let res: crate::Result<TrackInfo> = (|| {
-            self.fill_buf(&mut ms.reader, INIT_BUF_SIZE)?;
-            match ms.mime {
-                crate::file::MediaMime::Image(crate::file::MediaMimeImage::Jpeg) => {
-                    self.parse_jpeg_motion_photo(&mut ms.reader)
-                }
-                crate::file::MediaMime::Image(_) => Err(crate::Error::TrackNotFound),
-                crate::file::MediaMime::Track(mime_track) => {
-                    let skip = ms.skip_by_seek;
-                    Ok(self.load_and_parse(ms.reader.by_ref(), skip, |data, _| {
-                        crate::video::parse_track_info(data, mime_track)
-                            .map_err(|e| ParsingErrorState::new(e, None))
-                    })?)
+            if let Some(memory) = ms.memory.take() {
+                // Memory mode: zero-copy.
+                self.state.set_memory(memory);
+                let mime_track = match ms.mime {
+                    crate::file::MediaMime::Image(_) => return Err(crate::Error::TrackNotFound),
+                    crate::file::MediaMime::Track(t) => t,
+                };
+                let out = self.load_and_parse(&mut ms.reader, ms.skip_by_seek, |data, _| {
+                    crate::video::parse_track_info(data, mime_track)
+                        .map_err(|e| ParsingErrorState::new(e, None))
+                })?;
+                Ok(out)
+            } else {
+                // Streaming mode: existing path verbatim.
+                self.acquire_buf();
+                self.buf_mut().append(&mut ms.buf);
+                self.fill_buf(&mut ms.reader, INIT_BUF_SIZE)?;
+                match ms.mime {
+                    crate::file::MediaMime::Image(crate::file::MediaMimeImage::Jpeg) => {
+                        self.parse_jpeg_motion_photo(&mut ms.reader)
+                    }
+                    crate::file::MediaMime::Image(_) => Err(crate::Error::TrackNotFound),
+                    crate::file::MediaMime::Track(mime_track) => {
+                        let skip = ms.skip_by_seek;
+                        Ok(self.load_and_parse(ms.reader.by_ref(), skip, |data, _| {
+                            crate::video::parse_track_info(data, mime_track)
+                                .map_err(|e| ParsingErrorState::new(e, None))
+                        })?)
+                    }
                 }
             }
         })();
@@ -1656,6 +1673,33 @@ mod tests {
         let raw = std::fs::read("testdata/exif.jpg").unwrap();
         let ms = MediaSource::from_bytes(raw).unwrap();
         let res = parser.parse_track_from_bytes(ms);
+        assert!(matches!(res, Err(crate::Error::TrackNotFound)));
+    }
+
+    #[test]
+    fn parse_track_unified_from_memory_mov() {
+        let mut parser = MediaParser::new();
+        let raw = std::fs::read("testdata/meta.mov").unwrap();
+        let ms = MediaSource::from_memory(raw).unwrap();
+        let info = parser.parse_track(ms).unwrap();
+        assert_eq!(info.get(crate::TrackInfoTag::Make), Some(&"Apple".into()));
+    }
+
+    #[test]
+    fn parse_track_unified_from_memory_mp4() {
+        let mut parser = MediaParser::new();
+        let raw = std::fs::read("testdata/meta.mp4").unwrap();
+        let ms = MediaSource::from_memory(raw).unwrap();
+        let info = parser.parse_track(ms).unwrap();
+        assert!(info.get(crate::TrackInfoTag::CreateDate).is_some());
+    }
+
+    #[test]
+    fn parse_track_unified_on_image_returns_track_not_found() {
+        let mut parser = MediaParser::new();
+        let raw = std::fs::read("testdata/exif.jpg").unwrap();
+        let ms = MediaSource::from_memory(raw).unwrap();
+        let res = parser.parse_track(ms);
         assert!(matches!(res, Err(crate::Error::TrackNotFound)));
     }
 }
