@@ -49,9 +49,7 @@ serde = ["dep:serde"]
 test-case = "3"
 rand = "0.9"
 chrono = "0.4"
-serde_json = "1.0"
 regex = { version = "1.10" }
-clap = { version = "4.4", features = ["derive"] }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 tokio = { version = "1.40.0", features = [
   "rt-multi-thread",
@@ -60,9 +58,5 @@ tokio = { version = "1.40.0", features = [
   "io-util",
 ] }
 
-[[example]]
-name = "rexiftool"
-# required-features = ["serde"]
-
 [workspace]
-members = ["."]
+members = [".", "crates/rexiftool"]

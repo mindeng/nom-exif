@@ -285,9 +285,24 @@ by `tests/migration_guide.rs`. A few high-traffic items:
 
 ## CLI Tool `rexiftool`
 
+`rexiftool` is a thin CLI wrapper around `nom-exif`, published as a
+separate crate.
+
+### Install
+
+```sh
+cargo install rexiftool
+```
+
+Pre-built binaries (macOS Intel / Apple Silicon, Linux x86_64,
+Windows x86_64) are attached to each `rexiftool-v*` release on
+[GitHub Releases](https://github.com/mindeng/nom-exif/releases).
+
+From a checkout of this repo: `cargo run -p rexiftool -- <args>`.
+
 ### Human Readable Output
 
-`cargo run --example rexiftool testdata/meta.mov`:
+`rexiftool testdata/meta.mov`:
 
 ```text
 Make                            => Apple
@@ -302,7 +317,7 @@ GpsIso6709                      => +27.1281+100.2508+000.000/
 
 Pass `--debug` to enable tracing logs:
 
-`cargo run --example rexiftool -- --debug ./testdata/meta.mov`
+`rexiftool --debug ./testdata/meta.mov`
 
 When the source carries an embedded media track (e.g. a Pixel Motion
 Photo MP4 trailer), its metadata is appended after the EXIF entries
@@ -311,7 +326,7 @@ this and show only EXIF.
 
 ### JSON Dump
 
-`cargo run --features serde --example rexiftool testdata/meta.mov -j`:
+`rexiftool testdata/meta.mov -j`:
 
 ```text
 {
@@ -335,7 +350,7 @@ to omit it.
 `rexiftool` also supports batch parsing of all files in a folder
 (non-recursive).
 
-`cargo run --example rexiftool testdata/`:
+`rexiftool testdata/`:
 
 ```text
 File: "testdata/embedded-in-heic.mov"

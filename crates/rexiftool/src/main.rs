@@ -34,11 +34,6 @@ struct Cli {
     debug: bool,
 }
 
-#[cfg(feature = "serde")]
-const FEATURE_SERDE_ON: bool = true;
-#[cfg(not(feature = "serde"))]
-const FEATURE_SERDE_ON: bool = false;
-
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
@@ -61,12 +56,6 @@ fn tracing_run(cli: &Cli) -> ExitCode {
 }
 
 fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
-    if cli.json && !FEATURE_SERDE_ON {
-        let msg = "-j/--json option requires the feature `serde`.";
-        eprintln!("{msg}");
-        return Err(msg.into());
-    }
-
     let mut parser = MediaParser::new();
 
     let path = Path::new(&cli.file);
@@ -182,7 +171,6 @@ fn parse_file<P: AsRef<Path>>(
         }
     };
     if cli.json {
-        #[cfg(feature = "serde")]
         emit_json(&values, embedded.as_deref(), format_pairs.as_deref());
     } else {
         values.iter().for_each(|x| {
@@ -231,7 +219,6 @@ fn track_info_to_pairs(info: &TrackInfo) -> Vec<(String, nom_exif::EntryValue)> 
         .collect()
 }
 
-#[cfg(feature = "serde")]
 fn emit_json(
     values: &[(String, nom_exif::EntryValue)],
     embedded: Option<&[(String, nom_exif::EntryValue)]>,
