@@ -30,6 +30,20 @@ struct Cli {
     #[arg(long)]
     no_format: bool,
 
+    /// Include thumbnail (IFD1) entries. By default they are hidden,
+    /// because they mostly duplicate the main image's tags
+    /// (XResolution, ExifImageWidth, …).
+    #[arg(long)]
+    with_thumbnail: bool,
+
+    /// Print full values without per-line / per-value truncation.
+    /// By default rexiftool caps each line at 200 chars and each
+    /// value at 10 lines so embedded hex blobs (e.g. PNG tEXt chunks
+    /// carrying raw EXIF) don't swamp the terminal. JSON output is
+    /// always unbounded.
+    #[arg(long)]
+    full: bool,
+
     #[arg(long)]
     debug: bool,
 }
@@ -117,7 +131,10 @@ fn parse_file<P: AsRef<Path>>(
             let (exif_values, has_embedded, fmt_pairs) = match img_result {
                 Ok(img) => {
                     let (has, exif_pairs) = match img.exif {
-                        Some(iter) => (iter.has_embedded_track(), exif_iter_to_pairs(iter)),
+                        Some(iter) => (
+                            iter.has_embedded_track(),
+                            exif_iter_to_pairs(iter, cli.with_thumbnail),
+                        ),
                         None => (false, vec![]),
                     };
                     let fmt_pairs: Option<Vec<(String, String)>> = if cli.no_format {
@@ -187,26 +204,85 @@ fn parse_file<P: AsRef<Path>>(
             .map(|p| compute_key_width(p.iter().map(|(k, _)| k.as_str())))
             .unwrap_or(MIN_KEY_WIDTH);
 
+        let mut printed_section = false;
         if has_extra && !values.is_empty() {
             println!("{}", section_header("EXIF"));
+            printed_section = true;
         }
-        values.iter().for_each(|x| {
-            println!("{:<width$}=> {}", x.0, x.1, width = key_width);
-        });
+        for (k, v) in &values {
+            print_pair(k, &v.to_string(), key_width, cli.full);
+        }
         if let Some(track) = &embedded {
+            if printed_section || !values.is_empty() {
+                println!();
+            }
             println!("{}", section_header("Embedded Track"));
-            track.iter().for_each(|x| {
-                println!("{:<width$}=> {}", x.0, x.1, width = key_width);
-            });
+            printed_section = true;
+            for (k, v) in track {
+                print_pair(k, &v.to_string(), key_width, cli.full);
+            }
         }
         if let Some(fmt) = &format_pairs {
+            if printed_section || !values.is_empty() {
+                println!();
+            }
             println!("{}", section_header("Format Metadata"));
-            fmt.iter().for_each(|(k, v)| {
-                println!("{:<width$}=> {}", k, v, width = fmt_key_width);
-            });
+            for (k, v) in fmt {
+                print_pair(k, v, fmt_key_width, cli.full);
+            }
         }
     };
     Ok(())
+}
+
+const KV_SEP: &str = ": ";
+const MAX_LINE_CHARS: usize = 200;
+const MAX_VALUE_LINES: usize = 10;
+
+fn print_pair(key: &str, value: &str, key_width: usize, full: bool) {
+    if value.is_empty() {
+        println!("{:<width$}{KV_SEP}(empty)", key, width = key_width);
+        return;
+    }
+    let indent = " ".repeat(key_width + KV_SEP.chars().count());
+    let total_lines = value.split('\n').count();
+    let line_budget = if full { usize::MAX } else { MAX_VALUE_LINES };
+
+    for (i, line) in value.split('\n').enumerate() {
+        if i >= line_budget {
+            let remaining = total_lines - i;
+            println!("{indent}… (+{remaining} more line{})", plural(remaining));
+            break;
+        }
+        let rendered = if full {
+            line.to_owned()
+        } else {
+            truncate_line(line, MAX_LINE_CHARS)
+        };
+        if i == 0 {
+            println!("{:<width$}{KV_SEP}{rendered}", key, width = key_width);
+        } else {
+            println!("{indent}{rendered}");
+        }
+    }
+}
+
+fn truncate_line(line: &str, max_chars: usize) -> String {
+    let count = line.chars().count();
+    if count <= max_chars {
+        return line.to_owned();
+    }
+    let head: String = line.chars().take(max_chars).collect();
+    let extra = count - max_chars;
+    format!("{head}… (+{extra} char{})", plural(extra))
+}
+
+fn plural(n: usize) -> &'static str {
+    if n == 1 {
+        ""
+    } else {
+        "s"
+    }
 }
 
 const SECTION_WIDTH: usize = 48;
@@ -226,9 +302,12 @@ fn compute_key_width<'a, I: Iterator<Item = &'a str>>(keys: I) -> usize {
         .unwrap_or(MIN_KEY_WIDTH)
 }
 
-fn exif_iter_to_pairs(iter: ExifIter) -> Vec<(String, nom_exif::EntryValue)> {
+fn exif_iter_to_pairs(iter: ExifIter, with_thumbnail: bool) -> Vec<(String, nom_exif::EntryValue)> {
     iter.into_iter()
         .filter_map(|x| {
+            if !with_thumbnail && x.ifd() == nom_exif::IfdIndex::THUMBNAIL {
+                return None;
+            }
             let tag = x.tag();
             match x.into_result() {
                 Ok(v) => Some((
