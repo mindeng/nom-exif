@@ -747,25 +747,44 @@ impl MediaParser {
     /// Parse Exif metadata from an image source. Returns `Error::ExifNotFound`
     /// if the source is a `Track` (use [`Self::parse_track`] instead).
     ///
+    /// As of v3.3, this method also accepts memory-mode sources built via
+    /// [`MediaSource::from_memory`]. The deprecated [`Self::parse_exif_from_bytes`]
+    /// is now a thin adapter that delegates here.
+    ///
     /// `MediaParser` reuses its internal parse buffer across calls, so prefer
     /// reusing a single `MediaParser` over creating a new one per file. Drop
     /// the returned [`ExifIter`] (or convert it into [`crate::Exif`]) before
     /// the next `parse_*` call so the buffer can be reclaimed.
     pub fn parse_exif<R: Read>(&mut self, mut ms: MediaSource<R>) -> crate::Result<ExifIter> {
         self.reset();
-        self.acquire_buf();
-        self.buf_mut().append(&mut ms.buf);
         let res: crate::Result<ExifIter> = (|| {
-            self.fill_buf(&mut ms.reader, INIT_BUF_SIZE)?;
-            if !matches!(ms.mime, crate::file::MediaMime::Image(_)) {
-                return Err(crate::Error::ExifNotFound);
+            if let Some(memory) = ms.memory.take() {
+                // Memory-mode: zero-copy share of caller-owned bytes.
+                self.state.set_memory(memory);
+                if !matches!(ms.mime, crate::file::MediaMime::Image(_)) {
+                    return Err(crate::Error::ExifNotFound);
+                }
+                crate::exif::parse_exif_iter(
+                    self,
+                    ms.mime.unwrap_image(),
+                    &mut ms.reader,
+                    ms.skip_by_seek,
+                )
+            } else {
+                // Streaming-mode: existing path verbatim.
+                self.acquire_buf();
+                self.buf_mut().append(&mut ms.buf);
+                self.fill_buf(&mut ms.reader, INIT_BUF_SIZE)?;
+                if !matches!(ms.mime, crate::file::MediaMime::Image(_)) {
+                    return Err(crate::Error::ExifNotFound);
+                }
+                crate::exif::parse_exif_iter(
+                    self,
+                    ms.mime.unwrap_image(),
+                    &mut ms.reader,
+                    ms.skip_by_seek,
+                )
             }
-            crate::exif::parse_exif_iter(
-                self,
-                ms.mime.unwrap_image(),
-                &mut ms.reader,
-                ms.skip_by_seek,
-            )
         })();
         self.reset();
         res
@@ -1368,6 +1387,71 @@ mod tests {
         let raw = vec![0xAAu8; 256];
         let res = MediaSource::from_memory(raw);
         assert!(res.is_err());
+    }
+
+    #[test]
+    fn parse_exif_unified_from_memory_jpg() {
+        let mut parser = MediaParser::new();
+        let raw = std::fs::read("testdata/exif.jpg").unwrap();
+        let ms = MediaSource::from_memory(raw).unwrap();
+        let iter = parser.parse_exif(ms).unwrap();
+        let exif: crate::Exif = iter.into();
+        assert!(exif.get(crate::ExifTag::Make).is_some());
+    }
+
+    #[test]
+    fn parse_exif_unified_from_memory_heic() {
+        let mut parser = MediaParser::new();
+        let raw = std::fs::read("testdata/exif.heic").unwrap();
+        let ms = MediaSource::from_memory(raw).unwrap();
+        let iter = parser.parse_exif(ms).unwrap();
+        let exif: crate::Exif = iter.into();
+        assert_eq!(
+            exif.get(crate::ExifTag::Make).and_then(|v| v.as_str()),
+            Some("Apple")
+        );
+    }
+
+    #[test]
+    fn parse_exif_unified_from_memory_zero_copy_preserved() {
+        let raw = std::fs::read("testdata/exif.jpg").unwrap();
+        let bytes = bytes::Bytes::from(raw);
+        let _original_ptr = bytes.as_ptr();
+
+        let mut parser = MediaParser::new();
+        let ms = MediaSource::from_memory(bytes).unwrap();
+        let iter = parser.parse_exif(ms).unwrap();
+
+        // Memory mode must not poison the recycle cache — same invariant
+        // the old parse_exif_from_bytes route asserts.
+        assert!(
+            parser.state.cached_ptr_for_test().is_none(),
+            "memory mode must not write to the streaming-buf recycle cache"
+        );
+        drop(iter);
+    }
+
+    #[test]
+    fn parse_exif_unified_on_track_returns_exif_not_found() {
+        let mut parser = MediaParser::new();
+        let raw = std::fs::read("testdata/meta.mov").unwrap();
+        let ms = MediaSource::from_memory(raw).unwrap();
+        let res = parser.parse_exif(ms);
+        assert!(matches!(res, Err(crate::Error::ExifNotFound)));
+    }
+
+    #[test]
+    fn parse_exif_unified_on_truncated_returns_io_error() {
+        let mut raw = std::fs::read("testdata/exif.jpg").unwrap();
+        raw.truncate(200);
+        let mut parser = MediaParser::new();
+        let ms = MediaSource::from_memory(raw).unwrap();
+        let res = parser.parse_exif(ms);
+        assert!(
+            res.is_err(),
+            "expected error on truncated bytes, got {:?}",
+            res
+        );
     }
 
     #[test]
