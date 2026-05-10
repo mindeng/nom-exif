@@ -381,6 +381,7 @@ mod v3_top_level_tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn read_exif_from_bytes_jpg() {
         let raw = std::fs::read("testdata/exif.jpg").unwrap();
         let exif = read_exif_from_bytes(raw).unwrap();
@@ -388,6 +389,7 @@ mod v3_top_level_tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn read_exif_iter_from_bytes_jpg() {
         let raw = std::fs::read("testdata/exif.jpg").unwrap();
         let iter = read_exif_iter_from_bytes(raw).unwrap();
@@ -395,6 +397,7 @@ mod v3_top_level_tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn read_track_from_bytes_mov() {
         let raw = std::fs::read("testdata/meta.mov").unwrap();
         let info = read_track_from_bytes(raw).unwrap();
@@ -402,6 +405,7 @@ mod v3_top_level_tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn read_metadata_from_bytes_dispatches_image() {
         let raw = std::fs::read("testdata/exif.jpg").unwrap();
         match read_metadata_from_bytes(raw).unwrap() {
@@ -411,6 +415,7 @@ mod v3_top_level_tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn read_metadata_from_bytes_dispatches_track() {
         let raw = std::fs::read("testdata/meta.mov").unwrap();
         match read_metadata_from_bytes(raw).unwrap() {
@@ -420,6 +425,7 @@ mod v3_top_level_tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn read_exif_from_bytes_static_slice() {
         let raw: &'static [u8] = include_bytes!("../testdata/exif.jpg");
         let exif = read_exif_from_bytes(raw).unwrap();

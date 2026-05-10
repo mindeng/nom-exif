@@ -1436,6 +1436,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn media_source_from_bytes_image_jpg() {
         let raw = std::fs::read("testdata/exif.jpg").unwrap();
         let ms = MediaSource::from_bytes(raw).unwrap();
@@ -1444,6 +1445,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn media_source_from_bytes_track_mov() {
         let raw = std::fs::read("testdata/meta.mov").unwrap();
         let ms = MediaSource::from_bytes(raw).unwrap();
@@ -1451,6 +1453,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn media_source_from_bytes_static_slice() {
         // &'static [u8] should work via Into<Bytes> because the file is read
         // into a Vec at compile-time-friendly size; here we use include_bytes.
@@ -1460,6 +1463,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn media_source_from_bytes_rejects_too_short() {
         // Below the smallest mime signature length: should fail mime detection.
         let raw = vec![0u8; 4];
@@ -1468,6 +1472,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn media_source_from_bytes_rejects_unknown_mime() {
         // Random bytes long enough to trigger detection but not match any
         // signature.
@@ -1517,6 +1522,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn parse_exif_from_bytes_jpg_basic() {
         let mut parser = MediaParser::new();
         let raw = std::fs::read("testdata/exif.jpg").unwrap();
@@ -1527,6 +1533,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn parse_exif_from_bytes_heic_basic() {
         let mut parser = MediaParser::new();
         let raw = std::fs::read("testdata/exif.heic").unwrap();
@@ -1540,6 +1547,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn parse_exif_from_bytes_zero_copy_shared_bytes() {
         // Build a Bytes whose pointer we can compare. The ExifIter's underlying
         // share must point to the same allocation — proving Bytes::clone path.
@@ -1572,6 +1580,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn parse_exif_from_bytes_on_track_returns_exif_not_found() {
         let mut parser = MediaParser::new();
         let raw = std::fs::read("testdata/meta.mov").unwrap();
@@ -1581,6 +1590,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn parse_exif_from_bytes_on_truncated_returns_io_error() {
         // Truncate exif.jpg to just enough for mime detection but too short
         // for the full EXIF block. Memory-mode fill_buf must surface
@@ -1598,6 +1608,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn parse_track_from_bytes_mov_basic() {
         let mut parser = MediaParser::new();
         let raw = std::fs::read("testdata/meta.mov").unwrap();
@@ -1611,6 +1622,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn parse_track_from_bytes_mp4_basic() {
         let mut parser = MediaParser::new();
         let raw = std::fs::read("testdata/meta.mp4").unwrap();
@@ -1620,6 +1632,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn parse_track_from_bytes_mkv_basic() {
         let mut parser = MediaParser::new();
         let raw = std::fs::read("testdata/mkv_640x360.mkv").unwrap();
@@ -1632,6 +1645,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn parse_track_from_bytes_on_image_returns_track_not_found() {
         let mut parser = MediaParser::new();
         let raw = std::fs::read("testdata/exif.jpg").unwrap();
