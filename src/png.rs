@@ -47,7 +47,110 @@ const MAX_TEXT_CHUNK_SIZE: u32 = 1024 * 1024; // 1 MiB
 /// further `tEXt` chunks are skipped (already-captured entries kept).
 const MAX_TEXT_CHUNKS_TOTAL: usize = 16 * 1024 * 1024; // 16 MiB
 
+/// Walk the PNG chunk stream and extract EXIF + tEXt entries.
+///
+/// Pure function: no I/O, takes a buffer slice, returns either output
+/// or a `ParsingErrorState` requesting more bytes / skipping bytes.
+#[tracing::instrument(skip(buf))]
+pub(crate) fn extract_chunks(buf: &[u8]) -> Result<PngParseOut, ParsingErrorState> {
+    // Verify signature.
+    if buf.len() < PNG_SIGNATURE.len() {
+        return Err(ParsingErrorState::new(
+            ParsingError::Need(PNG_SIGNATURE.len() - buf.len()),
+            None,
+        ));
+    }
+    if &buf[..PNG_SIGNATURE.len()] != PNG_SIGNATURE {
+        return Err(ParsingErrorState::new(
+            ParsingError::Failed("PNG: bad signature".into()),
+            None,
+        ));
+    }
+
+    let mut out = PngParseOut {
+        exif: None,
+        text_chunks: Vec::new(),
+    };
+    let mut text_total: usize = 0;
+    let _ = text_total;
+
+    let mut cursor = PNG_SIGNATURE.len();
+
+    loop {
+        // Need 8 bytes for the chunk header (length:4 + type:4).
+        if buf.len() - cursor < 8 {
+            return Err(ParsingErrorState::new(
+                ParsingError::Need(8 - (buf.len() - cursor)),
+                None,
+            ));
+        }
+        let length = u32::from_be_bytes([
+            buf[cursor],
+            buf[cursor + 1],
+            buf[cursor + 2],
+            buf[cursor + 3],
+        ]);
+        let ctype = &buf[cursor + 4..cursor + 8];
+
+        match ctype {
+            b"IEND" => break,
+            // Other chunks handled in subsequent commits.
+            _ => {
+                // For now, skip everything that isn't IEND.
+                let total = 8 + length as usize + 4; // header + data + CRC
+                let remaining = buf.len() - cursor;
+                if total > remaining {
+                    return Err(ParsingErrorState::new(
+                        ParsingError::ClearAndSkip(total - remaining),
+                        None,
+                    ));
+                }
+                cursor += total;
+            }
+        }
+    }
+
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
-    // Tests added in subsequent tasks.
+    use super::*;
+
+    fn build_minimal_png() -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(PNG_SIGNATURE);
+        // IHDR chunk (1x1 grayscale)
+        out.extend_from_slice(&13u32.to_be_bytes());
+        out.extend_from_slice(b"IHDR");
+        out.extend_from_slice(&[0, 0, 0, 1, 0, 0, 0, 1, 8, 0, 0, 0, 0]);
+        out.extend_from_slice(&[0, 0, 0, 0]); // CRC
+                                              // IEND chunk
+        out.extend_from_slice(&0u32.to_be_bytes());
+        out.extend_from_slice(b"IEND");
+        out.extend_from_slice(&[0, 0, 0, 0]); // CRC
+        out
+    }
+
+    #[test]
+    fn extract_chunks_minimal_png() {
+        let buf = build_minimal_png();
+        let result = extract_chunks(&buf).unwrap();
+        assert!(result.exif.is_none());
+        assert!(result.text_chunks.is_empty());
+    }
+
+    #[test]
+    fn extract_chunks_bad_signature() {
+        let buf = b"\x00\x00\x00\x00\x00\x00\x00\x00not_png".to_vec();
+        let err = extract_chunks(&buf).unwrap_err();
+        assert!(matches!(err.err, ParsingError::Failed(_)));
+    }
+
+    #[test]
+    fn extract_chunks_truncated_signature() {
+        let buf = b"\x89PNG".to_vec();
+        let err = extract_chunks(&buf).unwrap_err();
+        assert!(matches!(err.err, ParsingError::Need(_)));
+    }
 }
