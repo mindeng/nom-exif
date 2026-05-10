@@ -146,9 +146,11 @@ pub use video::{TrackInfo, TrackInfoTag};
 pub use parser_async::AsyncMediaSource;
 
 pub use exif::gps::{Altitude, LatRef, LonRef, Speed, SpeedUnit};
+pub use exif::png_text::PngTextChunks;
 pub use exif::{
     Exif, ExifEntry, ExifIter, ExifIterEntry, ExifTag, GPSInfo, IfdIndex, LatLng, TagOrCode,
 };
+pub use image_metadata::{ExifRepr, ImageFormatMetadata, ImageMetadata};
 pub use values::{EntryValue, ExifDateTime, IRational, Rational, URational};
 
 pub use error::{ConvertError, EntryError, Error, MalformedKind};
@@ -328,6 +330,7 @@ mod error;
 mod exif;
 mod file;
 mod heif;
+mod image_metadata;
 mod jpeg;
 mod mov;
 mod parser;
