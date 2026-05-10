@@ -107,16 +107,19 @@ for f in files {
 ## In-Memory Bytes
 
 When the payload is already in RAM (decoded HTTP body, WASM-loaded
-asset, mobile-cached blob), use the `*_from_bytes` helpers to skip the
+asset, mobile-cached blob), use `MediaSource::from_memory` to skip the
 `File` / `Read` round-trip. Memory mode is **zero-copy**: the underlying
 allocation is shared with the returned `Exif` / `ExifIter` / `TrackInfo`
 via `bytes::Bytes` reference counting.
 
 ```rust
-use nom_exif::{read_exif_from_bytes, ExifTag};
+use nom_exif::{MediaSource, MediaParser, ExifTag};
 
 let raw: Vec<u8> = std::fs::read("./testdata/exif.jpg")?;
-let exif = read_exif_from_bytes(raw)?;
+let ms = MediaSource::from_memory(raw)?;
+let mut parser = MediaParser::new();
+let iter = parser.parse_exif(ms)?;
+let exif: nom_exif::Exif = iter.into();
 let make = exif.get(ExifTag::Make).and_then(|v| v.as_str());
 # let _ = make; Ok::<(), nom_exif::Error>(())
 ```
@@ -128,14 +131,20 @@ use nom_exif::{MediaParser, MediaSource};
 
 let mut parser = MediaParser::new();
 let raw = std::fs::read("./testdata/exif.jpg")?;
-let ms = MediaSource::from_bytes(raw)?;
-let iter = parser.parse_exif_from_bytes(ms)?;
+let ms = MediaSource::from_memory(raw)?;
+let iter = parser.parse_exif(ms)?;
 # let _ = iter; Ok::<(), nom_exif::Error>(())
 ```
 
-`MediaSource::from_bytes` accepts anything convertible into
+`MediaSource::from_memory` accepts anything convertible into
 `bytes::Bytes`: `Vec<u8>`, `&'static [u8]`, `Bytes`, and HTTP-body types
 that implement `Into<Bytes>` directly.
+
+**Migration note (v3.3+)**: `MediaSource::<()>::from_bytes`,
+`read_exif_from_bytes`, and the other `*_from_bytes` helpers are
+deprecated since v3.3.0 and will be removed in v4. Replace with
+`MediaSource::from_memory` + `parse_exif` / `read_exif`. See
+[`docs/MIGRATION.md`](docs/MIGRATION.md).
 
 ## Embedded Media Tracks (Motion Photos)
 
