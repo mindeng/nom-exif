@@ -16,7 +16,6 @@ pub struct MetaBox {
     header: FullBoxHeader,
     iinf: Option<IinfBox>,
     iloc: Option<IlocBox>,
-    // idat: Option<IdatBox<'a>>,
 }
 
 impl Debug for MetaBox {
@@ -63,22 +62,7 @@ impl ParseBody<MetaBox> for MetaBox {
             .transpose()?
             .map(|x| x.1);
 
-        // parse idat box
-        // let idat = boxes
-        //     .get("idat")
-        //     .and_then(|idat| Some(IdatBox::parse(idat.data)))
-        //     .transpose()?
-        //     .map(|x| x.1);
-
-        Ok((
-            remain,
-            MetaBox {
-                header,
-                iinf,
-                iloc,
-                // idat,
-            },
-        ))
+        Ok((remain, MetaBox { header, iinf, iloc }))
     }
 }
 

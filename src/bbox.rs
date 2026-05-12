@@ -8,7 +8,6 @@ use nom::{
 };
 
 pub mod cr3_moov;
-mod idat;
 mod iinf;
 mod iloc;
 mod ilst;
