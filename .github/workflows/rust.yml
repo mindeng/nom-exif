@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Build
       run: cargo build --verbose
     - name: Add Android targets
@@ -37,7 +37,7 @@ jobs:
     name: Fuzz smoke test
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Install nightly toolchain
       run: rustup toolchain install nightly --profile minimal
     - name: Install cargo-fuzz
@@ -73,6 +73,9 @@ jobs:
       # enforces the gate.
       run: cargo llvm-cov report --fail-under-lines 86 --text --output-path coverage.txt
     - name: Upload coverage to Codecov
+      # Codecov upload is badge-only; the actual coverage gate is the
+      # `Enforce coverage threshold` step above. fail_ci_if_error: false
+      # prevents Codecov outages from breaking CI.
       uses: codecov/codecov-action@v5
       with:
         files: lcov.info

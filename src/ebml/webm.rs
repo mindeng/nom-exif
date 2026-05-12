@@ -675,11 +675,16 @@ mod tests {
 
     #[test]
     fn webm_rejects_non_webm_input() {
-        // Lead bytes from a JPEG — not an EBML header (covers line 91, the
-        // NotWebmFile branch, plus the doc_type parser's early error).
+        // JPEG lead bytes are rejected by parse_ebml_doc_type long before the
+        // header-id check; this covers the early-error path out of parse_webm,
+        // NOT the line-91 NotWebmFile branch (that's
+        // webm_valid_ebml_header_but_no_segment).
         let buf = read_sample("exif.jpg").unwrap();
         let err = parse_webm(&buf[..256]).unwrap_err();
-        let _ = format!("{:?}", err);
+        assert!(
+            matches!(err, ParsingError::Failed(_)),
+            "expected ParsingError::Failed from doc_type parse error, got {err:?}"
+        );
     }
 
     #[test]
