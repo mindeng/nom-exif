@@ -67,6 +67,11 @@ jobs:
       uses: taiki-e/install-action@cargo-llvm-cov
     - name: Generate coverage (lcov)
       run: cargo llvm-cov --package nom-exif --all-features --lcov --output-path lcov.info
+    - name: Enforce coverage threshold
+      # cargo-llvm-cov 0.8.6 ignores --fail-under-lines when combined with
+      # --lcov, so run a separate report-only invocation that actually
+      # enforces the gate.
+      run: cargo llvm-cov report --fail-under-lines 86 --text --output-path coverage.txt
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v5
       with:
