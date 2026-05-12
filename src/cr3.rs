@@ -235,7 +235,11 @@ mod tests {
         // Drive the Some(Cr3ExifSize(size)) state branch (lines 78-82).
         let buf = read_sample(path).unwrap();
         let ranges = extract_all_cmt_ranges(&buf).unwrap().unwrap();
-        let cmt1 = &ranges.ranges[0].1;
+        let (_, cmt1) = ranges
+            .ranges
+            .iter()
+            .find(|(id, _)| *id == "CMT1")
+            .expect("Canon CR3 must have CMT1");
         let exif_bytes = &buf[cmt1.start..cmt1.end];
         let state = Some(ParsingState::Cr3ExifSize(exif_bytes.len()));
         let (data, _) = extract_exif_data(state, exif_bytes).unwrap();
