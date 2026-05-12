@@ -225,31 +225,20 @@ mod tests {
     use crate::testkit::read_sample;
     use nom::number::Endianness;
 
-    /// Build a single 12-byte IFD entry: tag(2) + format(2) + count(4) + value/offset(4).
-    fn entry(tag: u16, format: u16, count: u32, value: u32, le: bool) -> Vec<u8> {
+    /// Build a single 12-byte little-endian IFD entry: tag(2) + format(2) + count(4) + value/offset(4).
+    fn entry(tag: u16, format: u16, count: u32, value: u32) -> Vec<u8> {
         let mut v = Vec::with_capacity(12);
-        if le {
-            v.extend_from_slice(&tag.to_le_bytes());
-            v.extend_from_slice(&format.to_le_bytes());
-            v.extend_from_slice(&count.to_le_bytes());
-            v.extend_from_slice(&value.to_le_bytes());
-        } else {
-            v.extend_from_slice(&tag.to_be_bytes());
-            v.extend_from_slice(&format.to_be_bytes());
-            v.extend_from_slice(&count.to_be_bytes());
-            v.extend_from_slice(&value.to_be_bytes());
-        }
+        v.extend_from_slice(&tag.to_le_bytes());
+        v.extend_from_slice(&format.to_le_bytes());
+        v.extend_from_slice(&count.to_le_bytes());
+        v.extend_from_slice(&value.to_le_bytes());
         v
     }
 
-    /// Build an IFD: 2-byte entry_count + entries + 4-byte next-IFD offset (zero).
-    fn ifd(entries: &[Vec<u8>], le: bool) -> Vec<u8> {
+    /// Build a little-endian IFD: 2-byte entry_count + entries + 4-byte next-IFD offset (zero).
+    fn ifd(entries: &[Vec<u8>]) -> Vec<u8> {
         let count = entries.len() as u16;
-        let mut v = if le {
-            count.to_le_bytes().to_vec()
-        } else {
-            count.to_be_bytes().to_vec()
-        };
+        let mut v = count.to_le_bytes().to_vec();
         for e in entries {
             v.extend_from_slice(e);
         }
@@ -260,7 +249,7 @@ mod tests {
     #[test]
     fn travel_short_circuits_on_tag_zero() {
         // tag = 0 must not be emitted as a sub-IFD (covers line 75).
-        let data = ifd(&[entry(0, 1, 1, 0, true)], true);
+        let data = ifd(&[entry(0, 1, 1, 0)]);
         let mut t = IfdHeaderTravel::new(&data, 0, 0u16.into(), Endianness::Little);
         assert!(t.travel_ifd(0).is_ok());
     }
@@ -268,18 +257,19 @@ mod tests {
     #[test]
     fn travel_rejects_invalid_data_format() {
         // data_format = 99 is out of range — covers the `Err(_)` arm (lines 81-83).
-        let data = ifd(&[entry(0x010F /* Make */, 99, 1, 0, true)], true);
+        let data = ifd(&[entry(0x010F /* Make */, 99, 1, 0)]);
         let mut t = IfdHeaderTravel::new(&data, 0, 0u16.into(), Endianness::Little);
         assert!(t.travel_ifd(0).is_ok());
     }
 
     #[test]
-    fn travel_offset_past_eof_returns_incomplete() {
-        // size > 4 with offset past EOF triggers Incomplete (covers lines 103-106).
-        let data = ifd(&[entry(0x010F, 2, 100, 0x0000_FF00, true)], true);
+    fn travel_data_past_eof_errors() {
+        // size > 4 with offset past EOF must error (covers lines 103-106 of the
+        // size>4 branch in parse_tag_entry_header). We do not assert the error
+        // kind — both Incomplete and Failed satisfy the contract.
+        let data = ifd(&[entry(0x010F /* Make */, 2, 100, 0x0000_FF00)]);
         let mut t = IfdHeaderTravel::new(&data, 0, 0u16.into(), Endianness::Little);
-        let err = t.travel_ifd(0).unwrap_err();
-        let _ = format!("{:?}", err);
+        assert!(t.travel_ifd(0).is_err());
     }
 
     #[test]
@@ -293,16 +283,17 @@ mod tests {
     #[test]
     fn travel_depth_guard() {
         // depth >= 3 must error (covers lines 170-172).
-        let data = ifd(&[], true);
+        let data = ifd(&[]);
         let mut t = IfdHeaderTravel::new(&data, 0, 0u16.into(), Endianness::Little);
         assert!(t.travel_ifd(3).is_err());
     }
 
     #[test]
-    fn travel_real_tiff_recurses_into_subifd() {
-        // Real TIFF file (no sub-IFD pointer, but exercises the entry loop with
-        // many non-sub-IFD entries — covers lines 197-201 via `array_to_string`
-        // when no sub-IFD is emitted from the inner loop).
+    fn travel_real_tiff_entry_loop() {
+        // Real TIFF traversal — exercises parse_ifd_entry_num and the per-entry
+        // 12-byte step loop on a full IFD0. testdata/tif.tif has no ExifIFD or
+        // GPSInfo entries, so this test does NOT drive sub-IFD recursion; for
+        // that, see travel_synthetic_subifd_recursion below.
         let buf = read_sample("tif.tif").unwrap();
         let endian = if &buf[0..2] == b"II" {
             Endianness::Little
@@ -327,18 +318,9 @@ mod tests {
         const EXIF_OFFSET_TAG: u16 = 0x8769;
         // Outer IFD: 2-byte count + one 12-byte entry + 4-byte next-ifd = 18 bytes
         let sub_ifd_off: u32 = 18;
-        let outer = ifd(
-            &[entry(
-                EXIF_OFFSET_TAG,
-                4, /* LONG */
-                1,
-                sub_ifd_off,
-                true,
-            )],
-            true,
-        );
+        let outer = ifd(&[entry(EXIF_OFFSET_TAG, 4 /* LONG */, 1, sub_ifd_off)]);
         // Sub-IFD: 0 entries + zero next-ifd pointer = 6 bytes
-        let sub = ifd(&[], true);
+        let sub = ifd(&[]);
         let mut data = outer;
         data.extend_from_slice(&sub);
         let mut t = IfdHeaderTravel::new(&data, 0, 0u16.into(), Endianness::Little);
@@ -350,7 +332,7 @@ mod tests {
         // ExifOffset tag with value 0 — covers the `else { None }` branch in the
         // `if offset > 0` check (line 118).
         const EXIF_OFFSET_TAG: u16 = 0x8769;
-        let data = ifd(&[entry(EXIF_OFFSET_TAG, 4 /* LONG */, 1, 0, true)], true);
+        let data = ifd(&[entry(EXIF_OFFSET_TAG, 4 /* LONG */, 1, 0)]);
         let mut t = IfdHeaderTravel::new(&data, 0, 0u16.into(), Endianness::Little);
         t.travel_ifd(0).unwrap();
     }
