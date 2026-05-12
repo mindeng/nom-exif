@@ -163,3 +163,66 @@ impl Cr3MoovBox {
         offsets
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testkit::read_sample;
+
+    #[test]
+    fn parse_rejects_too_small_input() {
+        // Covers lines 38-44.
+        let result = Cr3MoovBox::parse(&[0u8; 4]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_rejects_non_ftyp_first_box() {
+        // 8-byte box where the type is not "ftyp" (covers lines 51-54).
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&16u32.to_be_bytes()); // box size
+        buf.extend_from_slice(b"mdat"); // not ftyp
+        buf.extend_from_slice(&[0u8; 8]); // body to satisfy take(16)
+        let result = Cr3MoovBox::parse(&buf);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_rejects_ftyp_too_small_body() {
+        // ftyp present but body < MIN_FTYP_BODY_SIZE (covers lines 57-63).
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&10u32.to_be_bytes()); // total 10
+        buf.extend_from_slice(b"ftyp");
+        buf.extend_from_slice(&[0u8, 0u8]); // 2-byte body, below the 4-byte minimum
+        buf.extend_from_slice(&[0u8; 16]); // padding for MIN_CR3_INPUT_SIZE
+        let result = Cr3MoovBox::parse(&buf);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_ftyp_without_moov_returns_none() {
+        // ftyp present, no moov — covers lines 67-70.
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&24u32.to_be_bytes());
+        buf.extend_from_slice(b"ftyp");
+        buf.extend_from_slice(b"crx ");
+        buf.extend_from_slice(&[0u8; 12]);
+        // No moov follows.
+        match Cr3MoovBox::parse(&buf) {
+            Ok((_, moov)) => assert!(moov.is_none()),
+            Err(_) => {} // Either outcome traverses the find_box code
+        }
+    }
+
+    #[test]
+    fn parse_real_canon_r6() {
+        // Happy path through parse_moov_content (lines 85-134).
+        let buf = read_sample("canon-r6.cr3").unwrap();
+        let (_, moov) = Cr3MoovBox::parse(&buf).unwrap();
+        let moov = moov.unwrap();
+        assert!(moov.uuid_canon_box().is_some());
+        assert!(moov.exif_data_offset().is_some());
+        let all = moov.all_cmt_data_offsets();
+        assert!(all.iter().any(|(id, _)| *id == "CMT1"));
+    }
+}

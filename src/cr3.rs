@@ -123,6 +123,7 @@ pub(crate) fn extract_exif_data(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::bbox::Cr3MoovBox;
     use crate::testkit::*;
     use crate::{MediaParser, MediaSource};
@@ -196,5 +197,49 @@ mod tests {
             moov_box.exif_data_offset().is_some(),
             "Should have CMT1 data"
         );
+    }
+
+    #[test_case("canon-r6.cr3")]
+    fn cr3_truncated_before_moov(path: &str) {
+        // Truncate the file early — must produce an error, not a panic
+        // (covers Incomplete paths in extract_exif_data, lines 73-92).
+        let buf = read_sample(path).unwrap();
+        let small = &buf[..64];
+        let result = extract_exif_data(None, small);
+        assert!(result.is_err());
+    }
+
+    #[test_case("canon-r6.cr3")]
+    fn cr3_extract_exif_happy_path(path: &str) {
+        // The full file should yield exif data — exercises lines 84-94.
+        let buf = read_sample(path).unwrap();
+        let (data, _) = extract_exif_data(None, &buf).unwrap();
+        assert!(data.is_some());
+    }
+
+    #[test_case("canon-r6.cr3")]
+    fn cr3_extract_all_cmt_ranges(path: &str) {
+        // Drives extract_all_cmt_ranges (lines 29-71).
+        let buf = read_sample(path).unwrap();
+        let ranges = extract_all_cmt_ranges(&buf).unwrap();
+        let ranges = ranges.expect("Canon CR3 must have CMT ranges");
+        assert!(!ranges.ranges.is_empty());
+        for (id, r) in &ranges.ranges {
+            assert!(*id == "CMT1" || *id == "CMT2" || *id == "CMT3");
+            assert!(r.end <= buf.len());
+        }
+    }
+
+    #[test_case("canon-r6.cr3")]
+    fn cr3_second_pass_with_state(path: &str) {
+        // Drive the Some(Cr3ExifSize(size)) state branch (lines 78-82).
+        let buf = read_sample(path).unwrap();
+        let ranges = extract_all_cmt_ranges(&buf).unwrap().unwrap();
+        let cmt1 = &ranges.ranges[0].1;
+        let exif_bytes = &buf[cmt1.start..cmt1.end];
+        let state = Some(ParsingState::Cr3ExifSize(exif_bytes.len()));
+        let (data, _) = extract_exif_data(state, exif_bytes).unwrap();
+        // CR3 CMT1 starts with TIFF header — should pass through.
+        assert!(data.is_some());
     }
 }
