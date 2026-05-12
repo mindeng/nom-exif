@@ -72,3 +72,8 @@ jobs:
         with:
           files: ${{ env.ASSET }}
           fail_on_unmatched_files: true
+          # Keep the "Latest release" badge on the GitHub releases page
+          # reserved for nom-exif lib tags (`v[0-9]*`). rexiftool ships
+          # its own version line that we don't want competing for that
+          # label when its tag happens to land last.
+          make_latest: "false"
