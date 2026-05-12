@@ -1,5 +1,19 @@
 # Changelog
 
+## nom-exif v3.4.1 (2026-05-12)
+
+### Fixed
+
+- **GPS sub-IFD parsing for Sony A7C2 HIF (and any camera that emits
+  GPSVersionID first)** — `IfdIter::parse_tag_entry` short-circuited
+  on `tag == 0` as a defensive guard against zero-padded malformed
+  IFDs. But tag 0 is also the legitimate GPSVersionID — the
+  spec-defined first entry of the GPS sub-IFD. Aborting iteration
+  there caused the whole sub-IFD to be dropped, silently losing every
+  GPS field. Now gated on `!self.is_gps_subifd()` so the defense
+  survives in non-GPS contexts while GPSVersionID parses normally.
+  Fixes [#50](https://github.com/mindeng/nom-exif/issues/50).
+
 ## nom-exif v3.4.0 (2026-05-10)
 
 ### Changed (BREAKING for `serde` feature)
