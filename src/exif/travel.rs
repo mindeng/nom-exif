@@ -14,7 +14,15 @@ use super::{exif_exif::IFD_ENTRY_SIZE, exif_iter::SUBIFD_TAGS};
 
 /// Only iterates headers, don't parse entries.
 ///
-/// Currently only used to extract Exif data for *.tiff files
+/// Currently only used to extract Exif data for *.tiff files.
+///
+/// NOTE: `parse_tag_entry_header` short-circuits on `tag == 0` as a guard
+/// against zero-padded malformed IFDs. This is safe **today** because we
+/// only observe `sub_ifd_offset`, and tag 0 is never in `SUBIFD_TAGS`. If
+/// this struct is ever extended to emit entry values, gate that
+/// short-circuit on "not inside the GPS sub-IFD" — tag 0 is the legitimate
+/// GPSVersionID and dropping it loses every following GPS field. See
+/// `IfdIter::is_gps_subifd` in `exif_iter.rs` and issue #50.
 pub(crate) struct IfdHeaderTravel<'a> {
     // starts from file beginning
     data: &'a [u8],
