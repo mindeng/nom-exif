@@ -1161,11 +1161,18 @@ mod tests {
             ),
             (DataFormat::I16, |v| matches!(v, EntryValue::I16(0))),
             (DataFormat::I32, |v| matches!(v, EntryValue::I32(0))),
-            (DataFormat::IRational, |v| {
-                matches!(v, EntryValue::IRational(_))
-            }),
-            (DataFormat::F32, |v| matches!(v, EntryValue::F32(_))),
-            (DataFormat::F64, |v| matches!(v, EntryValue::F64(_))),
+            (
+                DataFormat::IRational,
+                |v| matches!(v, EntryValue::IRational(r) if r.numerator() == 0 && r.denominator() == 0),
+            ),
+            (
+                DataFormat::F32,
+                |v| matches!(v, EntryValue::F32(x) if *x == 0.0),
+            ),
+            (
+                DataFormat::F64,
+                |v| matches!(v, EntryValue::F64(x) if *x == 0.0),
+            ),
         ];
         for (fmt, check) in formats {
             let entry = EntryData {
