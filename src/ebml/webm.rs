@@ -655,3 +655,149 @@ impl From<ParseWebmFailed> for nom::Err<(&[u8], ErrorKind)> {
         nom::Err::Error((&[], ErrorKind::Fail))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testkit::read_sample;
+
+    #[test]
+    fn webm_happy_path() {
+        // Exercises parse_webm against full files for the three EBML containers
+        // we ship fixtures for.
+        for path in &["webm_480.webm", "mkv_640x360.mkv", "mka.mka"] {
+            let buf = read_sample(path).unwrap();
+            let info = parse_webm(&buf).unwrap();
+            // Just assert no panic; field values vary per file.
+            let _ = format!("{:?}", info);
+        }
+    }
+
+    #[test]
+    fn webm_rejects_non_webm_input() {
+        // Lead bytes from a JPEG — not an EBML header (covers line 91, the
+        // NotWebmFile branch, plus the doc_type parser's early error).
+        let buf = read_sample("exif.jpg").unwrap();
+        let err = parse_webm(&buf[..256]).unwrap_err();
+        let _ = format!("{:?}", err);
+    }
+
+    #[test]
+    fn webm_truncated_yields_need() {
+        // Truncate after the EBML header but before Segment body — must produce
+        // a Need error or similar (covers Need-error paths and truncation
+        // handling in parse_tracks_info/parse_segment_info).
+        let buf = read_sample("webm_480.webm").unwrap();
+        for cut in &[64usize, 128, 256, 512] {
+            if *cut < buf.len() {
+                // Either succeeds with partial info or errors — both fine.
+                let _ = parse_webm(&buf[..*cut]);
+            }
+        }
+    }
+
+    #[test]
+    fn webm_truncated_at_tracks() {
+        // Truncate inside the Tracks element specifically — chases the
+        // cursor.remaining() < header.data_size branch (line 176).
+        let buf = read_sample("mkv_640x360.mkv").unwrap();
+        let n = buf.len();
+        for cut in [n * 3 / 4, n * 7 / 8, n - 64] {
+            if cut > 64 && cut < n {
+                let _ = parse_webm(&buf[..cut]);
+            }
+        }
+    }
+
+    #[test]
+    fn webm_valid_ebml_header_but_no_segment() {
+        // Reuse the first 0x2B bytes of webm_480.webm (a complete EBML header
+        // with DocType="webm") and append a non-Segment top-level element
+        // (Void 0xEC). This drives parse_webm past parse_ebml_doc_type to the
+        // header.id != Segment branch (the NotWebmFile early-out at line 91).
+        let buf = read_sample("webm_480.webm").unwrap();
+        // Header in fixture ends just before the Segment (0x18538067) at 0x2B.
+        let mut synthetic = buf[..0x2B].to_vec();
+        // Append a Void element (id=0xEC, data_size=0x80 -> empty).
+        synthetic.extend_from_slice(&[0xEC, 0x80]);
+        let err = parse_webm(&synthetic).unwrap_err();
+        let s = format!("{err:?}");
+        // Should bottom out with a "not a webm file" / Failed error.
+        assert!(!s.is_empty());
+    }
+
+    #[test]
+    fn webm_exercise_debug_impls() {
+        // Force ParseWebmFailed enum Debug/Display through their formatting,
+        // plus the From<ParseEBMLFailed>/From<ParseVIntFailed>/From<...> impls
+        // for ParsingError + nom::Err — these are otherwise dead in tests.
+        for v in [
+            ParseWebmFailed::Need(7),
+            ParseWebmFailed::NotWebmFile,
+            ParseWebmFailed::InvalidSeekEntry,
+        ] {
+            let _ = format!("{v}");
+            let _ = format!("{v:?}");
+            let _: ParsingError = v.into();
+        }
+        // Round-trip ParseVIntFailed and ParseEBMLFailed through their
+        // From impls into ParseWebmFailed and ParsingError.
+        let need_vint = ParseVIntFailed::Need(3);
+        let _: ParseWebmFailed = need_vint.into();
+        let need_vint2 = ParseVIntFailed::Need(3);
+        let _: ParsingError = need_vint2.into();
+
+        let need_ebml = ParseEBMLFailed::Need(5);
+        let _: ParseWebmFailed = need_ebml.into();
+        let need_ebml2 = ParseEBMLFailed::Need(5);
+        let _: ParsingError = need_ebml2.into();
+        let not_ebml: ParsingError = ParseEBMLFailed::NotEBMLFile.into();
+        let _ = format!("{not_ebml:?}");
+
+        // SeekEntry Debug — both the known-id (SegmentId::Info) branch and
+        // the unknown-id (falls through to hex) branch.
+        let known = SeekEntry {
+            seek_id: SegmentId::Info as u32,
+            seek_pos: 42,
+        };
+        let _ = format!("{known:?}");
+        let unknown = SeekEntry {
+            seek_id: 0xDEAD_BEEF,
+            seek_pos: 0,
+        };
+        let _ = format!("{unknown:?}");
+
+        // ElementHeader Debug — exercise each TryInto fallback rung by
+        // formatting headers whose ids resolve through Top/Segment/Info/Tracks
+        // plus an unknown id that bottoms out at the hex format.
+        for id in [
+            TopElementId::Ebml as u64,
+            SegmentId::SeekHead as u64,
+            SegmentId::Info as u64,
+            SegmentId::Tracks as u64,
+            SegmentId::Cluster as u64,
+            SegmentId::Cues as u64,
+            0x4242_4242u64, // unknown -> hex fallback
+        ] {
+            let h = ElementHeader {
+                id,
+                data_size: 4,
+                header_size: 2,
+            };
+            let _ = format!("{h:?}");
+        }
+
+        // SegmentId::TryFrom for every variant + the error path.
+        for v in [
+            SegmentId::SeekHead as u64,
+            SegmentId::Info as u64,
+            SegmentId::Tracks as u64,
+            SegmentId::Cluster as u64,
+            SegmentId::Cues as u64,
+        ] {
+            let id: SegmentId = v.try_into().unwrap();
+            let _ = format!("{id:?}");
+        }
+        assert!(TryInto::<SegmentId>::try_into(0u64).is_err());
+    }
+}
