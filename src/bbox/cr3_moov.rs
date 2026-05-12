@@ -207,10 +207,10 @@ mod tests {
         buf.extend_from_slice(b"ftyp");
         buf.extend_from_slice(b"crx ");
         buf.extend_from_slice(&[0u8; 12]);
-        // No moov follows.
-        match Cr3MoovBox::parse(&buf) {
-            Ok((_, moov)) => assert!(moov.is_none()),
-            Err(_) => {} // Either outcome traverses the find_box code
+        // No moov follows. find_box returns Ok((_, None)) on empty remainder,
+        // so the Ok arm is what's actually exercised.
+        if let Ok((_, moov)) = Cr3MoovBox::parse(&buf) {
+            assert!(moov.is_none());
         }
     }
 

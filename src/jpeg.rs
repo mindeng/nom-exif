@@ -322,11 +322,7 @@ fn read_image_data<T: Read + Seek>(mut reader: T) -> crate::Result<Vec<u8>> {
             reader.read_to_end(&mut data)?;
 
             // remove tail data
-            loop {
-                let Some(tail) = data.pop() else {
-                    // empty
-                    break;
-                };
+            while let Some(tail) = data.pop() {
                 if tail == MarkerCode::Eoi.code() {
                     if let Some(tail) = data.pop() {
                         if tail == 0xFF {

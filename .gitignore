@@ -20,3 +20,4 @@ Cargo.lock
 
 # Serena MCP local cache
 .serena/
+/.claude/settings.local.json

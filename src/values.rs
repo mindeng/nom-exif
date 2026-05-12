@@ -1142,7 +1142,8 @@ mod tests {
         // Drive variant_default for every DataFormat variant by passing
         // components_num=0 with non-empty data (covers lines 149-151 and
         // the matching arms in variant_default at 273-288).
-        let formats: &[(DataFormat, fn(&EntryValue) -> bool)] = &[
+        type Check = fn(&EntryValue) -> bool;
+        let formats: &[(DataFormat, Check)] = &[
             (DataFormat::U8, |v| matches!(v, EntryValue::U8(0))),
             (
                 DataFormat::Text,
@@ -1336,7 +1337,8 @@ mod tests {
         // Cover the single-component success arms of parse() for the
         // numeric formats (lines 178, 186, 203, 227, 235, 242, 257, 264)
         // and Undefined (line 233).
-        let cases: &[(DataFormat, &[u8], fn(&EntryValue) -> bool)] = &[
+        type Check = fn(&EntryValue) -> bool;
+        let cases: &[(DataFormat, &[u8], Check)] = &[
             (DataFormat::U8, &[42], |v| matches!(v, EntryValue::U8(42))),
             (DataFormat::U16, &[1, 0], |v| {
                 matches!(v, EntryValue::U16(1))
