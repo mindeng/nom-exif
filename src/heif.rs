@@ -182,11 +182,11 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn heif_unexpected_state_panics_or_errors() {
+    #[should_panic(expected = "unexpected parsing state for heif")]
+    fn heif_unexpected_state_panics() {
         // Pass a state that isn't HeifExifSize — covers the `_ =>` arm
-        // (lines 45-50). The .unwrap() at the end panics on the returned
-        // Err.
+        // (lines 45-50). extract_exif_data returns Err with the message
+        // "unexpected parsing state for heif"; .unwrap() panics on it.
         let state = Some(ParsingState::Cr3ExifSize(10));
         let buf = vec![0u8; 32];
         let _ = extract_exif_data(state, &buf).unwrap();
