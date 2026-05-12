@@ -628,6 +628,13 @@ impl IfdIter {
         self
     }
 
+    fn is_gps_subifd(&self) -> bool {
+        matches!(
+            self.tag_code.as_ref().and_then(|t| t.tag()),
+            Some(ExifTag::GPSInfo)
+        )
+    }
+
     #[allow(unused)]
     pub fn tag(mut self, tag: TagOrCode) -> Self {
         self.tag_code = Some(tag);
@@ -678,7 +685,11 @@ impl IfdIter {
             .parse(entry_data)
             .ok()?;
 
-        if tag == 0 {
+        // Tag 0 outside the GPS sub-IFD is treated as a sentinel for
+        // zero-padded malformed IFDs (overstated `entry_num`) and aborts
+        // iteration. Inside the GPS sub-IFD it is the legitimate
+        // GPSVersionID — let it parse normally.
+        if tag == 0 && !self.is_gps_subifd() {
             return None;
         }
 
@@ -1272,5 +1283,75 @@ mod tests {
         // parse_gps doesn't drive the outer iterator.
         let count = iter.count();
         assert!(count > 0);
+    }
+
+    // Regression test for https://github.com/mindeng/nom-exif/issues/50:
+    // GPS sub-IFDs whose first entry is GPSVersionID (tag 0x0000), as emitted
+    // by Sony A7C2 HIF files. A previous defensive `tag == 0` short-circuit
+    // in `parse_tag_entry` aborted iteration on that entry and discarded the
+    // whole sub-IFD. This builds the minimal little-endian TIFF that triggers
+    // it: IFD0 → GPSInfo → GPS sub-IFD with GPSVersionID up front.
+    #[test]
+    fn gps_subifd_first_entry_is_gpsversion_id_issue_50() {
+        use crate::exif::exif_iter::input_into_iter;
+        #[rustfmt::skip]
+        let tiff: &[u8] = &[
+            // TIFF header: little-endian, IFD0 at 0x08
+            b'I', b'I', 0x2a, 0x00,
+            0x08, 0x00, 0x00, 0x00,
+
+            // IFD0 @ 0x08: 1 entry → GPSInfo pointer to GPS sub-IFD @ 0x1a
+            0x01, 0x00,
+            0x25, 0x88, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00,
+            0x1a, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,                         // no IFD1
+
+            // GPS sub-IFD @ 0x1a: 5 entries
+            0x05, 0x00,
+            // [0] GPSVersionID tag=0, BYTE×4, inline [2,3,0,0]
+            0x00, 0x00, 0x01, 0x00, 0x04, 0x00, 0x00, 0x00,
+            0x02, 0x03, 0x00, 0x00,
+            // [1] GPSLatitudeRef tag=1, ASCII×2 "N\0"
+            0x01, 0x00, 0x02, 0x00, 0x02, 0x00, 0x00, 0x00,
+            b'N', 0x00, 0x00, 0x00,
+            // [2] GPSLatitude tag=2, RATIONAL×3 @ 0x5c
+            0x02, 0x00, 0x05, 0x00, 0x03, 0x00, 0x00, 0x00,
+            0x5c, 0x00, 0x00, 0x00,
+            // [3] GPSLongitudeRef tag=3, ASCII×2 "E\0"
+            0x03, 0x00, 0x02, 0x00, 0x02, 0x00, 0x00, 0x00,
+            b'E', 0x00, 0x00, 0x00,
+            // [4] GPSLongitude tag=4, RATIONAL×3 @ 0x74
+            0x04, 0x00, 0x05, 0x00, 0x03, 0x00, 0x00, 0x00,
+            0x74, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,                         // no next sub-IFD
+
+            // GPSLatitude rational data @ 0x5c: 36/1, 0/1, 0/1
+            0x24, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+
+            // GPSLongitude rational data @ 0x74: 120/1, 0/1, 0/1
+            0x78, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+        ];
+
+        let iter = input_into_iter(tiff.to_vec(), None).unwrap();
+
+        // parse_gps recovers the full sub-IFD despite GPSVersionID being first.
+        let gps = iter
+            .parse_gps()
+            .expect("parse_gps must succeed")
+            .expect("GPS sub-IFD with GPSVersionID first must yield GPSInfo");
+        assert_eq!(gps.latitude_decimal(), Some(36.0));
+        assert_eq!(gps.longitude_decimal(), Some(120.0));
+
+        // GPSVersionID itself is also surfaced through normal iteration —
+        // tag 0 is no longer dropped inside the GPS sub-IFD.
+        let tags: Vec<u16> = iter.map(|e| e.tag().code()).collect();
+        assert!(
+            tags.contains(&crate::ExifTag::GPSVersionID.code()),
+            "GPSVersionID (tag 0) should be visible to iterators; got {tags:?}"
+        );
     }
 }
