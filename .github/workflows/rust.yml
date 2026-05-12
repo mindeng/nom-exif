@@ -55,3 +55,22 @@ jobs:
         name: fuzz-crash
         path: fuzz/artifacts/
         if-no-files-found: ignore
+
+  coverage:
+    name: Code coverage
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install llvm-tools-preview
+      run: rustup component add llvm-tools-preview
+    - name: Install cargo-llvm-cov
+      uses: taiki-e/install-action@cargo-llvm-cov
+    - name: Generate coverage (lcov)
+      run: cargo llvm-cov --package nom-exif --all-features --lcov --output-path lcov.info
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v5
+      with:
+        files: lcov.info
+        flags: nom-exif
+        fail_ci_if_error: false
+        token: ${{ secrets.CODECOV_TOKEN }}

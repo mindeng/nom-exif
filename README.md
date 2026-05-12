@@ -4,6 +4,7 @@
 [![Documentation](https://docs.rs/nom-exif/badge.svg)](https://docs.rs/nom-exif)
 [![LICENSE](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![CI](https://github.com/mindeng/nom-exif/actions/workflows/rust.yml/badge.svg)](https://github.com/mindeng/nom-exif/actions)
+[![codecov](https://codecov.io/gh/mindeng/nom-exif/graph/badge.svg)](https://codecov.io/gh/mindeng/nom-exif)
 
 `nom-exif` is a pure Rust library for **both image EXIF and video / audio
 track metadata** through a single unified API. Built on
