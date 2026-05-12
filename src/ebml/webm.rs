@@ -721,9 +721,10 @@ mod tests {
         // Append a Void element (id=0xEC, data_size=0x80 -> empty).
         synthetic.extend_from_slice(&[0xEC, 0x80]);
         let err = parse_webm(&synthetic).unwrap_err();
-        let s = format!("{err:?}");
-        // Should bottom out with a "not a webm file" / Failed error.
-        assert!(!s.is_empty());
+        assert!(
+            matches!(err, ParsingError::Failed(_)),
+            "expected ParsingError::Failed from NotWebmFile branch, got {err:?}"
+        );
     }
 
     #[test]
@@ -753,6 +754,13 @@ mod tests {
         let _: ParsingError = need_ebml2.into();
         let not_ebml: ParsingError = ParseEBMLFailed::NotEBMLFile.into();
         let _ = format!("{not_ebml:?}");
+
+        // InvalidVInt and InvalidEBMLFile arms collapse into InvalidWebmFile.
+        let bad_vint: ParseWebmFailed = ParseVIntFailed::InvalidVInt("test").into();
+        let _: ParsingError = bad_vint.into();
+        let bad_ebml: ParseWebmFailed =
+            ParseEBMLFailed::InvalidEBMLFile(Box::new(std::io::Error::other("test"))).into();
+        let _: ParsingError = bad_ebml.into();
 
         // SeekEntry Debug — both the known-id (SegmentId::Info) branch and
         // the unknown-id (falls through to hex) branch.
