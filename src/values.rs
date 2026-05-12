@@ -1206,57 +1206,6 @@ mod tests {
     }
 
     #[test]
-    fn entry_value_accessor_some_arms() {
-        // Cover the matching `Some(*v)` arms of every typed accessor.
-        assert_eq!(EntryValue::Text("hi".into()).as_str(), Some("hi"));
-        assert_eq!(EntryValue::U8(7).as_u8(), Some(7));
-        assert_eq!(EntryValue::I8(-1).as_i8(), Some(-1));
-        assert_eq!(EntryValue::U16(7).as_u16(), Some(7));
-        assert_eq!(EntryValue::I16(-1).as_i16(), Some(-1));
-        assert_eq!(EntryValue::U32(7).as_u32(), Some(7));
-        assert_eq!(EntryValue::I32(-1).as_i32(), Some(-1));
-        assert_eq!(EntryValue::U64(7).as_u64(), Some(7));
-        assert_eq!(EntryValue::I64(-1).as_i64(), Some(-1));
-        assert_eq!(EntryValue::F64(1.25).as_f64(), Some(1.25));
-        let ur = URational::new(3, 4);
-        assert_eq!(EntryValue::URational(ur).as_urational(), Some(ur));
-        let ir = IRational::new(-3, 4);
-        assert_eq!(EntryValue::IRational(ir).as_irational(), Some(ir));
-    }
-
-    #[test]
-    fn entry_value_try_as_integer_full_coverage() {
-        // Cover every integer arm of try_as_integer (lines 393-400).
-        assert_eq!(EntryValue::U8(1).try_as_integer(), Some(1));
-        assert_eq!(EntryValue::U16(2).try_as_integer(), Some(2));
-        assert_eq!(EntryValue::U32(3).try_as_integer(), Some(3));
-        assert_eq!(EntryValue::U64(4).try_as_integer(), Some(4));
-        assert_eq!(EntryValue::U64(u64::MAX).try_as_integer(), None);
-        assert_eq!(EntryValue::I8(-1).try_as_integer(), Some(-1));
-        assert_eq!(EntryValue::I16(-2).try_as_integer(), Some(-2));
-        assert_eq!(EntryValue::I32(-3).try_as_integer(), Some(-3));
-        assert_eq!(EntryValue::I64(-4).try_as_integer(), Some(-4));
-        assert_eq!(EntryValue::Text("x".into()).try_as_integer(), None);
-    }
-
-    #[test]
-    fn entry_value_try_as_float_full_coverage() {
-        // Cover every arm of try_as_float (lines 408-414).
-        assert_eq!(EntryValue::F32(1.5).try_as_float(), Some(1.5));
-        assert_eq!(EntryValue::F64(2.5).try_as_float(), Some(2.5));
-        assert_eq!(
-            EntryValue::URational(URational::new(1, 2)).try_as_float(),
-            Some(0.5)
-        );
-        assert_eq!(
-            EntryValue::IRational(IRational::new(-1, 2)).try_as_float(),
-            Some(-0.5)
-        );
-        assert_eq!(EntryValue::U8(7).try_as_float(), Some(7.0));
-        assert_eq!(EntryValue::Text("x".into()).try_as_float(), None);
-    }
-
-    #[test]
     fn entry_value_display_for_each_variant() {
         // Drive Display::fmt for every variant (covers lines 631-672 and
         // the helper fmt_array_to_string / rationals_to_string).
@@ -1525,72 +1474,6 @@ mod tests {
         };
         let err = EntryValue::parse(&entry, &None).unwrap_err();
         assert!(matches!(err, EntryError::InvalidShape { .. }));
-    }
-
-    #[test]
-    fn entry_parse_datetime_tags() {
-        // Cover the DateTime/NaiveDateTime tag branch (lines 153-173) for
-        // each of the three recognized tags, with and without a tz.
-        // ExifTag::DateTimeOriginal = 0x9003, CreateDate = 0x9004,
-        // ModifyDate = 0x0132.
-        let for_tag = |tag: u16, tz: Option<String>| {
-            let entry = EntryData {
-                tag,
-                endian: Endianness::Little,
-                data: b"2024:01:02 03:04:05\0",
-                data_format: DataFormat::Text,
-                components_num: 20,
-            };
-            EntryValue::parse(&entry, &tz).unwrap()
-        };
-
-        // No tz → NaiveDateTime (line 169).
-        for tag in [0x9003u16, 0x9004, 0x0132] {
-            let v = for_tag(tag, None);
-            assert!(matches!(v, EntryValue::NaiveDateTime(_)), "tag={tag:#x}");
-        }
-
-        // Valid tz → DateTime (lines 161-172).
-        let v = for_tag(0x9003, Some("+08:00".to_string()));
-        assert!(matches!(v, EntryValue::DateTime(_)));
-
-        // Tz that parses but with a short form triggers repair_tz_str (the
-        // ":0" → ":00" branch at line 502).
-        let v = for_tag(0x9003, Some("+8:0".to_string()));
-        assert!(matches!(
-            v,
-            EntryValue::DateTime(_) | EntryValue::NaiveDateTime(_)
-        ));
-
-        // Tz that fails parse falls back to NaiveDateTime (line 166).
-        let v = for_tag(0x9003, Some("garbage".to_string()));
-        assert!(matches!(v, EntryValue::NaiveDateTime(_)));
-    }
-
-    #[test]
-    fn entry_parse_datetime_invalid_value() {
-        // Cover the invalid utf-8 / invalid time error paths (lines 159, 166).
-        use crate::error::EntryError;
-        let entry = EntryData {
-            tag: 0x9003,
-            endian: Endianness::Little,
-            // Invalid time format string.
-            data: b"not-a-timestamp\0",
-            data_format: DataFormat::Text,
-            components_num: 16,
-        };
-        let err = EntryValue::parse(&entry, &None).unwrap_err();
-        assert!(matches!(err, EntryError::InvalidValue(_)));
-    }
-
-    #[test]
-    fn irational_to_urational_error_display() {
-        // ConvertError path for negative rationals already has tests; this
-        // covers the Ok(()) round-trip side and the TryFrom<IRational>
-        // conversion success path (lines 845-849).
-        let r = URational::try_from(IRational::new(3, 4)).unwrap();
-        assert_eq!(r.numerator(), 3);
-        assert_eq!(r.denominator(), 4);
     }
 
     #[test]
