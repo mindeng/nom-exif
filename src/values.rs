@@ -1099,4 +1099,539 @@ mod tests {
             Some(&[r][..])
         );
     }
+
+    #[test]
+    fn entry_parse_invalid_shape_for_each_format() {
+        // Each non-array variant returns InvalidShape when components_num
+        // doesn't match the format constraints (covers lines 195-197,
+        // 212-214, 226-228, 234-236, 241-243, 256-258, 263-265).
+        use crate::error::EntryError;
+
+        // Note: for U16/U32 with count=1 and short data, the single-component
+        // branch goes through try_from_bytes and yields Truncated, not
+        // InvalidShape. To hit the InvalidShape arm in the many_m_n path
+        // (lines 195-197 and 212-214) we pass count=2 with too few bytes for
+        // 2 components but enough so the slice itself isn't empty.
+        let cases: &[(DataFormat, &[u8], u32)] = &[
+            (DataFormat::U16, &[0u8, 0], 2),
+            (DataFormat::U32, &[0u8; 4], 2),
+            (DataFormat::I8, &[0u8, 0], 2),
+            (DataFormat::I16, &[0u8, 0], 2),
+            (DataFormat::I32, &[0u8; 4], 2),
+            (DataFormat::F32, &[0u8; 4], 2),
+            (DataFormat::F64, &[0u8; 8], 2),
+        ];
+        for (fmt, data, count) in cases {
+            let entry = EntryData {
+                tag: 0,
+                endian: Endianness::Little,
+                data,
+                data_format: *fmt,
+                components_num: *count,
+            };
+            let err = EntryValue::parse(&entry, &None).unwrap_err();
+            assert!(
+                matches!(err, EntryError::InvalidShape { .. }),
+                "{fmt:?} should yield InvalidShape, got {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn entry_parse_variant_default_for_each_format() {
+        // Drive variant_default for every DataFormat variant by passing
+        // components_num=0 with non-empty data (covers lines 149-151 and
+        // the matching arms in variant_default at 273-288).
+        let formats: &[(DataFormat, fn(&EntryValue) -> bool)] = &[
+            (DataFormat::U8, |v| matches!(v, EntryValue::U8(0))),
+            (
+                DataFormat::Text,
+                |v| matches!(v, EntryValue::Text(s) if s.is_empty()),
+            ),
+            (DataFormat::U16, |v| matches!(v, EntryValue::U16(0))),
+            (DataFormat::U32, |v| matches!(v, EntryValue::U32(0))),
+            (
+                DataFormat::URational,
+                |v| matches!(v, EntryValue::URational(r) if r.numerator() == 0 && r.denominator() == 0),
+            ),
+            (DataFormat::I8, |v| matches!(v, EntryValue::I8(0))),
+            (
+                DataFormat::Undefined,
+                |v| matches!(v, EntryValue::Undefined(d) if d.is_empty()),
+            ),
+            (DataFormat::I16, |v| matches!(v, EntryValue::I16(0))),
+            (DataFormat::I32, |v| matches!(v, EntryValue::I32(0))),
+            (DataFormat::IRational, |v| {
+                matches!(v, EntryValue::IRational(_))
+            }),
+            (DataFormat::F32, |v| matches!(v, EntryValue::F32(_))),
+            (DataFormat::F64, |v| matches!(v, EntryValue::F64(_))),
+        ];
+        for (fmt, check) in formats {
+            let entry = EntryData {
+                tag: 0,
+                endian: Endianness::Little,
+                data: &[0u8],
+                data_format: *fmt,
+                components_num: 0,
+            };
+            let v = EntryValue::parse(&entry, &None).unwrap();
+            assert!(check(&v), "variant_default for {fmt:?} returned {v:?}");
+        }
+    }
+
+    #[test]
+    fn entry_urational_truncated_data_errors() {
+        // URational format needs 8 bytes per component; passing 1 byte with
+        // components_num=1 should error (drives the rational decode path
+        // through to an error result — covers parts of try_as_rationals).
+        let entry = EntryData {
+            tag: 0,
+            endian: Endianness::Little,
+            data: &[0u8; 1],
+            data_format: DataFormat::URational,
+            components_num: 1,
+        };
+        let res = EntryValue::parse(&entry, &None);
+        assert!(res.is_err(), "URational with truncated data should error");
+    }
+
+    #[test]
+    fn entry_value_accessor_none_arms() {
+        // Cover the `_ => None` arms in the various as_* accessors.
+        let v = EntryValue::U16(5);
+        assert!(v.as_str().is_none());
+        assert!(v.as_datetime().is_none());
+        assert!(v.as_u8().is_none());
+    }
+
+    #[test]
+    fn entry_value_accessor_some_arms() {
+        // Cover the matching `Some(*v)` arms of every typed accessor.
+        assert_eq!(EntryValue::Text("hi".into()).as_str(), Some("hi"));
+        assert_eq!(EntryValue::U8(7).as_u8(), Some(7));
+        assert_eq!(EntryValue::I8(-1).as_i8(), Some(-1));
+        assert_eq!(EntryValue::U16(7).as_u16(), Some(7));
+        assert_eq!(EntryValue::I16(-1).as_i16(), Some(-1));
+        assert_eq!(EntryValue::U32(7).as_u32(), Some(7));
+        assert_eq!(EntryValue::I32(-1).as_i32(), Some(-1));
+        assert_eq!(EntryValue::U64(7).as_u64(), Some(7));
+        assert_eq!(EntryValue::I64(-1).as_i64(), Some(-1));
+        assert_eq!(EntryValue::F64(1.25).as_f64(), Some(1.25));
+        let ur = URational::new(3, 4);
+        assert_eq!(EntryValue::URational(ur).as_urational(), Some(ur));
+        let ir = IRational::new(-3, 4);
+        assert_eq!(EntryValue::IRational(ir).as_irational(), Some(ir));
+    }
+
+    #[test]
+    fn entry_value_try_as_integer_full_coverage() {
+        // Cover every integer arm of try_as_integer (lines 393-400).
+        assert_eq!(EntryValue::U8(1).try_as_integer(), Some(1));
+        assert_eq!(EntryValue::U16(2).try_as_integer(), Some(2));
+        assert_eq!(EntryValue::U32(3).try_as_integer(), Some(3));
+        assert_eq!(EntryValue::U64(4).try_as_integer(), Some(4));
+        assert_eq!(EntryValue::U64(u64::MAX).try_as_integer(), None);
+        assert_eq!(EntryValue::I8(-1).try_as_integer(), Some(-1));
+        assert_eq!(EntryValue::I16(-2).try_as_integer(), Some(-2));
+        assert_eq!(EntryValue::I32(-3).try_as_integer(), Some(-3));
+        assert_eq!(EntryValue::I64(-4).try_as_integer(), Some(-4));
+        assert_eq!(EntryValue::Text("x".into()).try_as_integer(), None);
+    }
+
+    #[test]
+    fn entry_value_try_as_float_full_coverage() {
+        // Cover every arm of try_as_float (lines 408-414).
+        assert_eq!(EntryValue::F32(1.5).try_as_float(), Some(1.5));
+        assert_eq!(EntryValue::F64(2.5).try_as_float(), Some(2.5));
+        assert_eq!(
+            EntryValue::URational(URational::new(1, 2)).try_as_float(),
+            Some(0.5)
+        );
+        assert_eq!(
+            EntryValue::IRational(IRational::new(-1, 2)).try_as_float(),
+            Some(-0.5)
+        );
+        assert_eq!(EntryValue::U8(7).try_as_float(), Some(7.0));
+        assert_eq!(EntryValue::Text("x".into()).try_as_float(), None);
+    }
+
+    #[test]
+    fn entry_value_display_for_each_variant() {
+        // Drive Display::fmt for every variant (covers lines 631-672 and
+        // the helper fmt_array_to_string / rationals_to_string).
+        assert_eq!(format!("{}", EntryValue::Text("hi".into())), "hi");
+        assert_eq!(
+            format!("{}", EntryValue::URational(URational::new(1, 2))),
+            "1/2 (0.5000)"
+        );
+        assert_eq!(
+            format!("{}", EntryValue::IRational(IRational::new(-1, 2))),
+            "-1/2 (-0.5000)"
+        );
+        assert_eq!(format!("{}", EntryValue::U8(8)), "8");
+        assert_eq!(format!("{}", EntryValue::U16(16)), "16");
+        assert_eq!(format!("{}", EntryValue::U32(32)), "32");
+        assert_eq!(format!("{}", EntryValue::U64(64)), "64");
+        assert_eq!(format!("{}", EntryValue::I8(-8)), "-8");
+        assert_eq!(format!("{}", EntryValue::I16(-16)), "-16");
+        assert_eq!(format!("{}", EntryValue::I32(-32)), "-32");
+        assert_eq!(format!("{}", EntryValue::I64(-64)), "-64");
+        assert_eq!(format!("{}", EntryValue::F32(1.5)), "1.5");
+        assert_eq!(format!("{}", EntryValue::F64(2.5)), "2.5");
+
+        // DateTime / NaiveDateTime
+        let ndt =
+            NaiveDateTime::parse_from_str("2024-01-02 03:04:05", "%Y-%m-%d %H:%M:%S").unwrap();
+        let dt = ndt
+            .and_local_timezone(FixedOffset::east_opt(0).unwrap())
+            .unwrap();
+        assert!(format!("{}", EntryValue::DateTime(dt)).contains("2024-01-02"));
+        assert_eq!(
+            format!("{}", EntryValue::NaiveDateTime(ndt)),
+            "2024-01-02 03:04:05"
+        );
+
+        // fmt_undefined: printable ASCII → quoted, non-printable → 0xhex.
+        assert_eq!(
+            format!("{}", EntryValue::Undefined(b"0220".to_vec())),
+            "\"0220\""
+        );
+        assert_eq!(
+            format!("{}", EntryValue::Undefined(vec![0x01, 0x02, 0x03])),
+            "0x010203"
+        );
+        assert_eq!(format!("{}", EntryValue::Undefined(vec![])), "0x");
+
+        // Arrays
+        let s = format!(
+            "{}",
+            EntryValue::URationalArray(vec![URational::new(1, 2), URational::new(3, 4)])
+        );
+        assert!(s.starts_with("URationalArray["));
+        let s = format!(
+            "{}",
+            EntryValue::IRationalArray(vec![IRational::new(-1, 2)])
+        );
+        assert!(s.starts_with("IRationalArray["));
+        let s = format!("{}", EntryValue::U8Array(vec![1, 2, 3]));
+        assert!(s.starts_with("U8Array"));
+        let s = format!("{}", EntryValue::U16Array(vec![1, 2]));
+        assert!(s.starts_with("U16Array"));
+        let s = format!("{}", EntryValue::U32Array(vec![1, 2]));
+        assert!(s.starts_with("U32Array"));
+    }
+
+    #[test]
+    fn entry_value_from_impls() {
+        // Cover all From<numeric> / From<String> / From<&str> /
+        // From<DateTime<FixedOffset>> impls (lines 730-799).
+        assert_eq!(EntryValue::from(1u8), EntryValue::U8(1));
+        assert_eq!(EntryValue::from(1u16), EntryValue::U16(1));
+        assert_eq!(EntryValue::from(1u32), EntryValue::U32(1));
+        assert_eq!(EntryValue::from(1u64), EntryValue::U64(1));
+        assert_eq!(EntryValue::from(-1i8), EntryValue::I8(-1));
+        assert_eq!(EntryValue::from(-1i16), EntryValue::I16(-1));
+        assert_eq!(EntryValue::from(-1i32), EntryValue::I32(-1));
+        assert_eq!(EntryValue::from(-1i64), EntryValue::I64(-1));
+        assert_eq!(EntryValue::from(1.5f32), EntryValue::F32(1.5));
+        assert_eq!(EntryValue::from(1.5f64), EntryValue::F64(1.5));
+        assert_eq!(
+            EntryValue::from(String::from("abc")),
+            EntryValue::Text("abc".into())
+        );
+        assert_eq!(EntryValue::from("abc"), EntryValue::Text("abc".into()));
+
+        let ndt =
+            NaiveDateTime::parse_from_str("2024-01-02 03:04:05", "%Y-%m-%d %H:%M:%S").unwrap();
+        let dt = ndt
+            .and_local_timezone(FixedOffset::east_opt(0).unwrap())
+            .unwrap();
+        assert_eq!(EntryValue::from(dt), EntryValue::DateTime(dt));
+    }
+
+    #[test]
+    fn data_format_component_size_and_try_from() {
+        // Cover DataFormat::component_size (lines 542-549) and the
+        // TryFrom<u16> impl (lines 552-562) including the error arm.
+        assert_eq!(DataFormat::U8.component_size(), 1);
+        assert_eq!(DataFormat::I8.component_size(), 1);
+        assert_eq!(DataFormat::Text.component_size(), 1);
+        assert_eq!(DataFormat::Undefined.component_size(), 1);
+        assert_eq!(DataFormat::U16.component_size(), 2);
+        assert_eq!(DataFormat::I16.component_size(), 2);
+        assert_eq!(DataFormat::U32.component_size(), 4);
+        assert_eq!(DataFormat::I32.component_size(), 4);
+        assert_eq!(DataFormat::F32.component_size(), 4);
+        assert_eq!(DataFormat::URational.component_size(), 8);
+        assert_eq!(DataFormat::IRational.component_size(), 8);
+        assert_eq!(DataFormat::F64.component_size(), 8);
+
+        for code in 1u16..=12 {
+            assert!(DataFormat::try_from(code).is_ok(), "code {code} should map");
+        }
+        assert_eq!(DataFormat::try_from(0), Err(0));
+        assert_eq!(DataFormat::try_from(13), Err(13));
+        assert_eq!(DataFormat::try_from(0xFFFF), Err(0xFFFF));
+    }
+
+    #[test]
+    fn entry_parse_single_component_success_paths() {
+        // Cover the single-component success arms of parse() for the
+        // numeric formats (lines 178, 186, 203, 227, 235, 242, 257, 264)
+        // and Undefined (line 233).
+        let cases: &[(DataFormat, &[u8], fn(&EntryValue) -> bool)] = &[
+            (DataFormat::U8, &[42], |v| matches!(v, EntryValue::U8(42))),
+            (DataFormat::U16, &[1, 0], |v| {
+                matches!(v, EntryValue::U16(1))
+            }),
+            (DataFormat::U32, &[1, 0, 0, 0], |v| {
+                matches!(v, EntryValue::U32(1))
+            }),
+            (DataFormat::I8, &[0xFF], |v| matches!(v, EntryValue::I8(-1))),
+            (DataFormat::I16, &[0xFF, 0xFF], |v| {
+                matches!(v, EntryValue::I16(-1))
+            }),
+            (DataFormat::I32, &[0xFF, 0xFF, 0xFF, 0xFF], |v| {
+                matches!(v, EntryValue::I32(-1))
+            }),
+            (
+                DataFormat::F32,
+                &[0, 0, 0x80, 0x3F],
+                |v| matches!(v, EntryValue::F32(x) if (*x - 1.0).abs() < 1e-6),
+            ),
+            (
+                DataFormat::F64,
+                &[0, 0, 0, 0, 0, 0, 0xF0, 0x3F],
+                |v| matches!(v, EntryValue::F64(x) if (*x - 1.0).abs() < 1e-9),
+            ),
+            (
+                DataFormat::Undefined,
+                &[0xAA, 0xBB],
+                |v| matches!(v, EntryValue::Undefined(d) if d == &[0xAA, 0xBB]),
+            ),
+        ];
+        for (fmt, data, check) in cases {
+            let entry = EntryData {
+                tag: 0,
+                endian: Endianness::Little,
+                data,
+                data_format: *fmt,
+                components_num: 1,
+            };
+            let v = EntryValue::parse(&entry, &None).unwrap();
+            assert!(check(&v), "{fmt:?} single-component returned {v:?}");
+        }
+
+        // Multi-component success paths for U16/U32/U8 arrays + rationals.
+        let entry = EntryData {
+            tag: 0,
+            endian: Endianness::Little,
+            data: &[1, 0, 2, 0],
+            data_format: DataFormat::U16,
+            components_num: 2,
+        };
+        let v = EntryValue::parse(&entry, &None).unwrap();
+        assert!(matches!(v, EntryValue::U16Array(ref a) if a == &[1u16, 2]));
+
+        let entry = EntryData {
+            tag: 0,
+            endian: Endianness::Little,
+            data: &[1, 0, 0, 0, 2, 0, 0, 0],
+            data_format: DataFormat::U32,
+            components_num: 2,
+        };
+        let v = EntryValue::parse(&entry, &None).unwrap();
+        assert!(matches!(v, EntryValue::U32Array(ref a) if a == &[1u32, 2]));
+
+        let entry = EntryData {
+            tag: 0,
+            endian: Endianness::Little,
+            data: &[1, 2, 3],
+            data_format: DataFormat::U8,
+            components_num: 3,
+        };
+        let v = EntryValue::parse(&entry, &None).unwrap();
+        assert!(matches!(v, EntryValue::U8Array(ref a) if a == &[1u8, 2, 3]));
+
+        // URational single + array.
+        let entry = EntryData {
+            tag: 0,
+            endian: Endianness::Little,
+            data: &[1, 0, 0, 0, 2, 0, 0, 0],
+            data_format: DataFormat::URational,
+            components_num: 1,
+        };
+        let v = EntryValue::parse(&entry, &None).unwrap();
+        assert!(
+            matches!(v, EntryValue::URational(r) if r.numerator() == 1 && r.denominator() == 2)
+        );
+
+        let entry = EntryData {
+            tag: 0,
+            endian: Endianness::Little,
+            data: &[1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4, 0, 0, 0],
+            data_format: DataFormat::URational,
+            components_num: 2,
+        };
+        let v = EntryValue::parse(&entry, &None).unwrap();
+        assert!(matches!(v, EntryValue::URationalArray(ref a) if a.len() == 2));
+
+        // IRational single + array.
+        let entry = EntryData {
+            tag: 0,
+            endian: Endianness::Little,
+            data: &[0xFF, 0xFF, 0xFF, 0xFF, 2, 0, 0, 0],
+            data_format: DataFormat::IRational,
+            components_num: 1,
+        };
+        let v = EntryValue::parse(&entry, &None).unwrap();
+        assert!(
+            matches!(v, EntryValue::IRational(r) if r.numerator() == -1 && r.denominator() == 2)
+        );
+
+        let entry = EntryData {
+            tag: 0,
+            endian: Endianness::Little,
+            data: &[0xFF, 0xFF, 0xFF, 0xFF, 2, 0, 0, 0, 3, 0, 0, 0, 4, 0, 0, 0],
+            data_format: DataFormat::IRational,
+            components_num: 2,
+        };
+        let v = EntryValue::parse(&entry, &None).unwrap();
+        assert!(matches!(v, EntryValue::IRationalArray(ref a) if a.len() == 2));
+
+        // Text path.
+        let entry = EntryData {
+            tag: 0,
+            endian: Endianness::Little,
+            data: b"hello\0",
+            data_format: DataFormat::Text,
+            components_num: 6,
+        };
+        let v = EntryValue::parse(&entry, &None).unwrap();
+        assert!(matches!(v, EntryValue::Text(ref s) if s == "hello"));
+    }
+
+    #[test]
+    fn entry_parse_empty_data_errors() {
+        // Cover lines 136-141: data.is_empty() returns InvalidShape.
+        use crate::error::EntryError;
+        let entry = EntryData {
+            tag: 0,
+            endian: Endianness::Little,
+            data: &[],
+            data_format: DataFormat::U16,
+            components_num: 1,
+        };
+        let err = EntryValue::parse(&entry, &None).unwrap_err();
+        assert!(matches!(err, EntryError::InvalidShape { .. }));
+    }
+
+    #[test]
+    fn entry_parse_datetime_tags() {
+        // Cover the DateTime/NaiveDateTime tag branch (lines 153-173) for
+        // each of the three recognized tags, with and without a tz.
+        // ExifTag::DateTimeOriginal = 0x9003, CreateDate = 0x9004,
+        // ModifyDate = 0x0132.
+        let for_tag = |tag: u16, tz: Option<String>| {
+            let entry = EntryData {
+                tag,
+                endian: Endianness::Little,
+                data: b"2024:01:02 03:04:05\0",
+                data_format: DataFormat::Text,
+                components_num: 20,
+            };
+            EntryValue::parse(&entry, &tz).unwrap()
+        };
+
+        // No tz → NaiveDateTime (line 169).
+        for tag in [0x9003u16, 0x9004, 0x0132] {
+            let v = for_tag(tag, None);
+            assert!(matches!(v, EntryValue::NaiveDateTime(_)), "tag={tag:#x}");
+        }
+
+        // Valid tz → DateTime (lines 161-172).
+        let v = for_tag(0x9003, Some("+08:00".to_string()));
+        assert!(matches!(v, EntryValue::DateTime(_)));
+
+        // Tz that parses but with a short form triggers repair_tz_str (the
+        // ":0" → ":00" branch at line 502).
+        let v = for_tag(0x9003, Some("+8:0".to_string()));
+        assert!(matches!(
+            v,
+            EntryValue::DateTime(_) | EntryValue::NaiveDateTime(_)
+        ));
+
+        // Tz that fails parse falls back to NaiveDateTime (line 166).
+        let v = for_tag(0x9003, Some("garbage".to_string()));
+        assert!(matches!(v, EntryValue::NaiveDateTime(_)));
+    }
+
+    #[test]
+    fn entry_parse_datetime_invalid_value() {
+        // Cover the invalid utf-8 / invalid time error paths (lines 159, 166).
+        use crate::error::EntryError;
+        let entry = EntryData {
+            tag: 0x9003,
+            endian: Endianness::Little,
+            // Invalid time format string.
+            data: b"not-a-timestamp\0",
+            data_format: DataFormat::Text,
+            components_num: 16,
+        };
+        let err = EntryValue::parse(&entry, &None).unwrap_err();
+        assert!(matches!(err, EntryError::InvalidValue(_)));
+    }
+
+    #[test]
+    fn irational_to_urational_error_display() {
+        // ConvertError path for negative rationals already has tests; this
+        // covers the Ok(()) round-trip side and the TryFrom<IRational>
+        // conversion success path (lines 845-849).
+        let r = URational::try_from(IRational::new(3, 4)).unwrap();
+        assert_eq!(r.numerator(), 3);
+        assert_eq!(r.denominator(), 4);
+    }
+
+    #[test]
+    fn get_cstr_non_utf8_falls_back() {
+        // Hitting the fall-back branch in get_cstr (lines 858-861) by
+        // routing invalid UTF-8 through the Text variant of parse().
+        let entry = EntryData {
+            tag: 0,
+            endian: Endianness::Little,
+            // 0xFF is not valid UTF-8 alone.
+            data: &[0xFFu8, b'a', 0],
+            data_format: DataFormat::Text,
+            components_num: 3,
+        };
+        let v = EntryValue::parse(&entry, &None).unwrap();
+        assert!(matches!(v, EntryValue::Text(_)));
+    }
+
+    #[test]
+    fn try_from_bytes_big_endian_and_truncated() {
+        // Cover the big-endian arm (lines 891-898) and the Truncated error
+        // (lines 883-887, 893) of TryFromBytes.
+        let entry = EntryData {
+            tag: 0,
+            endian: Endianness::Big,
+            data: &[0, 1],
+            data_format: DataFormat::U16,
+            components_num: 1,
+        };
+        let v = EntryValue::parse(&entry, &None).unwrap();
+        assert!(matches!(v, EntryValue::U16(1)));
+
+        // Truncated.
+        let entry = EntryData {
+            tag: 0,
+            endian: Endianness::Big,
+            data: &[0],
+            data_format: DataFormat::U16,
+            components_num: 1,
+        };
+        let err = EntryValue::parse(&entry, &None).unwrap_err();
+        assert!(matches!(err, crate::error::EntryError::Truncated { .. }));
+    }
 }
