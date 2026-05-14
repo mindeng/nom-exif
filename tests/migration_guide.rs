@@ -202,14 +202,14 @@ fn s5_7_lat_lng_try_from_decimal_degrees() {
 
 // ─── §5.8 Async ────────────────────────────────────────────────────────────
 
-#[cfg(feature = "tokio")]
+#[cfg(feature = "tokio-fs")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn s5_8_async_top_level_helper() {
     let exif = read_exif_async("./testdata/exif.jpg").await.unwrap();
     assert!(exif.get(ExifTag::Make).is_some());
 }
 
-#[cfg(feature = "tokio")]
+#[cfg(feature = "tokio-fs")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn s5_8_async_media_parser_method() {
     let mut parser = MediaParser::new();

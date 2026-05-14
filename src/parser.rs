@@ -1456,7 +1456,7 @@ mod tests {
         assert!(matches!(res, Err(crate::Error::TrackNotFound)));
     }
 
-    #[cfg(feature = "tokio")]
+    #[cfg(feature = "tokio-fs")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn media_parser_parse_exif_async() {
         use crate::parser_async::AsyncMediaSource;
@@ -1465,7 +1465,7 @@ mod tests {
         let _: ExifIter = parser.parse_exif_async(ms).await.unwrap();
     }
 
-    #[cfg(feature = "tokio")]
+    #[cfg(feature = "tokio-fs")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn media_parser_parse_track_async() {
         use crate::parser_async::AsyncMediaSource;
@@ -2016,7 +2016,7 @@ mod tests {
         out
     }
 
-    #[cfg(feature = "tokio")]
+    #[cfg(feature = "tokio-fs")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn parse_image_metadata_async_jpeg() {
         use crate::parser_async::AsyncMediaSource;
@@ -2027,7 +2027,7 @@ mod tests {
         assert!(img.format.is_none());
     }
 
-    #[cfg(feature = "tokio")]
+    #[cfg(feature = "tokio-fs")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn async_media_source_from_memory_image_jpg() {
         use crate::parser_async::AsyncMediaSource;
@@ -2037,7 +2037,7 @@ mod tests {
         assert!(ms.memory.is_some());
     }
 
-    #[cfg(feature = "tokio")]
+    #[cfg(feature = "tokio-fs")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn async_media_source_from_memory_track_mov() {
         use crate::parser_async::AsyncMediaSource;
@@ -2046,7 +2046,7 @@ mod tests {
         assert_eq!(ms.kind(), MediaKind::Track);
     }
 
-    #[cfg(feature = "tokio")]
+    #[cfg(feature = "tokio-fs")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn async_media_source_from_memory_rejects_unknown_mime() {
         use crate::parser_async::AsyncMediaSource;
@@ -2055,7 +2055,7 @@ mod tests {
         assert!(res.is_err());
     }
 
-    #[cfg(feature = "tokio")]
+    #[cfg(feature = "tokio-fs")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn parse_exif_async_from_memory_jpg() {
         use crate::parser_async::AsyncMediaSource;
@@ -2067,7 +2067,7 @@ mod tests {
         assert!(exif.get(crate::ExifTag::Make).is_some());
     }
 
-    #[cfg(feature = "tokio")]
+    #[cfg(feature = "tokio-fs")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn parse_exif_async_from_memory_zero_copy_preserved() {
         use crate::parser_async::AsyncMediaSource;
@@ -2085,7 +2085,7 @@ mod tests {
         drop(iter);
     }
 
-    #[cfg(feature = "tokio")]
+    #[cfg(feature = "tokio-fs")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn parse_track_async_from_memory_mov() {
         use crate::parser_async::AsyncMediaSource;
@@ -2096,7 +2096,7 @@ mod tests {
         assert_eq!(info.get(crate::TrackInfoTag::Make), Some(&"Apple".into()));
     }
 
-    #[cfg(feature = "tokio")]
+    #[cfg(feature = "tokio-fs")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn parse_image_metadata_async_from_memory_png() {
         use crate::parser_async::AsyncMediaSource;
@@ -2112,7 +2112,7 @@ mod tests {
     /// (regression for issue #55). `parser_async::clear_and_skip` is a
     /// separate implementation; the state-threading through the shared
     /// `parse_loop_step` must work identically in the async path.
-    #[cfg(feature = "tokio")]
+    #[cfg(feature = "tokio-fs")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn parse_image_metadata_async_png_large_idat_streaming() {
         use crate::parser_async::AsyncMediaSource;

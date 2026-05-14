@@ -58,7 +58,7 @@ fn parse_image_metadata_text_only_png_no_exif_but_format_present() {
     assert_eq!(text_chunks.get("Title"), Some("Just text"));
 }
 
-#[cfg(feature = "tokio")]
+#[cfg(feature = "tokio-fs")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn parse_image_metadata_async_exif_png() {
     use nom_exif::AsyncMediaSource;
