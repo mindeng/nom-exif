@@ -2,13 +2,13 @@ use std::{
     cmp::{max, min},
     fmt::Debug,
     io::{self},
-    path::Path,
 };
 
-use tokio::{
-    fs::File,
-    io::{AsyncRead, AsyncReadExt, AsyncSeek},
-};
+#[cfg(feature = "tokio-fs")]
+use std::path::Path;
+#[cfg(feature = "tokio-fs")]
+use tokio::fs::File;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek};
 
 use crate::{
     error::{ParsedError, ParsingErrorState},
@@ -154,6 +154,7 @@ impl<R: AsyncRead + Unpin + Send> AsyncMediaSource<R> {
     }
 }
 
+#[cfg(feature = "tokio-fs")]
 impl AsyncMediaSource<File> {
     /// Open a file at `path` (via `tokio::fs::File`) and parse its header.
     /// For an already-open async `File` use [`Self::seekable`].

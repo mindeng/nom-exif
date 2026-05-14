@@ -296,7 +296,7 @@ pub fn read_metadata_from_bytes(bytes: impl Into<bytes::Bytes>) -> Result<Metada
     }
 }
 
-#[cfg(feature = "tokio")]
+#[cfg(feature = "tokio-fs")]
 mod tokio_top_level {
     use super::*;
 
@@ -333,7 +333,7 @@ mod tokio_top_level {
     }
 }
 
-#[cfg(feature = "tokio")]
+#[cfg(feature = "tokio-fs")]
 pub use tokio_top_level::{
     read_exif_async, read_exif_iter_async, read_metadata_async, read_track_async,
 };
