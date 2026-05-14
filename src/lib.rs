@@ -54,8 +54,11 @@
 //! ```
 //!
 //! Async variants live behind `feature = "tokio"`:
-//! [`read_exif_async`], [`read_track_async`], [`read_metadata_async`],
-//! plus [`MediaParser::parse_exif_async`] / [`MediaParser::parse_track_async`].
+//! [`MediaParser::parse_exif_async`] / [`MediaParser::parse_track_async`]
+//! drive any `AsyncRead`+`AsyncSeek` reader (compiles on
+//! `wasm32-unknown-unknown`). Enable `feature = "tokio-fs"` for the
+//! path-based helpers [`read_exif_async`], [`read_track_async`],
+//! [`read_metadata_async`], and [`AsyncMediaSource::open`].
 //!
 //! # Motion Photos (embedded media tracks)
 //!
@@ -150,8 +153,13 @@
 //!
 //! # Cargo features
 //!
-//! - `tokio` — async API via tokio (`AsyncMediaSource`, `read_*_async`,
-//!   `MediaParser::parse_*_async`).
+//! - `tokio` — async streaming API (`AsyncMediaSource::seekable` /
+//!   `unseekable` / `from_memory`, `MediaParser::parse_*_async`). Only
+//!   pulls in `tokio/io-util`, so it compiles on
+//!   `wasm32-unknown-unknown`.
+//! - `tokio-fs` — adds `tokio/fs` and enables the path-based async
+//!   helpers (`read_exif_async`, `read_track_async`,
+//!   `read_metadata_async`, `AsyncMediaSource::open`). Implies `tokio`.
 //! - `serde` — derives `Serialize`/`Deserialize` on the public types.
 
 pub use parser::{MediaKind, MediaParser, MediaSource};
@@ -296,7 +304,7 @@ pub fn read_metadata_from_bytes(bytes: impl Into<bytes::Bytes>) -> Result<Metada
     }
 }
 
-#[cfg(feature = "tokio")]
+#[cfg(feature = "tokio-fs")]
 mod tokio_top_level {
     use super::*;
 
@@ -333,7 +341,7 @@ mod tokio_top_level {
     }
 }
 
-#[cfg(feature = "tokio")]
+#[cfg(feature = "tokio-fs")]
 pub use tokio_top_level::{
     read_exif_async, read_exif_iter_async, read_metadata_async, read_track_async,
 };
@@ -393,14 +401,14 @@ mod v3_top_level_tests {
         }
     }
 
-    #[cfg(feature = "tokio")]
+    #[cfg(feature = "tokio-fs")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn read_exif_async_jpg() {
         let exif = read_exif_async("testdata/exif.jpg").await.unwrap();
         assert!(exif.get(ExifTag::Make).is_some());
     }
 
-    #[cfg(feature = "tokio")]
+    #[cfg(feature = "tokio-fs")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn read_track_async_mov() {
         let info = read_track_async("testdata/meta.mov").await.unwrap();

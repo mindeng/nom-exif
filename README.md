@@ -217,18 +217,30 @@ for entry in iter {
 
 ## Async API
 
-Enable the `tokio` feature in your `Cargo.toml`:
+Two features control the async surface:
+
+- **`tokio`** — async streaming over any `AsyncRead`+`AsyncSeek`
+  reader (`AsyncMediaSource::seekable` / `unseekable` /
+  `from_memory`, `MediaParser::parse_*_async`). Only pulls in
+  `tokio/io-util`, so it compiles on `wasm32-unknown-unknown`.
+- **`tokio-fs`** — adds `tokio/fs` and enables the path-based
+  helpers (`read_exif_async`, `read_track_async`,
+  `read_metadata_async`, `AsyncMediaSource::open`). Implies `tokio`.
 
 ```toml
 [dependencies]
-nom-exif = { version = "3", features = ["tokio"] }
+# Path-based helpers (native targets):
+nom-exif = { version = "3", features = ["tokio-fs"] }
+
+# Streaming-only (e.g. wasm32):
+nom-exif = { version = "3", default-features = false, features = ["tokio"] }
 ```
 
 Then use the `_async` helpers, or call `parse_exif_async` /
 `parse_track_async` on a `MediaParser` directly:
 
 ```rust,no_run
-# #[cfg(feature = "tokio")]
+# #[cfg(feature = "tokio-fs")]
 # async fn demo() -> nom_exif::Result<()> {
 use nom_exif::{read_exif_async, MediaParser, AsyncMediaSource};
 
