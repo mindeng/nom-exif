@@ -1,6 +1,6 @@
 [package]
 name = "rexiftool"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 rust-version = "1.83"
 license = "MIT"
@@ -12,7 +12,7 @@ categories = ["command-line-utilities", "multimedia"]
 readme = "README.md"
 
 [dependencies]
-nom-exif = { path = "../..", version = "3.4.1", features = ["serde"] }
+nom-exif = { path = "../..", version = "3.4.2", features = ["serde"] }
 clap = { version = "4.4", features = ["derive"] }
 serde_json = "1.0"
 tracing = "0.1.40"
