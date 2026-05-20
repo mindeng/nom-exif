@@ -1,5 +1,46 @@
 # Changelog
 
+## nom-exif v3.4.2 (2026-05-20)
+
+### Fixed
+
+- **Streaming PNG parsing for files with non-trivial IDAT** — every
+  real-world PNG (i.e. anything beyond a stripped-down test fixture)
+  surfaced `malformed iso-bmff box: PNG: bad signature` from
+  `parse_exif` / `parse_image_metadata`. Root cause was a two-part
+  bug in the chunk walker: (a) `ClearAndSkip(total - remaining)`
+  under-requested the skip distance by exactly `cursor + remaining`
+  bytes — semantically the caller should advance the parser's
+  logical position by `cursor + total`, not just past the buffer's
+  end — leaving the parser stranded mid-IDAT; (b) on the resumed call
+  `extract_chunks` always re-validated `buf[..8]` against the PNG
+  signature, but the resumed buffer started mid-stream and the check
+  failed. Fixed both: skip request is now `cursor + total`, and a new
+  `ParsingState::PngPastSignature` tells the resumed call to skip the
+  signature check. In-memory mode (`from_memory`) was unaffected
+  because the full file is buffered at once and `ClearAndSkip` never
+  fires. Fixes [#55](https://github.com/mindeng/nom-exif/issues/55).
+
+### Fixed (behaviour)
+
+- **`Error::Malformed.kind` correctly identifies the failing
+  structural unit.** Previously every parse failure that flowed
+  through `From<ParsedError> for Error` or
+  `From<nom::Err<...>> for Error` was hard-coded as
+  `MalformedKind::IsoBmffBox` / `MalformedKind::TiffHeader`
+  respectively — misleading for PNG / JPEG / EBML inputs. The
+  `MalformedKind` is now threaded through `ParsingError::Failed`,
+  `ParsedError::Failed`, and `LoopAction::Failed`, and surfaced
+  unchanged at the `Error` boundary. Downstream code that
+  (incorrectly) matched on `kind == IsoBmffBox` to catch *any*
+  parse failure will need updating; conformant code that uses a
+  `_ =>` arm (required by `#[non_exhaustive]`) is unaffected.
+
+### Added
+
+- `MalformedKind::PngChunk` variant. `MalformedKind` is
+  `#[non_exhaustive]`, so adding a variant is non-breaking.
+
 ## nom-exif v3.4.1 (2026-05-12)
 
 ### Fixed
