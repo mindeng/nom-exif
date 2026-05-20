@@ -241,7 +241,9 @@ pub(crate) trait AsyncBufParser: Buf + Debug {
                 let done = (skip_by_seek)(
                     reader,
                     skip_n.try_into().map_err(|_| ParsedError::Failed {
-                        // Parser-internal limit: see sync counterpart.
+                        // No format context available here: the parser
+                        // hit an internal limit honoring a caller's skip.
+                        // Pick a sensible default — see #55 follow-up.
                         kind: crate::error::MalformedKind::IsoBmffBox,
                         message: "skip too many bytes".into(),
                     })?,

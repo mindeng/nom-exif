@@ -234,7 +234,8 @@ fn get_ftyp_and_major_brand(input: &[u8]) -> crate::Result<(BoxHolder<'_>, Optio
                 ),
             });
         }
-        let (_, ftyp) = complete::take(4_usize)(bbox.body_data())?;
+        let (_, ftyp) = complete::take(4_usize)(bbox.body_data())
+            .map_err(|e| crate::error::nom_err_to_malformed(e, MalformedKind::IsoBmffBox))?;
         Ok((bbox, Some(ftyp)))
     } else if bbox.box_type() == "wide" {
         // MOV files that extracted from HEIC starts with `wide` & `mdat` atoms

@@ -691,8 +691,14 @@ mod tests {
         let buf = read_sample("exif.jpg").unwrap();
         let err = parse_webm(&buf[..256]).unwrap_err();
         assert!(
-            matches!(err, ParsingError::Failed { .. }),
-            "expected ParsingError::Failed from doc_type parse error, got {err:?}"
+            matches!(
+                err,
+                ParsingError::Failed {
+                    kind: MalformedKind::EbmlElement,
+                    ..
+                }
+            ),
+            "expected ParsingError::Failed(EbmlElement) from doc_type parse error, got {err:?}"
         );
     }
 
@@ -736,7 +742,13 @@ mod tests {
         synthetic.extend_from_slice(&[0xEC, 0x80]);
         let err = parse_webm(&synthetic).unwrap_err();
         assert!(
-            matches!(err, ParsingError::Failed { .. }),
+            matches!(
+                err,
+                ParsingError::Failed {
+                    kind: MalformedKind::EbmlElement,
+                    ..
+                }
+            ),
             "expected ParsingError::Failed from NotWebmFile branch, got {err:?}"
         );
     }

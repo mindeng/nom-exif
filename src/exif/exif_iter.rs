@@ -98,7 +98,9 @@ pub(crate) fn input_into_iter(
         Some(header) => header,
         _ => {
             // header has not been parsed, input data includes IFD header
-            let (_, header) = TiffHeader::parse(&input[..])?;
+            let (_, header) = TiffHeader::parse(&input[..]).map_err(|e| {
+                crate::error::nom_err_to_malformed(e, crate::error::MalformedKind::TiffHeader)
+            })?;
 
             tracing::debug!(
                 ?header,
@@ -658,7 +660,10 @@ impl IfdIter {
         // should use the complete header data to parse ifd entry num
         assert!(offset <= input.len());
         let ifd_data = input.slice(offset..);
-        let (_, entry_num) = TiffHeader::parse_ifd_entry_num(&ifd_data, header.endian)?;
+        let (_, entry_num) =
+            TiffHeader::parse_ifd_entry_num(&ifd_data, header.endian).map_err(|e| {
+                crate::error::nom_err_to_malformed(e, crate::error::MalformedKind::TiffHeader)
+            })?;
 
         Ok(Self {
             ifd_idx,

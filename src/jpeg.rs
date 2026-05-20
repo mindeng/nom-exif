@@ -243,7 +243,10 @@ pub fn check_jpeg(input: &[u8]) -> crate::Result<()> {
         nom::bytes::complete::tag(&[0xFF_u8][..]),
         number::complete::u8,
     )
-        .parse(input)?;
+        .parse(input)
+        .map_err(|e| {
+            crate::error::nom_err_to_malformed(e, crate::error::MalformedKind::JpegSegment)
+        })?;
 
     // SOI has no payload
     if code != MarkerCode::Soi.code() {
@@ -258,7 +261,10 @@ pub fn check_jpeg(input: &[u8]) -> crate::Result<()> {
         nom::bytes::complete::tag(&[0xFF_u8][..]),
         number::complete::u8,
     )
-        .parse(input)?;
+        .parse(input)
+        .map_err(|e| {
+            crate::error::nom_err_to_malformed(e, crate::error::MalformedKind::JpegSegment)
+        })?;
     Ok(())
 }
 

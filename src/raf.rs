@@ -21,7 +21,9 @@ pub struct RafInfo<'a> {
 impl RafInfo<'_> {
     pub fn check(input: &[u8]) -> crate::Result<()> {
         // check magic
-        let _ = nom::bytes::complete::tag(MAGIC)(input)?;
+        let _ = nom::bytes::complete::tag(MAGIC)(input).map_err(|e| {
+            crate::error::nom_err_to_malformed(e, crate::error::MalformedKind::TiffHeader)
+        })?;
         Ok(())
     }
 

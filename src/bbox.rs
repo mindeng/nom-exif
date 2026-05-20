@@ -187,7 +187,9 @@ pub fn to_boxes(input: &[u8]) -> crate::Result<Vec<BoxHolder<'_>>> {
             break;
         }
 
-        let (rem, bbox) = BoxHolder::parse(remain)?;
+        let (rem, bbox) = BoxHolder::parse(remain).map_err(|e| {
+            crate::error::nom_err_to_malformed(e, crate::error::MalformedKind::IsoBmffBox)
+        })?;
         res.push(bbox);
         // Sanity check, to avoid infinite loops caused by unexpected errors.
         assert!(rem.len() < remain.len());

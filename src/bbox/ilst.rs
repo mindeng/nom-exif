@@ -7,7 +7,7 @@ use nom::number::complete::{
 };
 use nom::Parser;
 
-use crate::error::MalformedKind;
+use crate::error::{nom_err_to_malformed, MalformedKind};
 use crate::EntryValue;
 
 use super::BoxHeader;
@@ -98,10 +98,22 @@ fn parse_value(type_code: u32, data: &[u8]) -> crate::Result<EntryValue> {
         }
         21 => match data.len() {
             1 => data[0].into(),
-            2 => be_i16(data)?.1.into(),
-            3 => be_i24(data)?.1.into(),
-            4 => be_i32(data)?.1.into(),
-            8 => be_i64(data)?.1.into(),
+            2 => be_i16(data)
+                .map_err(|e| nom_err_to_malformed(e, MalformedKind::IsoBmffBox))?
+                .1
+                .into(),
+            3 => be_i24(data)
+                .map_err(|e| nom_err_to_malformed(e, MalformedKind::IsoBmffBox))?
+                .1
+                .into(),
+            4 => be_i32(data)
+                .map_err(|e| nom_err_to_malformed(e, MalformedKind::IsoBmffBox))?
+                .1
+                .into(),
+            8 => be_i64(data)
+                .map_err(|e| nom_err_to_malformed(e, MalformedKind::IsoBmffBox))?
+                .1
+                .into(),
             data_len => {
                 let data_type = "BE Signed Integer";
                 tracing::warn!(data_type, data_len, "Invalid ilst item data.");
@@ -117,10 +129,22 @@ fn parse_value(type_code: u32, data: &[u8]) -> crate::Result<EntryValue> {
         },
         22 => match data.len() {
             1 => data[0].into(),
-            2 => be_u16(data)?.1.into(),
-            3 => be_u24(data)?.1.into(),
-            4 => be_u32(data)?.1.into(),
-            8 => be_u64(data)?.1.into(),
+            2 => be_u16(data)
+                .map_err(|e| nom_err_to_malformed(e, MalformedKind::IsoBmffBox))?
+                .1
+                .into(),
+            3 => be_u24(data)
+                .map_err(|e| nom_err_to_malformed(e, MalformedKind::IsoBmffBox))?
+                .1
+                .into(),
+            4 => be_u32(data)
+                .map_err(|e| nom_err_to_malformed(e, MalformedKind::IsoBmffBox))?
+                .1
+                .into(),
+            8 => be_u64(data)
+                .map_err(|e| nom_err_to_malformed(e, MalformedKind::IsoBmffBox))?
+                .1
+                .into(),
             data_len => {
                 let data_type = "BE Unsigned Integer";
                 tracing::warn!(data_type, data_len, "Invalid ilst item data.");
@@ -134,8 +158,14 @@ fn parse_value(type_code: u32, data: &[u8]) -> crate::Result<EntryValue> {
                 });
             }
         },
-        23 => be_f32(data)?.1.into(),
-        24 => be_f64(data)?.1.into(),
+        23 => be_f32(data)
+            .map_err(|e| nom_err_to_malformed(e, MalformedKind::IsoBmffBox))?
+            .1
+            .into(),
+        24 => be_f64(data)
+            .map_err(|e| nom_err_to_malformed(e, MalformedKind::IsoBmffBox))?
+            .1
+            .into(),
         data_type => {
             let msg = "Unsupported ilst item data type";
             tracing::warn!(data_type, "{}.", msg);

@@ -148,25 +148,20 @@ impl From<ParsedError> for crate::Error {
 
 use crate::parser::ParsingState;
 
-impl<T: Debug> From<nom::Err<nom::error::Error<T>>> for crate::Error {
-    fn from(e: nom::Err<nom::error::Error<T>>) -> Self {
-        convert_parse_error(e, "")
-    }
-}
-
-pub(crate) fn convert_parse_error<T: Debug>(
+/// Convert a nom error into `crate::Error` with the supplied `kind`.
+/// Replaces the old blanket `From<nom::Err<...>> for crate::Error` impl,
+/// which hard-coded `MalformedKind::TiffHeader` for every caller
+/// regardless of context. Use this with `.map_err(|e| ...)` at sites
+/// that previously relied on `?` doing the implicit conversion.
+pub(crate) fn nom_err_to_malformed<T: Debug>(
     e: nom::Err<nom::error::Error<T>>,
-    message: &str,
-) -> Error {
-    let s = match e {
-        nom::Err::Incomplete(_) => format!("{e}; {message}"),
-        nom::Err::Error(e) => format!("{}; {message}", e.code.description()),
-        nom::Err::Failure(e) => format!("{}; {message}", e.code.description()),
+    kind: MalformedKind,
+) -> crate::Error {
+    let message = match e {
+        nom::Err::Incomplete(_) => format!("{e}"),
+        nom::Err::Error(e) | nom::Err::Failure(e) => e.code.description().to_string(),
     };
-    Error::Malformed {
-        kind: MalformedKind::TiffHeader,
-        message: s,
-    }
+    crate::Error::Malformed { kind, message }
 }
 
 pub(crate) fn nom_error_to_parsing_error_with_state(

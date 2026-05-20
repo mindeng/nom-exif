@@ -102,7 +102,10 @@ pub fn parse_video_tkhd_in_moov(input: &[u8]) -> crate::Result<Option<TkhdBox>> 
     let Some(bbox) = find_video_track(input)? else {
         return Ok(None);
     };
-    let (_, Some(bbox)) = find_box(bbox.body_data(), "tkhd")? else {
+    let (_, Some(bbox)) = find_box(bbox.body_data(), "tkhd").map_err(|e| {
+        crate::error::nom_err_to_malformed(e, crate::error::MalformedKind::IsoBmffBox)
+    })?
+    else {
         return Ok(None);
     };
     let (_, tkhd) = TkhdBox::parse_box(bbox.data).map_err(|_| crate::Error::Malformed {
