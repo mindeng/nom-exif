@@ -15,6 +15,7 @@
 use std::ops::Range;
 
 use crate::error::{ParsingError, ParsingErrorState};
+use crate::parser::ParsingState;
 
 /// Output of [`extract_chunks`]: where the EXIF data lives (if any) and
 /// every `tEXt` (key, value) pair encountered, in file order.
@@ -104,23 +105,56 @@ fn hex_decode(s: &str) -> Result<Vec<u8>, ()> {
 
 /// Walk the PNG chunk stream and extract EXIF + tEXt entries.
 ///
-/// Pure function: no I/O, takes a buffer slice, returns either output
-/// or a `ParsingErrorState` requesting more bytes / skipping bytes.
+/// Pure function: no I/O, takes a buffer slice plus the resume-state
+/// from any prior call, returns either output or a `ParsingErrorState`
+/// requesting more bytes / skipping bytes.
+///
+/// `state` is `None` while `buf` is anchored at byte 0 of the file
+/// (initial call, or after a `Need` which only grows the buffer).
+/// After a `ClearAndSkip` the parser has dropped the buffer and the
+/// resumed `buf` starts at a fresh file offset, so the returned state
+/// flips to `Some(ParsingState::PngPastSignature)` to tell the next
+/// call not to look for the 8-byte signature at `buf[..8]`.
+///
+/// `ClearAndSkip(n)` is interpreted by the parser as "advance the
+/// parser's logical position by `n` bytes from where it is now". The
+/// closure sees `buf` already offset to that position, so the skip
+/// request must cover *both* the bytes the walker consumed inside
+/// `buf` (`cursor`) and the chunk bytes still beyond it. That is
+/// `cursor + total`, not `total - remaining` — the latter would only
+/// account for bytes past the buffer's end and leave the walker
+/// stranded mid-chunk on retry (issue #55).
 #[tracing::instrument(skip(buf))]
-pub(crate) fn extract_chunks(buf: &[u8]) -> Result<PngParseOut, ParsingErrorState> {
-    // Verify signature.
-    if buf.len() < PNG_SIGNATURE.len() {
-        return Err(ParsingErrorState::new(
-            ParsingError::Need(PNG_SIGNATURE.len() - buf.len()),
-            None,
-        ));
-    }
-    if &buf[..PNG_SIGNATURE.len()] != PNG_SIGNATURE {
-        return Err(ParsingErrorState::new(
-            ParsingError::Failed("PNG: bad signature".into()),
-            None,
-        ));
-    }
+pub(crate) fn extract_chunks(
+    buf: &[u8],
+    state: Option<ParsingState>,
+) -> Result<PngParseOut, ParsingErrorState> {
+    let past_signature = matches!(state, Some(ParsingState::PngPastSignature));
+    // Preserves the incoming flag across error returns. A `Need` keeps
+    // whatever the caller already had; only `ClearAndSkip` flips a
+    // previously-false flag to true (handled at the skip sites).
+    let preserve = || past_signature.then_some(ParsingState::PngPastSignature);
+    let skipped = || Some(ParsingState::PngPastSignature);
+
+    let mut cursor = if past_signature {
+        // Resumed after a ClearAndSkip; buf[0] is a chunk-header
+        // boundary, not the PNG signature.
+        0
+    } else {
+        if buf.len() < PNG_SIGNATURE.len() {
+            return Err(ParsingErrorState::new(
+                ParsingError::Need(PNG_SIGNATURE.len() - buf.len()),
+                None,
+            ));
+        }
+        if &buf[..PNG_SIGNATURE.len()] != PNG_SIGNATURE {
+            return Err(ParsingErrorState::new(
+                ParsingError::Failed("PNG: bad signature".into()),
+                None,
+            ));
+        }
+        PNG_SIGNATURE.len()
+    };
 
     let mut out = PngParseOut {
         exif: None,
@@ -129,14 +163,12 @@ pub(crate) fn extract_chunks(buf: &[u8]) -> Result<PngParseOut, ParsingErrorStat
     let mut text_total: usize = 0;
     let mut exif_priority: u8 = 0; // 0 = none, 1 = legacy exif, 2 = legacy APP1, 3 = eXIf
 
-    let mut cursor = PNG_SIGNATURE.len();
-
     loop {
         // Need 8 bytes for the chunk header (length:4 + type:4).
         if buf.len() - cursor < 8 {
             return Err(ParsingErrorState::new(
                 ParsingError::Need(8 - (buf.len() - cursor)),
-                None,
+                preserve(),
             ));
         }
         let length = u32::from_be_bytes([
@@ -155,7 +187,7 @@ pub(crate) fn extract_chunks(buf: &[u8]) -> Result<PngParseOut, ParsingErrorStat
             None => {
                 return Err(ParsingErrorState::new(
                     ParsingError::Failed("PNG: chunk length overflows addressable size".into()),
-                    None,
+                    preserve(),
                 ));
             }
         };
@@ -167,7 +199,7 @@ pub(crate) fn extract_chunks(buf: &[u8]) -> Result<PngParseOut, ParsingErrorStat
                 if total > remaining {
                     return Err(ParsingErrorState::new(
                         ParsingError::Need(total - remaining),
-                        None,
+                        preserve(),
                     ));
                 }
                 let data_start = cursor + 8;
@@ -183,8 +215,8 @@ pub(crate) fn extract_chunks(buf: &[u8]) -> Result<PngParseOut, ParsingErrorStat
                     let remaining = buf.len() - cursor;
                     if total > remaining {
                         return Err(ParsingErrorState::new(
-                            ParsingError::ClearAndSkip(total - remaining),
-                            None,
+                            ParsingError::ClearAndSkip(cursor + total),
+                            skipped(),
                         ));
                     }
                     cursor += total;
@@ -194,7 +226,7 @@ pub(crate) fn extract_chunks(buf: &[u8]) -> Result<PngParseOut, ParsingErrorStat
                 if total > remaining {
                     return Err(ParsingErrorState::new(
                         ParsingError::Need(total - remaining),
-                        None,
+                        preserve(),
                     ));
                 }
                 let data = &buf[cursor + 8..cursor + 8 + length as usize];
@@ -240,8 +272,8 @@ pub(crate) fn extract_chunks(buf: &[u8]) -> Result<PngParseOut, ParsingErrorStat
                 let remaining = buf.len() - cursor;
                 if total > remaining {
                     return Err(ParsingErrorState::new(
-                        ParsingError::ClearAndSkip(total - remaining),
-                        None,
+                        ParsingError::ClearAndSkip(cursor + total),
+                        skipped(),
                     ));
                 }
                 cursor += total;
@@ -274,7 +306,7 @@ mod tests {
     #[test]
     fn extract_chunks_minimal_png() {
         let buf = build_minimal_png();
-        let result = extract_chunks(&buf).unwrap();
+        let result = extract_chunks(&buf, None).unwrap();
         assert!(result.exif.is_none());
         assert!(result.text_chunks.is_empty());
     }
@@ -282,14 +314,14 @@ mod tests {
     #[test]
     fn extract_chunks_bad_signature() {
         let buf = b"\x00\x00\x00\x00\x00\x00\x00\x00not_png".to_vec();
-        let err = extract_chunks(&buf).unwrap_err();
+        let err = extract_chunks(&buf, None).unwrap_err();
         assert!(matches!(err.err, ParsingError::Failed(_)));
     }
 
     #[test]
     fn extract_chunks_truncated_signature() {
         let buf = b"\x89PNG".to_vec();
-        let err = extract_chunks(&buf).unwrap_err();
+        let err = extract_chunks(&buf, None).unwrap_err();
         assert!(matches!(err.err, ParsingError::Need(_)));
     }
 
@@ -322,7 +354,7 @@ mod tests {
         let exif_payload = b"II*\x00\x08\x00\x00\x00MM\x00\x2a";
         let exif_chunk = build_chunk(b"eXIf", exif_payload);
         let buf = build_png_with_chunks(&[exif_chunk]);
-        let result = extract_chunks(&buf).unwrap();
+        let result = extract_chunks(&buf, None).unwrap();
         let exif_range = match result.exif {
             Some(PngExifSource::EXif(r)) => r,
             _ => panic!("expected EXif source"),
@@ -339,7 +371,7 @@ mod tests {
         text_data.extend_from_slice(b"Hello world");
         let chunks = vec![build_chunk(b"tEXt", &text_data)];
         let buf = build_png_with_chunks(&chunks);
-        let result = extract_chunks(&buf).unwrap();
+        let result = extract_chunks(&buf, None).unwrap();
         assert!(result.exif.is_none());
         assert_eq!(result.text_chunks.len(), 1);
         assert_eq!(result.text_chunks[0].0, "Title");
@@ -358,7 +390,7 @@ mod tests {
         t2.extend_from_slice(b"second");
         let chunks = vec![build_chunk(b"tEXt", &t1), build_chunk(b"tEXt", &t2)];
         let buf = build_png_with_chunks(&chunks);
-        let result = extract_chunks(&buf).unwrap();
+        let result = extract_chunks(&buf, None).unwrap();
         assert_eq!(result.text_chunks.len(), 2);
         assert_eq!(result.text_chunks[0], ("Comment".into(), "first".into()));
         assert_eq!(result.text_chunks[1], ("Comment".into(), "second".into()));
@@ -369,7 +401,7 @@ mod tests {
         // Malformed tEXt with no NUL byte — should be silently skipped.
         let chunks = vec![build_chunk(b"tEXt", b"NoNulSeparator")];
         let buf = build_png_with_chunks(&chunks);
-        let result = extract_chunks(&buf).unwrap();
+        let result = extract_chunks(&buf, None).unwrap();
         assert!(result.text_chunks.is_empty());
     }
 
@@ -382,7 +414,7 @@ mod tests {
         data.extend_from_slice(b"caf\xE9");
         let chunks = vec![build_chunk(b"tEXt", &data)];
         let buf = build_png_with_chunks(&chunks);
-        let result = extract_chunks(&buf).unwrap();
+        let result = extract_chunks(&buf, None).unwrap();
         assert_eq!(result.text_chunks[0].1, "café");
     }
 
@@ -398,7 +430,7 @@ mod tests {
         buf.extend_from_slice(b"eXIf");
         // No body — caller must request Need.
 
-        let err = extract_chunks(&buf).unwrap_err();
+        let err = extract_chunks(&buf, None).unwrap_err();
         match err.err {
             ParsingError::Need(n) => assert!(n >= 100),
             other => panic!("expected Need(>=100), got {other:?}"),
@@ -408,7 +440,9 @@ mod tests {
     #[test]
     fn extract_chunks_skips_large_idat() {
         // IDAT chunk declaring a 50_000-byte body that is NOT in the buffer —
-        // should produce ParsingError::ClearAndSkip.
+        // should produce ParsingError::ClearAndSkip with PngPastSignature so
+        // the resumed call (whose buf no longer starts at the signature)
+        // doesn't re-check buf[..8].
         let mut buf = Vec::new();
         buf.extend_from_slice(PNG_SIGNATURE);
         buf.extend_from_slice(&build_chunk(b"IHDR", &[0; 13]));
@@ -416,11 +450,37 @@ mod tests {
         buf.extend_from_slice(&50_000u32.to_be_bytes());
         buf.extend_from_slice(b"IDAT");
 
-        let err = extract_chunks(&buf).unwrap_err();
+        let err = extract_chunks(&buf, None).unwrap_err();
+        // Skip distance must equal `cursor + total` — i.e. PNG signature (8)
+        // + IHDR chunk (25) + IDAT total (50_000 body + 12 framing). The old
+        // buggy `total - remaining` formula would have under-counted by the
+        // entire walker cursor and stranded the parser mid-IDAT on retry.
         match err.err {
-            ParsingError::ClearAndSkip(n) => assert!(n >= 50_000),
-            other => panic!("expected ClearAndSkip(>=50_000), got {other:?}"),
+            ParsingError::ClearAndSkip(n) => assert_eq!(n, 8 + 25 + 50_000 + 12),
+            other => panic!("expected ClearAndSkip, got {other:?}"),
         }
+        assert!(
+            matches!(err.state, Some(ParsingState::PngPastSignature)),
+            "ClearAndSkip must hand back PngPastSignature so the resumed \
+             call skips the signature check on the mid-stream slice"
+        );
+    }
+
+    #[test]
+    fn extract_chunks_resumes_past_signature_with_state() {
+        // After a ClearAndSkip the next call receives a buf that starts
+        // mid-file. Carrying PngPastSignature in state must let the parser
+        // skip the buf[..8] signature check and parse the next chunk.
+        let mut tail = Vec::new();
+        // Just an IEND chunk's bytes — no signature in front.
+        tail.extend_from_slice(&0u32.to_be_bytes());
+        tail.extend_from_slice(b"IEND");
+        tail.extend_from_slice(&[0, 0, 0, 0]); // CRC
+
+        let result = extract_chunks(&tail, Some(ParsingState::PngPastSignature))
+            .expect("must not check signature");
+        assert!(result.exif.is_none());
+        assert!(result.text_chunks.is_empty());
     }
 
     #[test]
@@ -438,7 +498,7 @@ mod tests {
         // No body provided — but since extract_chunks should skip oversized
         // tEXt, we expect a ClearAndSkip error (not capture).
 
-        let err = extract_chunks(&buf).unwrap_err();
+        let err = extract_chunks(&buf, None).unwrap_err();
         assert!(matches!(err.err, ParsingError::ClearAndSkip(_)));
     }
 
@@ -479,7 +539,7 @@ mod tests {
         // ParsingError has only Need / ClearAndSkip / Failed variants — any
         // of the three is acceptable here; the contract is "no panic, no
         // wrap-around, no infinite loop".
-        let _err = extract_chunks(&buf).unwrap_err();
+        let _err = extract_chunks(&buf, None).unwrap_err();
     }
 
     #[test]
@@ -496,7 +556,7 @@ mod tests {
         buf.extend_from_slice(&u32::MAX.to_be_bytes());
         buf.extend_from_slice(b"XXXX");
 
-        let _err = extract_chunks(&buf).unwrap_err();
+        let _err = extract_chunks(&buf, None).unwrap_err();
     }
 
     /// Minimal little-endian TIFF: II + 0x002A + IFD0 offset = 8 + IFD0 with 0 entries.
@@ -535,7 +595,7 @@ mod tests {
         let chunks = vec![build_chunk(b"tEXt", &data)];
         let buf = build_png_with_chunks(&chunks);
 
-        let result = extract_chunks(&buf).unwrap();
+        let result = extract_chunks(&buf, None).unwrap();
         match result.exif {
             Some(PngExifSource::Legacy(bytes)) => assert_eq!(bytes, tiff),
             other => panic!("expected Legacy, got {:?}", other),
@@ -560,7 +620,7 @@ mod tests {
         let chunks = vec![build_chunk(b"tEXt", &data)];
         let buf = build_png_with_chunks(&chunks);
 
-        let result = extract_chunks(&buf).unwrap();
+        let result = extract_chunks(&buf, None).unwrap();
         match result.exif {
             Some(PngExifSource::Legacy(bytes)) => assert_eq!(bytes, tiff),
             other => panic!("expected Legacy, got {:?}", other),
@@ -589,7 +649,7 @@ mod tests {
         ];
         let buf = build_png_with_chunks(&chunks);
 
-        let result = extract_chunks(&buf).unwrap();
+        let result = extract_chunks(&buf, None).unwrap();
         match result.exif {
             Some(PngExifSource::EXif(range)) => {
                 assert_eq!(&buf[range], tiff_exif);
@@ -608,7 +668,7 @@ mod tests {
         let chunks = vec![build_chunk(b"tEXt", &data)];
         let buf = build_png_with_chunks(&chunks);
 
-        let result = extract_chunks(&buf).unwrap();
+        let result = extract_chunks(&buf, None).unwrap();
         assert!(result.exif.is_none(), "malformed legacy must be dropped");
         // Raw tEXt entry still preserved.
         assert_eq!(result.text_chunks.len(), 1);

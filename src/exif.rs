@@ -178,8 +178,8 @@ fn parse_png_exif_iter<R: Read>(
 ) -> Result<ExifIter, crate::Error> {
     use crate::png::{PngExifSource, PngParseOut};
 
-    let out: PngParseOut = parser.load_and_parse(reader, skip_by_seek, |buf, _| {
-        crate::png::extract_chunks(buf)
+    let out: PngParseOut = parser.load_and_parse(reader, skip_by_seek, |buf, state| {
+        crate::png::extract_chunks(buf, state)
     })?;
 
     let Some(source) = out.exif else {
@@ -214,8 +214,8 @@ pub(crate) fn parse_png_full<R: Read>(
 ) -> Result<(Option<ExifIter>, Vec<(String, String)>), crate::Error> {
     use crate::png::{PngExifSource, PngParseOut};
 
-    let out: PngParseOut = parser.load_and_parse(reader, skip_by_seek, |buf, _| {
-        crate::png::extract_chunks(buf)
+    let out: PngParseOut = parser.load_and_parse(reader, skip_by_seek, |buf, state| {
+        crate::png::extract_chunks(buf, state)
     })?;
 
     let exif_iter = match out.exif {
@@ -247,6 +247,7 @@ fn extract_exif_range(
         ParsingState::TiffHeader(h) => Some(h),
         ParsingState::HeifExifSize(_) => None,
         ParsingState::Cr3ExifSize(_) => None,
+        ParsingState::PngPastSignature => None,
     });
     Ok(exif_data
         .and_then(|x| buf.subslice_in_range(x))
@@ -418,8 +419,8 @@ where
     use crate::png::{PngExifSource, PngParseOut};
 
     let out: PngParseOut = parser
-        .load_and_parse(reader, skip_by_seek, |buf, _| {
-            crate::png::extract_chunks(buf)
+        .load_and_parse(reader, skip_by_seek, |buf, state| {
+            crate::png::extract_chunks(buf, state)
         })
         .await?;
 
@@ -455,8 +456,8 @@ where
     use crate::png::{PngExifSource, PngParseOut};
 
     let out: PngParseOut = parser
-        .load_and_parse(reader, skip_by_seek, |buf, _| {
-            crate::png::extract_chunks(buf)
+        .load_and_parse(reader, skip_by_seek, |buf, state| {
+            crate::png::extract_chunks(buf, state)
         })
         .await?;
 
