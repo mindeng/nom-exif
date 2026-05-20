@@ -466,8 +466,12 @@ pub(crate) enum LoopAction<O> {
     NeedFill(usize),
     /// Need to skip bytes — call `clear_and_skip(reader, n)` then re-step.
     Skip(usize),
-    /// Parse failed permanently.
-    Failed(String),
+    /// Parse failed permanently. Carries the structural-unit kind so
+    /// the eventual `Error::Malformed` is labelled correctly.
+    Failed {
+        kind: crate::error::MalformedKind,
+        message: String,
+    },
 }
 
 /// Closure type passed to [`parse_loop_step`].
@@ -488,7 +492,7 @@ pub(crate) fn parse_loop_step<O>(
             match es.err {
                 ParsingError::Need(n) => LoopAction::NeedFill(n),
                 ParsingError::ClearAndSkip(n) => LoopAction::Skip(n),
-                ParsingError::Failed(s) => LoopAction::Failed(s),
+                ParsingError::Failed { kind, message } => LoopAction::Failed { kind, message },
             }
         }
     }
@@ -566,7 +570,9 @@ pub(crate) trait BufParser: Buf + Debug {
                 LoopAction::Skip(n) => {
                     self.clear_and_skip(reader, skip_by_seek, n)?;
                 }
-                LoopAction::Failed(s) => return Err(ParsedError::Failed(s)),
+                LoopAction::Failed { kind, message } => {
+                    return Err(ParsedError::Failed { kind, message })
+                }
             }
         }
     }
@@ -587,9 +593,13 @@ pub(crate) trait BufParser: Buf + Debug {
                 self.clear();
                 let done = (skip_by_seek)(
                     reader,
-                    skip_n
-                        .try_into()
-                        .map_err(|_| ParsedError::Failed("skip too many bytes".into()))?,
+                    skip_n.try_into().map_err(|_| ParsedError::Failed {
+                        // No format context available here: the parser
+                        // hit an internal limit honoring a caller's skip.
+                        // Pick a sensible default — see #55 follow-up.
+                        kind: crate::error::MalformedKind::IsoBmffBox,
+                        message: "skip too many bytes".into(),
+                    })?,
                 )?;
                 if !done {
                     let mut skipped = 0;
@@ -897,10 +907,9 @@ impl MediaParser {
                     context: "motion-photo trailer",
                 }
             }
-            crate::error::ParsingError::Failed(msg) => crate::Error::Malformed {
-                kind: crate::error::MalformedKind::IsoBmffBox,
-                message: msg,
-            },
+            crate::error::ParsingError::Failed { kind, message } => {
+                crate::Error::Malformed { kind, message }
+            }
         })
     }
 

@@ -8,7 +8,7 @@ use crate::{
     bbox::{
         find_box, parse_video_tkhd_in_moov, travel_header, IlstBox, KeysBox, MvhdBox, ParseBox,
     },
-    error::ParsingError,
+    error::{MalformedKind, ParsingError},
     video::TrackInfoTag,
     EntryValue,
 };
@@ -19,7 +19,10 @@ pub(crate) fn parse_isobmff(moov_body: &[u8]) -> Result<crate::TrackInfo, Parsin
         Ok((remain, Some(entries))) => (remain, entries),
         Ok((remain, None)) => (remain, Vec::new()),
         Err(_) => {
-            return Err("invalid moov body".into());
+            return Err(ParsingError::Failed {
+                kind: MalformedKind::IsoBmffBox,
+                message: "invalid moov body".into(),
+            });
         }
     };
 
@@ -150,7 +153,10 @@ pub(crate) fn extract_moov_body_from_buf(input: &[u8]) -> Result<Range<usize>, P
             nom::Needed::Unknown => ParsingError::Need(1),
             nom::Needed::Size(n) => ParsingError::Need(n.get()),
         },
-        nom::Err::Failure(_) | nom::Err::Error(_) => ParsingError::Failed(msg.to_string()),
+        nom::Err::Failure(_) | nom::Err::Error(_) => ParsingError::Failed {
+            kind: MalformedKind::IsoBmffBox,
+            message: msg.to_string(),
+        },
     };
 
     let mut to_skip = 0;
@@ -177,7 +183,10 @@ pub(crate) fn extract_moov_body_from_buf(input: &[u8]) -> Result<Range<usize>, P
         return Err(ParsingError::ClearAndSkip(
             to_skip
                 .checked_add(input.len())
-                .ok_or_else(|| ParsingError::Failed("to_skip is too big".into()))?,
+                .ok_or_else(|| ParsingError::Failed {
+                    kind: MalformedKind::IsoBmffBox,
+                    message: "to_skip is too big".into(),
+                })?,
         ));
     }
 

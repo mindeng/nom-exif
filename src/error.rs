@@ -41,8 +41,11 @@ pub(crate) enum ParsedError {
     #[error("io error: {0}")]
     IOError(std::io::Error),
 
-    #[error("{0}")]
-    Failed(String),
+    #[error("malformed {kind}: {message}")]
+    Failed {
+        kind: MalformedKind,
+        message: String,
+    },
 }
 
 /// Due to the fact that metadata in MOV files is typically located at the end
@@ -90,8 +93,11 @@ pub(crate) enum ParsingError {
     #[error("clear and skip bytes: {0:?}")]
     ClearAndSkip(usize),
 
-    #[error("{0}")]
-    Failed(String),
+    #[error("malformed {kind}: {message}")]
+    Failed {
+        kind: MalformedKind,
+        message: String,
+    },
 }
 
 #[derive(Debug, Error)]
@@ -122,12 +128,6 @@ impl Display for ParsingErrorState {
     }
 }
 
-impl From<&str> for ParsingError {
-    fn from(value: &str) -> Self {
-        Self::Failed(value.to_string())
-    }
-}
-
 impl From<std::io::Error> for ParsedError {
     fn from(value: std::io::Error) -> Self {
         Self::IOError(value)
@@ -141,12 +141,7 @@ impl From<ParsedError> for crate::Error {
                 context: "media stream",
             },
             ParsedError::IOError(e) => Self::Io(e),
-            // Best-effort default: P3 will plumb the actual MalformedKind
-            // through ParsedError so this fallback can go away.
-            ParsedError::Failed(e) => Self::Malformed {
-                kind: MalformedKind::IsoBmffBox,
-                message: e,
-            },
+            ParsedError::Failed { kind, message } => Self::Malformed { kind, message },
         }
     }
 }
@@ -174,22 +169,9 @@ pub(crate) fn convert_parse_error<T: Debug>(
     }
 }
 
-impl From<nom::Err<nom::error::Error<&[u8]>>> for ParsingError {
-    fn from(e: nom::Err<nom::error::Error<&[u8]>>) -> Self {
-        match e {
-            nom::Err::Incomplete(needed) => match needed {
-                nom::Needed::Unknown => ParsingError::Need(1),
-                nom::Needed::Size(n) => ParsingError::Need(n.get()),
-            },
-            nom::Err::Failure(e) | nom::Err::Error(e) => {
-                ParsingError::Failed(e.code.description().to_string())
-            }
-        }
-    }
-}
-
 pub(crate) fn nom_error_to_parsing_error_with_state(
     e: nom::Err<nom::error::Error<&[u8]>>,
+    kind: MalformedKind,
     state: Option<ParsingState>,
 ) -> ParsingErrorState {
     match e {
@@ -198,7 +180,10 @@ pub(crate) fn nom_error_to_parsing_error_with_state(
             nom::Needed::Size(n) => ParsingErrorState::new(ParsingError::Need(n.get()), state),
         },
         nom::Err::Failure(e) | nom::Err::Error(e) => ParsingErrorState::new(
-            ParsingError::Failed(e.code.description().to_string()),
+            ParsingError::Failed {
+                kind,
+                message: e.code.description().to_string(),
+            },
             state,
         ),
     }
@@ -207,9 +192,9 @@ pub(crate) fn nom_error_to_parsing_error_with_state(
 /// Categorizes the *structural unit* that produced a `Error::Malformed`.
 ///
 /// Variants describe the kind of bytes that failed to parse (a JPEG segment,
-/// a TIFF header, an IFD entry, an ISO BMFF box, an EBML element), not the
-/// outer file format. Format-specific context — e.g. "cr3:", "heif idat:" —
-/// is conveyed in the accompanying `message` string.
+/// a TIFF header, an IFD entry, an ISO BMFF box, an EBML element, a PNG
+/// chunk), not the outer file format. Format-specific context — e.g. "cr3:",
+/// "heif idat:" — is conveyed in the accompanying `message` string.
 ///
 /// This intentionally avoids a parallel format-level taxonomy (`Heif`,
 /// `Cr3Container`, `Raf`, …): those families are all built on top of one of
@@ -223,6 +208,7 @@ pub enum MalformedKind {
     IfdEntry,
     IsoBmffBox,
     EbmlElement,
+    PngChunk,
 }
 
 impl std::fmt::Display for MalformedKind {
@@ -233,6 +219,7 @@ impl std::fmt::Display for MalformedKind {
             Self::IfdEntry => "ifd entry",
             Self::IsoBmffBox => "iso-bmff box",
             Self::EbmlElement => "ebml element",
+            Self::PngChunk => "png chunk",
         };
         f.write_str(s)
     }
@@ -309,8 +296,31 @@ mod tests {
             MalformedKind::IfdEntry,
             MalformedKind::IsoBmffBox,
             MalformedKind::EbmlElement,
+            MalformedKind::PngChunk,
         ] {
             let _ = format!("{k:?}");
+        }
+    }
+
+    #[test]
+    fn parsed_error_failed_propagates_kind_to_top_level_error() {
+        // Previously `ParsedError::Failed` was string-only and the
+        // `From<ParsedError> for Error` impl always labelled the
+        // resulting `Error::Malformed` as `IsoBmffBox`. That mislabel
+        // is what `parse_image_metadata` on a streaming PNG used to
+        // surface ("malformed iso-bmff box: PNG: bad signature").
+        // Verify the conversion now preserves the structural unit.
+        let pe = ParsedError::Failed {
+            kind: MalformedKind::PngChunk,
+            message: "PNG: bad signature".into(),
+        };
+        let top: Error = pe.into();
+        match top {
+            Error::Malformed { kind, message } => {
+                assert_eq!(kind, MalformedKind::PngChunk);
+                assert_eq!(message, "PNG: bad signature");
+            }
+            other => panic!("expected Malformed, got {other:?}"),
         }
     }
 

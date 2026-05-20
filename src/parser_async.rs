@@ -217,7 +217,9 @@ pub(crate) trait AsyncBufParser: Buf + Debug {
                 LoopAction::Skip(n) => {
                     self.clear_and_skip(reader, skip_by_seek, n).await?;
                 }
-                LoopAction::Failed(s) => return Err(ParsedError::Failed(s)),
+                LoopAction::Failed { kind, message } => {
+                    return Err(ParsedError::Failed { kind, message })
+                }
             }
         }
     }
@@ -238,9 +240,11 @@ pub(crate) trait AsyncBufParser: Buf + Debug {
                 self.clear();
                 let done = (skip_by_seek)(
                     reader,
-                    skip_n
-                        .try_into()
-                        .map_err(|_| ParsedError::Failed("skip too many bytes".into()))?,
+                    skip_n.try_into().map_err(|_| ParsedError::Failed {
+                        // Parser-internal limit: see sync counterpart.
+                        kind: crate::error::MalformedKind::IsoBmffBox,
+                        message: "skip too many bytes".into(),
+                    })?,
                 )
                 .await?;
                 if !done {

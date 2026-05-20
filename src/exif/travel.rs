@@ -4,7 +4,7 @@ use nom::{
 };
 
 use crate::{
-    error::ParsingError,
+    error::{MalformedKind, ParsingError},
     exif::TiffHeader,
     values::{array_to_string, DataFormat},
     TagOrCode,
@@ -169,18 +169,26 @@ impl<'a> IfdHeaderTravel<'a> {
         if depth >= 3 {
             let msg = "depth shouldn't be greater than 3";
             tracing::error!(msg);
-            return Err(ParsingError::Failed(msg.into()));
+            return Err(ParsingError::Failed {
+                kind: MalformedKind::IfdEntry,
+                message: msg.into(),
+            });
         }
 
         if self.offset + 2 > self.data.len() {
-            return Err(ParsingError::Failed(format!(
-                "invalid ifd offset: {}",
-                self.offset
-            )));
+            return Err(ParsingError::Failed {
+                kind: MalformedKind::TiffHeader,
+                message: format!("invalid ifd offset: {}", self.offset),
+            });
         }
 
         let (_, entry_num) =
-            TiffHeader::parse_ifd_entry_num(&self.data[self.offset..], self.endian)?;
+            TiffHeader::parse_ifd_entry_num(&self.data[self.offset..], self.endian).map_err(
+                |e: nom::Err<nom::error::Error<&[u8]>>| ParsingError::Failed {
+                    kind: MalformedKind::TiffHeader,
+                    message: format!("parse ifd entry count failed: {e:?}"),
+                },
+            )?;
         let mut pos = self.offset + 2;
 
         let mut sub_ifds = Vec::new();
@@ -190,7 +198,12 @@ impl<'a> IfdHeaderTravel<'a> {
             if pos >= self.data.len() {
                 break;
             }
-            let (_, sub_ifd) = self.parse_ifd_entry_header(pos as u32)?;
+            let (_, sub_ifd) = self.parse_ifd_entry_header(pos as u32).map_err(
+                |e: nom::Err<nom::error::Error<&[u8]>>| ParsingError::Failed {
+                    kind: MalformedKind::IfdEntry,
+                    message: format!("parse ifd entry header failed: {e:?}"),
+                },
+            )?;
             pos += IFD_ENTRY_SIZE;
 
             if let Some(ifd) = sub_ifd {

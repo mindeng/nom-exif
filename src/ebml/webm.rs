@@ -14,7 +14,7 @@ use crate::{
         find_element_by_id, get_as_f64, get_as_u64, next_element_header, parse_ebml_doc_type,
         EBMLGlobalId, TopElementId,
     },
-    error::ParsingError,
+    error::{MalformedKind, ParsingError},
     video::{TrackInfo, TrackInfoTag},
     EntryValue,
 };
@@ -601,7 +601,10 @@ impl From<ParseEBMLFailed> for ParsingError {
         match value {
             ParseEBMLFailed::Need(i) => ParsingError::Need(i),
             ParseEBMLFailed::NotEBMLFile | ParseEBMLFailed::InvalidEBMLFile(_) => {
-                ParsingError::Failed(value.to_string())
+                ParsingError::Failed {
+                    kind: MalformedKind::EbmlElement,
+                    message: value.to_string(),
+                }
             }
         }
     }
@@ -619,7 +622,10 @@ impl From<ParseVIntFailed> for ParseWebmFailed {
 impl From<ParseVIntFailed> for ParsingError {
     fn from(value: ParseVIntFailed) -> Self {
         match value {
-            ParseVIntFailed::InvalidVInt(_) => Self::Failed(value.to_string()),
+            ParseVIntFailed::InvalidVInt(_) => Self::Failed {
+                kind: MalformedKind::EbmlElement,
+                message: value.to_string(),
+            },
             ParseVIntFailed::Need(i) => Self::Need(i),
         }
     }
@@ -630,7 +636,10 @@ impl From<ParseWebmFailed> for ParsingError {
         match value {
             ParseWebmFailed::NotWebmFile
             | ParseWebmFailed::InvalidWebmFile(_)
-            | ParseWebmFailed::InvalidSeekEntry => Self::Failed(value.to_string()),
+            | ParseWebmFailed::InvalidSeekEntry => Self::Failed {
+                kind: MalformedKind::EbmlElement,
+                message: value.to_string(),
+            },
             ParseWebmFailed::Need(n) => Self::Need(n),
         }
     }
@@ -682,7 +691,7 @@ mod tests {
         let buf = read_sample("exif.jpg").unwrap();
         let err = parse_webm(&buf[..256]).unwrap_err();
         assert!(
-            matches!(err, ParsingError::Failed(_)),
+            matches!(err, ParsingError::Failed { .. }),
             "expected ParsingError::Failed from doc_type parse error, got {err:?}"
         );
     }
@@ -727,7 +736,7 @@ mod tests {
         synthetic.extend_from_slice(&[0xEC, 0x80]);
         let err = parse_webm(&synthetic).unwrap_err();
         assert!(
-            matches!(err, ParsingError::Failed(_)),
+            matches!(err, ParsingError::Failed { .. }),
             "expected ParsingError::Failed from NotWebmFile branch, got {err:?}"
         );
     }

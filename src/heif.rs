@@ -4,7 +4,9 @@ use nom::{IResult, Parser};
 use crate::bbox::find_box;
 use crate::{
     bbox::{BoxHolder, MetaBox, ParseBox},
-    error::{nom_error_to_parsing_error_with_state, ParsingError, ParsingErrorState},
+    error::{
+        nom_error_to_parsing_error_with_state, MalformedKind, ParsingError, ParsingErrorState,
+    },
     exif::check_exif_header2,
     parser::ParsingState,
 };
@@ -15,13 +17,15 @@ pub(crate) fn extract_exif_data(
 ) -> Result<(Option<&[u8]>, Option<ParsingState>), ParsingErrorState> {
     let (data, state) = match state {
         Some(ParsingState::HeifExifSize(size)) => {
-            let (_, data) = nom::bytes::streaming::take(size)(buf)
-                .map_err(|e| nom_error_to_parsing_error_with_state(e, state.clone()))?;
+            let (_, data) = nom::bytes::streaming::take(size)(buf).map_err(|e| {
+                nom_error_to_parsing_error_with_state(e, MalformedKind::IsoBmffBox, state.clone())
+            })?;
             (Some(data), state)
         }
         None => {
-            let (_, meta) =
-                parse_meta_box(buf).map_err(|e| nom_error_to_parsing_error_with_state(e, state))?;
+            let (_, meta) = parse_meta_box(buf).map_err(|e| {
+                nom_error_to_parsing_error_with_state(e, MalformedKind::IsoBmffBox, state)
+            })?;
 
             if let Some(meta) = meta {
                 if let Some(range) = meta.exif_data_offset() {
@@ -34,7 +38,10 @@ pub(crate) fn extract_exif_data(
                     }
                 } else {
                     return Err(ParsingErrorState::new(
-                        ParsingError::Failed("no exif offset in meta box".into()),
+                        ParsingError::Failed {
+                            kind: MalformedKind::IsoBmffBox,
+                            message: "no exif offset in meta box".into(),
+                        },
                         None,
                     ));
                 }
@@ -44,7 +51,10 @@ pub(crate) fn extract_exif_data(
         }
         _ => {
             return Err(ParsingErrorState::new(
-                ParsingError::Failed("unexpected parsing state for heif".into()),
+                ParsingError::Failed {
+                    kind: MalformedKind::IsoBmffBox,
+                    message: "unexpected parsing state for heif".into(),
+                },
                 None,
             ))
         }

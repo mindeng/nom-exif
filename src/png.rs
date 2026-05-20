@@ -14,7 +14,7 @@
 
 use std::ops::Range;
 
-use crate::error::{ParsingError, ParsingErrorState};
+use crate::error::{MalformedKind, ParsingError, ParsingErrorState};
 use crate::parser::ParsingState;
 
 /// Output of [`extract_chunks`]: where the EXIF data lives (if any) and
@@ -149,7 +149,10 @@ pub(crate) fn extract_chunks(
         }
         if &buf[..PNG_SIGNATURE.len()] != PNG_SIGNATURE {
             return Err(ParsingErrorState::new(
-                ParsingError::Failed("PNG: bad signature".into()),
+                ParsingError::Failed {
+                    kind: MalformedKind::PngChunk,
+                    message: "PNG: bad signature".into(),
+                },
                 None,
             ));
         }
@@ -186,7 +189,10 @@ pub(crate) fn extract_chunks(
             Some(t) => t,
             None => {
                 return Err(ParsingErrorState::new(
-                    ParsingError::Failed("PNG: chunk length overflows addressable size".into()),
+                    ParsingError::Failed {
+                        kind: MalformedKind::PngChunk,
+                        message: "PNG: chunk length overflows addressable size".into(),
+                    },
                     preserve(),
                 ));
             }
@@ -313,9 +319,19 @@ mod tests {
 
     #[test]
     fn extract_chunks_bad_signature() {
+        use crate::error::MalformedKind;
         let buf = b"\x00\x00\x00\x00\x00\x00\x00\x00not_png".to_vec();
         let err = extract_chunks(&buf, None).unwrap_err();
-        assert!(matches!(err.err, ParsingError::Failed(_)));
+        // The kind must be PngChunk (the structural unit) — the old
+        // ParsedError-conversion fallback labelled every parse failure
+        // `IsoBmffBox`, which was misleading for PNG input.
+        assert!(matches!(
+            err.err,
+            ParsingError::Failed {
+                kind: MalformedKind::PngChunk,
+                ..
+            }
+        ));
     }
 
     #[test]

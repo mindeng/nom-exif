@@ -4,7 +4,9 @@ use nom::IResult;
 
 use crate::{
     bbox::Cr3MoovBox,
-    error::{nom_error_to_parsing_error_with_state, ParsingError, ParsingErrorState},
+    error::{
+        nom_error_to_parsing_error_with_state, MalformedKind, ParsingError, ParsingErrorState,
+    },
     exif::{check_exif_header2, TiffHeader},
     parser::ParsingState,
 };
@@ -26,8 +28,8 @@ pub(crate) struct Cr3CmtRanges {
 pub(crate) fn extract_all_cmt_ranges(
     buf: &[u8],
 ) -> Result<Option<Cr3CmtRanges>, ParsingErrorState> {
-    let (_, moov) =
-        parse_moov_box(buf).map_err(|e| nom_error_to_parsing_error_with_state(e, None))?;
+    let (_, moov) = parse_moov_box(buf)
+        .map_err(|e| nom_error_to_parsing_error_with_state(e, MalformedKind::IsoBmffBox, None))?;
 
     let Some(moov) = moov else {
         return Ok(None);
@@ -36,10 +38,12 @@ pub(crate) fn extract_all_cmt_ranges(
     let ranges = moov.all_cmt_data_offsets();
     if ranges.is_empty() {
         return Err(ParsingErrorState::new(
-            ParsingError::Failed(
-                "CR3 file contains no EXIF data: Canon UUID box found but no CMT offsets available"
-                    .into(),
-            ),
+            ParsingError::Failed {
+                kind: MalformedKind::IsoBmffBox,
+                message:
+                    "CR3 file contains no EXIF data: Canon UUID box found but no CMT offsets available"
+                        .into(),
+            },
             None,
         ));
     }
@@ -58,10 +62,13 @@ pub(crate) fn extract_all_cmt_ranges(
                 "CMT range extends beyond loaded buffer (parse_moov_box invariant violated)"
             );
             return Err(ParsingErrorState::new(
-                ParsingError::Failed(format!(
-                    "CR3 CMT block {block_id} range {range:?} extends past loaded buffer ({} bytes)",
-                    buf.len()
-                )),
+                ParsingError::Failed {
+                    kind: MalformedKind::IsoBmffBox,
+                    message: format!(
+                        "CR3 CMT block {block_id} range {range:?} extends past loaded buffer ({} bytes)",
+                        buf.len()
+                    ),
+                },
                 None,
             ));
         }
@@ -76,13 +83,15 @@ pub(crate) fn extract_exif_data(
 ) -> Result<(Option<&[u8]>, Option<ParsingState>), ParsingErrorState> {
     let (data, state) = match state {
         Some(ParsingState::Cr3ExifSize(size)) => {
-            let (_, data) = nom::bytes::streaming::take(size)(buf)
-                .map_err(|e| nom_error_to_parsing_error_with_state(e, state.clone()))?;
+            let (_, data) = nom::bytes::streaming::take(size)(buf).map_err(|e| {
+                nom_error_to_parsing_error_with_state(e, MalformedKind::IsoBmffBox, state.clone())
+            })?;
             (Some(data), state)
         }
         None => {
-            let (_, moov) =
-                parse_moov_box(buf).map_err(|e| nom_error_to_parsing_error_with_state(e, state))?;
+            let (_, moov) = parse_moov_box(buf).map_err(|e| {
+                nom_error_to_parsing_error_with_state(e, MalformedKind::IsoBmffBox, state)
+            })?;
 
             if let Some(moov) = moov {
                 if let Some(range) = moov.exif_data_offset() {
@@ -95,9 +104,12 @@ pub(crate) fn extract_exif_data(
                     }
                 } else {
                     return Err(ParsingErrorState::new(
-                        ParsingError::Failed(
-                            "CR3 file contains no EXIF data: Canon UUID box found but no CMT1 offset available".into(),
-                        ),
+                        ParsingError::Failed {
+                            kind: MalformedKind::IsoBmffBox,
+                            message:
+                                "CR3 file contains no EXIF data: Canon UUID box found but no CMT1 offset available"
+                                    .into(),
+                        },
                         None,
                     ));
                 }

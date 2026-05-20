@@ -1,4 +1,6 @@
-use crate::error::{nom_error_to_parsing_error_with_state, ParsingError, ParsingErrorState};
+use crate::error::{
+    nom_error_to_parsing_error_with_state, MalformedKind, ParsingError, ParsingErrorState,
+};
 use crate::file::MediaMimeImage;
 use crate::parser::{BufParser, ParsingState, ShareBuf};
 use crate::raf::RafInfo;
@@ -339,7 +341,9 @@ pub(crate) fn extract_exif_with_mime(
     let (exif_data, state) = match img_type {
         MediaMimeImage::Jpeg => jpeg::extract_exif_data(buf)
             .map(|res| (res.1, state.clone()))
-            .map_err(|e| nom_error_to_parsing_error_with_state(e, state))?,
+            .map_err(|e| {
+                nom_error_to_parsing_error_with_state(e, MalformedKind::JpegSegment, state)
+            })?,
         MediaMimeImage::Heic
         | crate::file::MediaMimeImage::Heif
         | crate::file::MediaMimeImage::Avif => heif_extract_exif(state, buf)?,
@@ -347,8 +351,9 @@ pub(crate) fn extract_exif_with_mime(
             let header = match state {
                 Some(ParsingState::TiffHeader(ref h)) => h.to_owned(),
                 None => {
-                    let (_, header) = TiffHeader::parse(buf)
-                        .map_err(|e| nom_error_to_parsing_error_with_state(e, None))?;
+                    let (_, header) = TiffHeader::parse(buf).map_err(|e| {
+                        nom_error_to_parsing_error_with_state(e, MalformedKind::TiffHeader, None)
+                    })?;
                     if header.ifd0_offset as usize > buf.len() {
                         let clear_and_skip =
                             ParsingError::Need(header.ifd0_offset as usize - TIFF_HEADER_LEN + 2);
@@ -359,7 +364,10 @@ pub(crate) fn extract_exif_with_mime(
                 }
                 _ => {
                     return Err(ParsingErrorState::new(
-                        ParsingError::Failed("unexpected parsing state for tiff".into()),
+                        ParsingError::Failed {
+                            kind: MalformedKind::TiffHeader,
+                            message: "unexpected parsing state for tiff".into(),
+                        },
                         None,
                     ))
                 }
@@ -381,7 +389,9 @@ pub(crate) fn extract_exif_with_mime(
         }
         MediaMimeImage::Raf => RafInfo::parse(buf)
             .map(|res| (res.1.exif_data, state.clone()))
-            .map_err(|e| nom_error_to_parsing_error_with_state(e, state))?,
+            .map_err(|e| {
+                nom_error_to_parsing_error_with_state(e, MalformedKind::TiffHeader, state)
+            })?,
         MediaMimeImage::Cr3 => cr3_extract_exif(state, buf)?,
         MediaMimeImage::Png => {
             // PNG is dispatched to parse_png_exif_iter at the top of
