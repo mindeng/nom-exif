@@ -115,6 +115,7 @@ pub fn sorted_exif_entries(exif: &Exif) -> Vec<String> {
         LensSpecification,
         LensMake,
         LensModel,
+        LensSerialNumber,
         Gamma,
         GPSTimeStamp,
         GPSSatellites,

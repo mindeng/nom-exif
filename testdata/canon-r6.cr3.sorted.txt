@@ -23,6 +23,7 @@ ISOSpeedRatings » 25600
 ImageHeight » 3648
 ImageWidth » 5472
 LensModel » EF100mm f/2.8L Macro IS USM
+LensSerialNumber » 000005e4d2
 LensSpecification » URationalArray[100/1 (100.0000), 100/1 (100.0000), 0/1 (0.0000), 0/1 (0.0000)]
 Make » Canon
 MeteringMode » 5
