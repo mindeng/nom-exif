@@ -1,4 +1,5 @@
 ApertureValue » 196608/65536 (3.0000)
+CameraSerialNumber » 072021007989
 ColorSpace » 1
 Copyright » Copyright 2025 Roland Dreier - CC BY-SA
 CreateDate » 2025-09-06 20:24:47

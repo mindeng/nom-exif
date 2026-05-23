@@ -111,6 +111,7 @@ pub fn sorted_exif_entries(exif: &Exif) -> Vec<String> {
         DeviceSettingDescription,
         SubjectDistanceRange,
         ImageUniqueID,
+        CameraSerialNumber,
         LensSpecification,
         LensMake,
         LensModel,
