@@ -1,5 +1,15 @@
 # Changelog
 
+## nom-exif v3.5.0 (2026-05-23)
+
+### Added
+
+- **`CameraSerialNumber` EXIF tag** (0xa431). Standard EXIF tag for the
+  camera body serial number. [#56](https://github.com/mindeng/nom-exif/pull/56)
+
+- **`LensSerialNumber` EXIF tag** (0xa435). Standard EXIF tag for the
+  lens serial number. [#57](https://github.com/mindeng/nom-exif/pull/57)
+
 ## nom-exif v3.4.2 (2026-05-20)
 
 ### Fixed
