@@ -134,8 +134,8 @@ fn container_motion_photo_offset(xmp: &[u8]) -> Option<u64> {
     }
 
     let mp_idx = items.iter().position(|tag| {
-        extract_attr_value(tag, b"Item:Semantic") == Some(b"MotionPhoto")
-            || extract_attr_value(tag, b"Item:Mime") == Some(b"video/mp4")
+        extract_attr_value(tag, b"Item:Semantic") == Some(&b"MotionPhoto"[..])
+            || extract_attr_value(tag, b"Item:Mime") == Some(&b"video/mp4"[..])
     })?;
 
     // Each item's `Item:Padding` is the gap between this item and the
