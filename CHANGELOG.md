@@ -1,5 +1,14 @@
 # Changelog
 
+## nom-exif v3.5.1 (2026-05-28)
+
+### Fixed
+
+- **Slice coercion in MotionPhoto attribute comparison** — comparing
+  `extract_attr_value()` against byte-string literals now uses explicit
+  `&b"..."[..]` coercion, fixing a compile error when a crate like rkyv
+  is present in the dependency graph. [#58](https://github.com/mindeng/nom-exif/pull/58)
+
 ## nom-exif v3.5.0 (2026-05-23)
 
 ### Added
