@@ -53,12 +53,15 @@
 //! # Ok::<(), nom_exif::Error>(())
 //! ```
 //!
-//! Async variants live behind `feature = "tokio"`:
-//! [`MediaParser::parse_exif_async`] / [`MediaParser::parse_track_async`]
-//! drive any `AsyncRead`+`AsyncSeek` reader (compiles on
-//! `wasm32-unknown-unknown`). Enable `feature = "tokio-fs"` for the
-//! path-based helpers [`read_exif_async`], [`read_track_async`],
-//! [`read_metadata_async`], and [`AsyncMediaSource::open`].
+//! Async APIs are controlled by two Cargo features:
+//!
+//! - `tokio` — streaming variants [`MediaParser::parse_exif_async`] /
+//!   [`MediaParser::parse_track_async`] via any `AsyncRead`+`AsyncSeek`
+//!   reader. Only pulls in `tokio/io-util`, so it compiles on
+//!   `wasm32-unknown-unknown`.
+//! - `tokio-fs` — path-based helpers [`read_exif_async`],
+//!   [`read_track_async`], [`read_metadata_async`], and
+//!   [`AsyncMediaSource::open`]. Implies `tokio`.
 //!
 //! # Motion Photos (embedded media tracks)
 //!
