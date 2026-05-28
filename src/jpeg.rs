@@ -239,7 +239,7 @@ fn find_exif_segment(input: &[u8]) -> IResult<&[u8], Option<Segment<'_>>> {
 
 pub fn check_jpeg(input: &[u8]) -> crate::Result<()> {
     // check soi marker [0xff, 0xd8]
-    let (_, (_, code)) = (
+    let (remain, (_, code)) = (
         nom::bytes::complete::tag(&[0xFF_u8][..]),
         number::complete::u8,
     )
@@ -257,11 +257,11 @@ pub fn check_jpeg(input: &[u8]) -> crate::Result<()> {
     }
 
     // check next marker [0xff, *]
-    let (_, (_, _)) = (
+    (
         nom::bytes::complete::tag(&[0xFF_u8][..]),
         number::complete::u8,
     )
-        .parse(input)
+        .parse(remain)
         .map_err(|e| {
             crate::error::nom_err_to_malformed(e, crate::error::MalformedKind::JpegSegment)
         })?;
@@ -430,5 +430,295 @@ mod tests {
             u32::from_be_bytes(data[data.len() - 4..].try_into().unwrap()), // Safe-slice in test_case
             end
         );
+    }
+
+    #[test]
+    fn memchr_subslice_empty_needle_returns_none() {
+        assert_eq!(memchr_subslice(b"hello", b""), None);
+    }
+
+    #[test]
+    fn memchr_subslice_needle_longer_than_haystack() {
+        assert_eq!(memchr_subslice(b"ab", b"abcdef"), None);
+    }
+
+    #[test]
+    fn memchr_subslice_no_match() {
+        assert_eq!(memchr_subslice(b"hello", b"xyz"), None);
+    }
+
+    #[test]
+    fn memchr_subslice_finds_first_match() {
+        assert_eq!(memchr_subslice(b"hello world hello", b"hello"), Some(0));
+        assert_eq!(memchr_subslice(b"xx hello world", b"hello"), Some(3));
+    }
+
+    #[test]
+    fn extract_attr_value_not_found() {
+        assert_eq!(extract_attr_value(b"key=\"val\"", b"Missing"), None);
+    }
+
+    #[test]
+    fn extract_attr_value_unclosed_quote() {
+        assert_eq!(extract_attr_value(b"key=\"val", b"key"), None);
+    }
+
+    #[test]
+    fn extract_attr_value_found() {
+        assert_eq!(
+            extract_attr_value(b"tag key=\"hello\" rest", b"key"),
+            Some(&b"hello"[..])
+        );
+    }
+
+    #[test]
+    fn contains_attr_eq_true() {
+        assert!(contains_attr_eq(
+            b"GCamera:MotionPhoto=\"1\"",
+            b"GCamera:MotionPhoto",
+            b"1"
+        ));
+    }
+
+    #[test]
+    fn contains_attr_eq_false() {
+        assert!(!contains_attr_eq(
+            b"GCamera:MotionPhoto=\"0\"",
+            b"GCamera:MotionPhoto",
+            b"1"
+        ));
+    }
+
+    #[test]
+    fn contains_attr_eq_missing() {
+        assert!(!contains_attr_eq(b"", b"GCamera:MotionPhoto", b"1"));
+    }
+
+    #[test]
+    fn parse_motion_photo_offset_no_gate_returns_none() {
+        let xmp = b"SomeOther=\"1\" GCamera:MotionPhotoOffset=\"1234\"";
+        assert_eq!(parse_motion_photo_offset(xmp), None);
+    }
+
+    #[test]
+    fn parse_motion_photo_offset_micro_video_gate_and_offset() {
+        let xmp = b"GCamera:MicroVideo=\"1\" GCamera:MicroVideoOffset=\"5678\"";
+        assert_eq!(parse_motion_photo_offset(xmp), Some(5678));
+    }
+
+    #[test]
+    fn parse_motion_photo_offset_fallback_motion_photo_offset() {
+        let xmp = b"GCamera:MotionPhoto=\"1\" GCamera:MotionPhotoOffset=\"9999\"";
+        assert_eq!(parse_motion_photo_offset(xmp), Some(9999));
+    }
+
+    #[test]
+    fn parse_motion_photo_offset_offset_not_a_number() {
+        let xmp = b"GCamera:MotionPhoto=\"1\" GCamera:MotionPhotoOffset=\"not-a-number\"";
+        assert_eq!(parse_motion_photo_offset(xmp), None);
+    }
+
+    #[test]
+    fn container_motion_photo_offset_single_item_semantic() {
+        let xmp = concat!(
+            "GCamera:MotionPhoto=\"1\"\n",
+            "<Container:Directory>\n",
+            "  <Container:Item Item:Semantic=\"MotionPhoto\" Item:Length=\"100\"/>\n",
+            "</Container:Directory>"
+        );
+        assert_eq!(parse_motion_photo_offset(xmp.as_bytes()), Some(100));
+    }
+
+    #[test]
+    fn container_motion_photo_offset_single_item_mime() {
+        let xmp = concat!(
+            "GCamera:MotionPhoto=\"1\"\n",
+            "<Container:Directory>\n",
+            "  <Container:Item Item:Mime=\"video/mp4\" Item:Length=\"500\"/>\n",
+            "</Container:Directory>"
+        );
+        assert_eq!(parse_motion_photo_offset(xmp.as_bytes()), Some(500));
+    }
+
+    #[test]
+    fn container_motion_photo_offset_multiple_items_with_padding() {
+        let xmp = concat!(
+            "GCamera:MotionPhoto=\"1\"\n",
+            "<Container:Directory>\n",
+            "  <Container:Item Item:Semantic=\"MotionPhoto\" Item:Length=\"100\" Item:Padding=\"50\"/>\n",
+            "  <Container:Item Item:Length=\"200\" Item:Padding=\"75\"/>\n",
+            "  <Container:Item Item:Length=\"300\" Item:Padding=\"999\"/>\n",
+            "</Container:Directory>"
+        );
+        assert_eq!(parse_motion_photo_offset(xmp.as_bytes()), Some(725));
+    }
+
+    #[test]
+    fn container_motion_photo_offset_micro_video_gate() {
+        let xmp = concat!(
+            "GCamera:MicroVideo=\"1\"\n",
+            "<Container:Directory>\n",
+            "  <Container:Item Item:Semantic=\"MotionPhoto\" Item:Length=\"42\"/>\n",
+            "</Container:Directory>"
+        );
+        assert_eq!(parse_motion_photo_offset(xmp.as_bytes()), Some(42));
+    }
+
+    #[test]
+    fn container_motion_photo_offset_no_container_returns_none() {
+        let xmp = b"GCamera:MotionPhoto=\"1\" no container directory";
+        assert_eq!(parse_motion_photo_offset(xmp), None);
+    }
+
+    #[test]
+    fn container_motion_photo_offset_no_motion_photo_item_returns_none() {
+        let xmp = concat!(
+            "GCamera:MotionPhoto=\"1\"\n",
+            "<Container:Directory>\n",
+            "  <Container:Item Item:Semantic=\"StillImage\" Item:Length=\"100\"/>\n",
+            "</Container:Directory>"
+        );
+        assert_eq!(parse_motion_photo_offset(xmp.as_bytes()), None);
+    }
+
+    #[test]
+    fn scan_motion_photo_truncated_returns_need_more() {
+        assert!(matches!(
+            scan_motion_photo(&[0xFF]),
+            MotionPhotoScan::NeedMoreBytes
+        ));
+    }
+
+    #[test]
+    fn scan_motion_photo_empty_buffer_returns_need_more() {
+        assert!(matches!(
+            scan_motion_photo(b""),
+            MotionPhotoScan::NeedMoreBytes
+        ));
+    }
+
+    #[test]
+    fn scan_motion_photo_truncated_segment_returns_need_more() {
+        let buf = vec![0xFF, 0xD8, 0xFF, 0xE1, 0x01, 0x00];
+        assert!(matches!(
+            scan_motion_photo(&buf),
+            MotionPhotoScan::NeedMoreBytes
+        ));
+    }
+
+    #[test]
+    fn scan_motion_photo_malformed_returns_not_present() {
+        assert!(matches!(
+            scan_motion_photo(&[0x00, 0x00, 0x00, 0x00]),
+            MotionPhotoScan::NotPresent
+        ));
+    }
+
+    #[test]
+    fn scan_motion_photo_sos_returns_not_present() {
+        let buf = vec![0xFF, 0xD8, 0xFF, 0xDA, 0x00, 0x02];
+        assert!(matches!(
+            scan_motion_photo(&buf),
+            MotionPhotoScan::NotPresent
+        ));
+    }
+
+    #[test]
+    fn scan_motion_photo_app1_without_xmp_header_not_found() {
+        let exif_header = b"Exif\x00\x00";
+        let mut buf = vec![0xFF, 0xD8];
+        let payload_len = exif_header.len() + 4;
+        buf.extend_from_slice(&[0xFF, 0xE1]);
+        buf.extend_from_slice(&(payload_len as u16 + 2).to_be_bytes());
+        buf.extend_from_slice(exif_header);
+        buf.extend_from_slice(b"dummy");
+        buf.extend_from_slice(&[0xFF, 0xDA, 0x00, 0x02]);
+        assert!(matches!(
+            scan_motion_photo(&buf),
+            MotionPhotoScan::NotPresent
+        ));
+    }
+
+    #[test]
+    fn scan_motion_photo_finds_offset() {
+        let xmp_payload = b"http://ns.adobe.com/xap/1.0/\x00GCamera:MotionPhoto=\"1\" GCamera:MotionPhotoOffset=\"777\"";
+        let mut buf = vec![0xFF, 0xD8];
+        buf.extend_from_slice(&[0xFF, 0xE1]);
+        buf.extend_from_slice(&(xmp_payload.len() as u16 + 2).to_be_bytes());
+        buf.extend_from_slice(xmp_payload);
+        buf.extend_from_slice(&[0xFF, 0xDA, 0x00, 0x02]);
+        assert!(matches!(
+            scan_motion_photo(&buf),
+            MotionPhotoScan::Found(777)
+        ));
+    }
+
+    #[test]
+    fn find_motion_photo_offset_found() {
+        let xmp = b"http://ns.adobe.com/xap/1.0/\x00GCamera:MotionPhoto=\"1\" GCamera:MotionPhotoOffset=\"888\"";
+        let mut buf = vec![0xFF, 0xD8];
+        buf.extend_from_slice(&[0xFF, 0xE1]);
+        buf.extend_from_slice(&(xmp.len() as u16 + 2).to_be_bytes());
+        buf.extend_from_slice(xmp);
+        buf.extend_from_slice(&[0xFF, 0xDA, 0x00, 0x02]);
+        assert_eq!(find_motion_photo_offset(&buf), Some(888));
+    }
+
+    #[test]
+    fn find_motion_photo_offset_not_present() {
+        assert_eq!(find_motion_photo_offset(b""), None);
+    }
+
+    #[test]
+    fn parse_segment_size_too_small() {
+        let result = parse_segment(0xE1, &[0x00, 0x01]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_segment_soi_returns_empty_payload() {
+        let (_, segment) = parse_segment(0xD8, b"dummy").unwrap();
+        assert_eq!(segment.payload_len(), 0);
+    }
+
+    #[test]
+    fn extract_exif_data_payload_len_exactly_six_returns_none() {
+        let exif_header = b"Exif\x00\x00";
+        let mut buf = vec![0xFF, 0xD8];
+        buf.extend_from_slice(&[0xFF, 0xE1]);
+        buf.extend_from_slice(&(exif_header.len() as u16 + 2).to_be_bytes());
+        buf.extend_from_slice(exif_header);
+        buf.extend_from_slice(&[0xFF, 0xDA, 0x00, 0x02]);
+        let (_, data) = extract_exif_data(&buf).unwrap();
+        assert!(data.is_none());
+    }
+
+    #[test]
+    fn check_jpeg_empty_input() {
+        assert!(check_jpeg(b"").is_err());
+    }
+
+    #[test]
+    fn check_jpeg_not_ff_first_byte() {
+        assert!(check_jpeg(b"\x00\x00").is_err());
+    }
+
+    #[test]
+    fn check_jpeg_not_soi() {
+        assert!(check_jpeg(&[0xFF, 0xD9]).is_err());
+    }
+
+    #[test]
+    fn check_jpeg_soi_followed_by_non_ff() {
+        assert!(check_jpeg(&[0xFF, 0xD8, 0x00]).is_err());
+    }
+
+    #[test]
+    fn scan_motion_photo_parsed_segment_error_returns_not_present() {
+        let buf = vec![0xFF, 0xD8, 0xFF, 0xE1, 0x00, 0x00];
+        assert!(matches!(
+            scan_motion_photo(&buf),
+            MotionPhotoScan::NotPresent
+        ));
     }
 }
