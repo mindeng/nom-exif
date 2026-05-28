@@ -1,5 +1,26 @@
 # Changelog
 
+## nom-exif v3.6.0 (2026-05-28)
+
+### Changed
+
+- **Split `tokio` feature into `tokio` and `tokio-fs`** — the `tokio`
+  feature now only pulls in `tokio/io-util`, enabling the async
+  streaming API (`AsyncMediaSource::seekable`/`unseekable`/`from_memory`,
+  `MediaParser::parse_*_async`) on `wasm32-unknown-unknown`. Path-based
+  helpers (`read_exif_async`, `read_track_async`, `read_metadata_async`,
+  `AsyncMediaSource::open`) moved to the new `tokio-fs` feature (implies
+  `tokio`). Users who previously used `features = ["tokio"]` with
+  `read_exif_async` etc. should switch to `features = ["tokio-fs"]`.
+  [#53](https://github.com/mindeng/nom-exif/pull/53)
+
+### Fixed
+
+- **Slice coercion in MotionPhoto attribute comparison** — comparing
+  `extract_attr_value()` against byte-string literals now uses explicit
+  `&b"..."[..]` coercion, fixing a compile error when a crate like rkyv
+  is present in the dependency graph. [#58](https://github.com/mindeng/nom-exif/pull/58)
+
 ## nom-exif v3.5.1 (2026-05-28)
 
 ### Fixed
