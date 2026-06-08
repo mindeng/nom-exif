@@ -112,6 +112,20 @@ fn get_ebml_doc_type(input: &[u8]) -> crate::Result<String> {
 
 #[tracing::instrument(skip_all)]
 fn parse_bmff_mime(input: &[u8]) -> crate::Result<MediaMime> {
+    // Legacy QuickTime files (e.g. early Nikon COOLPIX, Casio cameras) start
+    // with a `pnot` (preview) atom instead of `ftyp`. The atom itself is
+    // sufficient to identify the file as QuickTime: the subsequent `moov`
+    // structure is standard and `mov.rs::extract_moov_body_from_buf` can
+    // handle it. We do this short-circuit before falling through to the
+    // generic ftyp/mdat scan because the header parse buffer (128 bytes) is
+    // typically too small to reach `mdat` past a real-world `moov`.
+    if BoxHolder::parse(input)
+        .map(|(_, bbox)| bbox.box_type() == "pnot")
+        .unwrap_or(false)
+    {
+        return Ok(MediaMime::Track(MediaMimeTrack::QuickTime));
+    }
+
     let (ftyp, Some(major_brand)) =
         get_ftyp_and_major_brand(input).map_err(|_| crate::Error::UnsupportedFormat)?
     else {
