@@ -2,7 +2,7 @@ use nom::{bytes::complete, FindSubstring};
 use std::io::Cursor;
 
 use crate::{
-    bbox::{travel_header, BoxHolder},
+    bbox::{travel_header, BoxHeader, BoxHolder},
     ebml::element::parse_ebml_doc_type,
     error::MalformedKind,
     exif::TiffHeader,
@@ -112,15 +112,21 @@ fn get_ebml_doc_type(input: &[u8]) -> crate::Result<String> {
 
 #[tracing::instrument(skip_all)]
 fn parse_bmff_mime(input: &[u8]) -> crate::Result<MediaMime> {
-    // Legacy QuickTime files (e.g. early Nikon COOLPIX, Casio cameras) start
-    // with a `pnot` (preview) atom instead of `ftyp`. The atom itself is
+    // Legacy QuickTime files start with a `pnot` (preview) atom (e.g. early
+    // Nikon COOLPIX, Casio cameras) or directly with `mdat` (no `ftyp`/`wide`
+    // header at all, `moov` at the end of file). The first atom alone is
     // sufficient to identify the file as QuickTime: the subsequent `moov`
-    // structure is standard and `mov.rs::extract_moov_body_from_buf` can
-    // handle it. We do this short-circuit before falling through to the
-    // generic ftyp/mdat scan because the header parse buffer (128 bytes) is
-    // typically too small to reach `mdat` past a real-world `moov`.
-    if BoxHolder::parse(input)
-        .map(|(_, bbox)| bbox.box_type() == "pnot")
+    // structure is standard, `mov.rs::extract_moov_body_from_buf` skips the
+    // intermediate atoms via `ClearAndSkip` no matter how large `mdat` is.
+    // We do this short-circuit before `get_ftyp_and_major_brand` because it
+    // rejects any first box other than `ftyp`/`wide` as malformed, and the
+    // header parse buffer (128 bytes) is typically too small for the generic
+    // `mdat` scan to succeed past a real-world `moov`. Header-only parsing
+    // (`BoxHeader`, not `BoxHolder`) is essential here: a leading `mdat` is
+    // usually far larger than the header parse buffer, and `BoxHolder::parse`
+    // would bail out with `Incomplete` while requiring the full box body.
+    if BoxHeader::parse(input)
+        .map(|(_, header)| matches!(header.box_type.as_str(), "pnot" | "mdat"))
         .unwrap_or(false)
     {
         return Ok(MediaMime::Track(MediaMimeTrack::QuickTime));
@@ -305,5 +311,37 @@ mod v3_tests {
         let bogus = b"\x00\x00\x00\x00not a real file";
         let res: Result<MediaMime, Error> = bogus.as_slice().try_into();
         assert!(matches!(res, Err(Error::UnsupportedFormat)));
+    }
+
+    #[test]
+    fn pnot_first_box_returns_quicktime() {
+        let buf = legacy_first_box(b"pnot", 20);
+        let res: Result<MediaMime, Error> = buf.as_slice().try_into();
+        assert!(matches!(
+            res,
+            Ok(MediaMime::Track(MediaMimeTrack::QuickTime))
+        ));
+    }
+
+    #[test]
+    fn mdat_first_box_returns_quicktime() {
+        // A leading `mdat` is typically megabytes large; declare a box size
+        // far beyond the supplied buffer to pin header-only detection
+        // (`BoxHolder::parse` would fail with `Incomplete` here).
+        let buf = legacy_first_box(b"mdat", 2_801_672);
+        let res: Result<MediaMime, Error> = buf.as_slice().try_into();
+        assert!(matches!(
+            res,
+            Ok(MediaMime::Track(MediaMimeTrack::QuickTime))
+        ));
+    }
+
+    /// Minimal legacy QuickTime header: a single box header declaring
+    /// `box_size` with no body bytes following.
+    fn legacy_first_box(box_type: &[u8; 4], box_size: u32) -> Vec<u8> {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&box_size.to_be_bytes());
+        buf.extend_from_slice(box_type);
+        buf
     }
 }
