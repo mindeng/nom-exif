@@ -1,5 +1,22 @@
 # Changelog
 
+## nom-exif v3.6.1 (2026-06-11)
+
+### Fixed
+
+- **Support legacy QuickTime MOV files with `pnot` or `mdat` headers** —
+  early consumer cameras (Nikon COOLPIX S5/P5000, Casio EX-Z50, Fujifilm
+  FinePix, etc., ca. 2003-2008) produce MOV files that start with a `pnot`
+  (preview) atom or a huge leading `mdat` instead of `ftyp`/`wide`. These
+  files were previously rejected as `UnsupportedFormat` because MIME
+  detection required an `ftyp` box within the first 128 bytes. Now:
+  - a leading `pnot` is recognized as unambiguously QuickTime;
+  - a leading `mdat` falls through to `extract_moov_body_from_buf`, which
+    already skips arbitrarily large `mdat` bodies and finds `moov` at EOF.
+  `creation_time` and other track metadata now parse correctly for these
+  legacy files, matching ExifTool output.
+  [#59](https://github.com/mindeng/nom-exif/pull/59)
+
 ## nom-exif v3.6.0 (2026-05-28)
 
 ### Changed
