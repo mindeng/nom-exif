@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **WebP (RIFF/WEBP) image support** — extracts EXIF/GPS from the
+  `EXIF` chunk via the unified `parse_exif` / `read_exif` (sync +
+  async) APIs.
+
 ## nom-exif v3.6.1 (2026-06-11)
 
 ### Fixed
