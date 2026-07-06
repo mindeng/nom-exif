@@ -2324,4 +2324,20 @@ mod tests {
             Some("A")
         );
     }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test]
+    async fn parse_exif_webp_async_from_memory() {
+        use crate::AsyncMediaSource;
+        let tiff = webp_minimal_tiff_le();
+        let buf = webp_with_exif(&tiff);
+        let mut parser = MediaParser::new();
+        let ms = AsyncMediaSource::from_memory(buf).unwrap();
+        let iter = parser.parse_exif_async(ms).await.unwrap();
+        let exif: crate::Exif = iter.into();
+        assert_eq!(
+            exif.get(crate::ExifTag::Make).and_then(|v| v.as_str()),
+            Some("A")
+        );
+    }
 }
