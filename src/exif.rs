@@ -399,10 +399,7 @@ pub(crate) fn extract_exif_with_mime(
             // parse_exif_iter; this arm is unreachable in v3.3.
             unreachable!("PNG should have been dispatched at parse_exif_iter top");
         }
-        MediaMimeImage::Webp => {
-            // Wired to the real walker in the next task.
-            unreachable!("WebP dispatch not yet wired");
-        }
+        MediaMimeImage::Webp => crate::webp::extract_exif(state, buf)?,
     };
     Ok((exif_data, state))
 }
