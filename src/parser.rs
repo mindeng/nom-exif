@@ -2230,7 +2230,6 @@ mod tests {
     }
 
     // --- WebP synthetic-buffer helpers (mirror src/webp.rs test builders) ---
-    #[cfg(test)]
     fn webp_minimal_tiff_le() -> Vec<u8> {
         // II + 0x002A + IFD0 offset 8 + IFD0 with one tag (Make="A") + next=0.
         let mut t = Vec::new();
@@ -2247,7 +2246,6 @@ mod tests {
         t
     }
 
-    #[cfg(test)]
     fn webp_with_exif(tiff: &[u8]) -> Vec<u8> {
         let mut exif_chunk = Vec::new();
         exif_chunk.extend_from_slice(b"EXIF");
