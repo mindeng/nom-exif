@@ -66,6 +66,7 @@ pub(crate) enum MediaMimeImage {
     Raf,
     Cr3,
     Png,
+    Webp,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
@@ -92,6 +93,8 @@ impl TryFrom<&[u8]> for MediaMime {
             MediaMime::Image(MediaMimeImage::Tiff)
         } else if check_png(input).is_ok() {
             MediaMime::Image(MediaMimeImage::Png)
+        } else if check_webp(input).is_ok() {
+            MediaMime::Image(MediaMimeImage::Webp)
         } else if check_jpeg(input).is_ok() {
             MediaMime::Image(MediaMimeImage::Jpeg)
         } else if RafInfo::check(input).is_ok() {
@@ -238,6 +241,15 @@ fn check_png(input: &[u8]) -> Result<(), ()> {
     }
 }
 
+fn check_webp(input: &[u8]) -> Result<(), ()> {
+    // RIFF container tagged WEBP: "RIFF"(4) + fileSize(4) + "WEBP"(4).
+    if input.len() >= 12 && &input[0..4] == b"RIFF" && &input[8..12] == b"WEBP" {
+        Ok(())
+    } else {
+        Err(())
+    }
+}
+
 fn get_ftyp_and_major_brand(input: &[u8]) -> crate::Result<(BoxHolder<'_>, Option<&[u8]>)> {
     let (_, bbox) = BoxHolder::parse(input).map_err(|e| crate::Error::Malformed {
         kind: MalformedKind::IsoBmffBox,
@@ -334,6 +346,31 @@ mod v3_tests {
             res,
             Ok(MediaMime::Track(MediaMimeTrack::QuickTime))
         ));
+    }
+
+    #[test]
+    fn webp_riff_header_detected_as_image() {
+        // Minimal RIFF/WEBP header + one chunk header's worth of bytes.
+        let mut buf = Vec::new();
+        buf.extend_from_slice(b"RIFF");
+        buf.extend_from_slice(&16u32.to_le_bytes()); // riff size (value irrelevant to detection)
+        buf.extend_from_slice(b"WEBP");
+        buf.extend_from_slice(b"VP8X");
+        buf.extend_from_slice(&[0u8; 4]);
+        let res: Result<MediaMime, Error> = buf.as_slice().try_into();
+        assert!(matches!(res, Ok(MediaMime::Image(MediaMimeImage::Webp))));
+    }
+
+    #[test]
+    fn riff_without_webp_fourcc_is_not_webp() {
+        // A RIFF/WAVE header must NOT be misdetected as WebP.
+        let mut buf = Vec::new();
+        buf.extend_from_slice(b"RIFF");
+        buf.extend_from_slice(&16u32.to_le_bytes());
+        buf.extend_from_slice(b"WAVE");
+        buf.extend_from_slice(&[0u8; 8]);
+        let res: Result<MediaMime, Error> = buf.as_slice().try_into();
+        assert!(matches!(res, Err(Error::UnsupportedFormat)));
     }
 
     /// Minimal legacy QuickTime header: a single box header declaring
