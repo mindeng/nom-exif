@@ -30,6 +30,10 @@ pub(crate) fn extract_exif(
     state: Option<ParsingState>,
     buf: &[u8],
 ) -> Result<(Option<&[u8]>, Option<ParsingState>), ParsingErrorState> {
+    // True only when resuming after a ClearAndSkip (buf[0] is a chunk
+    // boundary). Captured before `state` is consumed by the match below.
+    let past_header = matches!(state, Some(ParsingState::WebpPastHeader(_)));
+
     // (cursor start, chunk-region bytes remaining from cursor)
     let (mut cursor, mut stream_left) = match state {
         Some(ParsingState::WebpPastHeader(left)) => (0usize, left),
@@ -57,7 +61,11 @@ pub(crate) fn extract_exif(
     };
 
     // Preserve the resume bound across `Need` returns (buffer only grows).
-    let preserve = |left: usize| Some(ParsingState::WebpPastHeader(left));
+    // Only meaningful once past the header: in the initial header path a
+    // `Need` must return `None` so the resumed call re-validates the 12-byte
+    // RIFF header still sitting at buf[0] (mirrors png.rs). Returning
+    // `WebpPastHeader` there would reset the cursor to 0 and misread "RIFF".
+    let preserve = |left: usize| past_header.then_some(ParsingState::WebpPastHeader(left));
 
     loop {
         // No room in the declared chunk region for another chunk header → done.
@@ -95,6 +103,13 @@ pub(crate) fn extract_exif(
             }
         };
 
+        // Chunk claims more than the RIFF container allows — stop at the
+        // container boundary. Placed before the EXIF branch so we never
+        // return bytes from outside the declared RIFF region.
+        if total > stream_left {
+            return Ok((None, Some(ParsingState::WebpPastHeader(0))));
+        }
+
         if fourcc == b"EXIF" {
             if total > in_buf {
                 return Err(ParsingErrorState::new(
@@ -109,13 +124,12 @@ pub(crate) fn extract_exif(
             if payload.starts_with(b"Exif\0\0") {
                 payload = &payload[6..];
             }
+            // A chunk containing only the stray marker (no TIFF body) is not
+            // usable EXIF — report it as absent rather than an empty slice.
+            if payload.is_empty() {
+                return Ok((None, preserve(stream_left)));
+            }
             return Ok((Some(payload), preserve(stream_left)));
-        }
-
-        // Chunk claims more than the RIFF container allows — treat as the end
-        // of useful data rather than skipping past EOF.
-        if total > stream_left {
-            return Ok((None, Some(ParsingState::WebpPastHeader(0))));
         }
 
         // Non-EXIF chunk. If it isn't fully buffered, skip it whole: advance
@@ -276,5 +290,47 @@ mod tests {
         // Any of Ok(None)/Need/ClearAndSkip/Failed is fine; the contract is
         // "no panic, no wrap-around, no infinite loop".
         let _ = extract_exif(None, &buf);
+    }
+
+    #[test]
+    fn header_only_need_then_resume_finds_exif() {
+        // First call sees only the 12-byte RIFF header (streaming I/O). It must
+        // return Need with state None (NOT WebpPastHeader) so the resumed call
+        // re-validates the header at buf[0] instead of misreading "RIFF" as a
+        // chunk header. This is the regression test for the Critical fix.
+        let tiff = minimal_tiff_le();
+        let full = webp(&[chunk(b"EXIF", &tiff)]);
+        let header_only = &full[..WEBP_HEADER_LEN];
+        let err = extract_exif(None, header_only).unwrap_err();
+        assert!(matches!(err.err, ParsingError::Need(_)));
+        assert!(
+            err.state.is_none(),
+            "initial-path Need must not carry WebpPastHeader"
+        );
+        let (exif, _) = extract_exif(err.state, &full).unwrap();
+        assert_eq!(exif.unwrap(), tiff.as_slice());
+    }
+
+    #[test]
+    fn non_exif_chunk_exceeding_riff_bound_returns_none() {
+        // RIFF declares a 12-byte chunk region but a chunk claims 1000 bytes.
+        // The walker must stop at the container boundary → Ok(None).
+        let mut buf = Vec::new();
+        buf.extend_from_slice(b"RIFF");
+        buf.extend_from_slice(&16u32.to_le_bytes()); // chunk region = 16 - 4 = 12
+        buf.extend_from_slice(b"WEBP");
+        buf.extend_from_slice(b"VP8L");
+        buf.extend_from_slice(&1000u32.to_le_bytes());
+        let (exif, _) = extract_exif(None, &buf).unwrap();
+        assert!(exif.is_none());
+    }
+
+    #[test]
+    fn exif_chunk_only_prefix_returns_none() {
+        // An EXIF chunk containing just the stray "Exif\0\0" marker and no
+        // TIFF body must not yield an empty EXIF slice.
+        let buf = webp(&[chunk(b"EXIF", b"Exif\0\0")]);
+        let (exif, _) = extract_exif(None, &buf).unwrap();
+        assert!(exif.is_none());
     }
 }
