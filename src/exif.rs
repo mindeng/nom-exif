@@ -250,6 +250,7 @@ fn extract_exif_range(
         ParsingState::HeifExifSize(_) => None,
         ParsingState::Cr3ExifSize(_) => None,
         ParsingState::PngPastSignature => None,
+        ParsingState::WebpPastHeader(_) => None,
     });
     Ok(exif_data
         .and_then(|x| buf.subslice_in_range(x))

@@ -507,6 +507,11 @@ pub(crate) enum ParsingState {
     /// Carried across `Need` / `ClearAndSkip` retries so the resumed
     /// call doesn't re-check signature against a mid-stream slice.
     PngPastSignature,
+    /// WebP RIFF walker has validated the 12-byte header and skipped some
+    /// chunks. Carries the number of chunk-stream bytes still remaining
+    /// (from the resumed buffer's start) so the walker can stop cleanly at
+    /// the end of the RIFF chunk region — WebP has no terminator chunk.
+    WebpPastHeader(usize),
 }
 
 impl Display for ParsingState {
@@ -516,6 +521,9 @@ impl Display for ParsingState {
             ParsingState::HeifExifSize(n) => Display::fmt(&format!("ParsingState: {n}"), f),
             ParsingState::Cr3ExifSize(n) => Display::fmt(&format!("ParsingState: {n}"), f),
             ParsingState::PngPastSignature => f.write_str("ParsingState: PngPastSignature"),
+            ParsingState::WebpPastHeader(n) => {
+                Display::fmt(&format!("ParsingState: WebpPastHeader({n})"), f)
+            }
         }
     }
 }
