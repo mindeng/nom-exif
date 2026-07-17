@@ -38,7 +38,7 @@ impl PartialVec {
 
     pub(crate) fn from_arc_vec_slice(vec: Arc<Vec<u8>>, subslice: &[u8]) -> PartialVec {
         let range = vec
-            .subslice_range(subslice)
+            .subslice_in_range(subslice)
             .expect("subslice should be a sub slice of self");
         Self::new(vec, range)
     }
@@ -51,7 +51,7 @@ impl PartialVec {
     pub(crate) fn partial(&self, subslice: &[u8]) -> AssociatedInput {
         let range = self
             .data
-            .subslice_range(subslice)
+            .subslice_in_range(subslice)
             .expect("subslice should be a sub slice of self");
 
         AssociatedInput::new(self.data.clone(), range)
@@ -132,7 +132,7 @@ pub(crate) type AssociatedInput = PartialVec;
 // impl AssociatedInput {
 //     pub(crate) fn make_associated(&self, subslice: &[u8]) -> AssociatedInput {
 //         let _ = self
-//             .subslice_range(subslice)
+//             .subslice_in_range(subslice)
 //             .expect("subslice should be a sub slice of self");
 
 //         AssociatedInput::new(subslice)
