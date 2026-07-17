@@ -284,7 +284,7 @@ mod tests {
         let buf = read_sample(path).unwrap();
         let (_, data) = extract_exif_data(&buf).unwrap();
         let data = data
-            .and_then(|x| buf.subslice_range(x))
+            .and_then(|x| buf.subslice_in_range(x))
             .map(|x| PartialVec::from_vec_range(buf, x))
             .unwrap();
         let iter = input_into_iter(data, None).unwrap();
@@ -297,7 +297,7 @@ mod tests {
         let buf = read_sample(path).unwrap();
         let (_, data) = extract_exif_data(&buf).unwrap();
         let data = data
-            .and_then(|x| buf.subslice_range(x))
+            .and_then(|x| buf.subslice_in_range(x))
             .map(|x| PartialVec::from_vec_range(buf, x))
             .unwrap();
         let iter = input_into_iter(data, None).unwrap();

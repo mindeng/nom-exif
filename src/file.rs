@@ -238,7 +238,7 @@ fn parse_bmff_mime(input: &[u8]) -> crate::Result<Mime> {
 
     if MP4_BRAND_NAMES
         .iter()
-        .any(|v| compatible_brands.subslice_range(v.as_bytes()).is_some())
+        .any(|v| compatible_brands.subslice_in_range(v.as_bytes()).is_some())
     {
         if major_brand.starts_with(b"3gp") {
             return Ok(Mime::Video(MimeVideo::_3gpp));
