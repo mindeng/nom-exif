@@ -391,7 +391,7 @@ fn parse_seeks(input: &[u8], pos: usize) -> Result<HashMap<u32, u64>, ParsingErr
     let header_pos = pos + cursor.position() as usize - header.header_size;
     let mut cur = Cursor::new(&cursor.chunk()[..header.data_size]);
     let mut seeks = parse_seek_head(&mut cur)?;
-    for (_, pos) in seeks.iter_mut() {
+    for pos in seeks.values_mut() {
         *pos += header_pos as u64;
     }
     Ok(seeks)
