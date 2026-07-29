@@ -1,5 +1,17 @@
 # Changelog
 
+## nom-exif v3.6.2 (2026-07-29)
+
+### Fixed
+
+- **Avoid overflow panic on malformed HEIF `iloc` extent offsets** — a
+  crafted or corrupt `iloc` box could produce extent/base offsets that
+  overflow when summed, panicking in debug builds (and wrapping in
+  release). Offset arithmetic in `iloc`/`meta` now uses checked addition
+  and returns `None` for out-of-range extents instead of panicking, so
+  Exif extraction fails gracefully on such files.
+  [#64](https://github.com/mindeng/nom-exif/pull/64)
+
 ## nom-exif v3.6.1 (2026-06-11)
 
 ### Fixed
