@@ -118,11 +118,8 @@ impl IlocBox {
     pub fn item_offset_len(&self, id: u32) -> Option<(ConstructionMethod, u64, u64)> {
         self.items.get(&id).and_then(|item| {
             let extent = item.extents.first()?;
-            Some((
-                item.construction_method,
-                item.base_offset + extent.offset,
-                extent.length,
-            ))
+            let offset = item.base_offset.checked_add(extent.offset)?;
+            Some((item.construction_method, offset, extent.length))
         })
     }
 }

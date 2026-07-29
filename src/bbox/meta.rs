@@ -113,8 +113,8 @@ impl MetaBox {
                     .and_then(|iloc| iloc.item_offset_len(exif_infe.id))
             })
             .and_then(|(construction_method, offset, length)| {
-                let start = offset as usize;
-                let end = (offset + length) as usize;
+                let start = usize::try_from(offset).ok()?;
+                let end = usize::try_from(offset.checked_add(length)?).ok()?;
                 match construction_method {
                     ConstructionMethod::FileOffset => Some(start..end),
                     ConstructionMethod::IdatOffset => {
@@ -136,6 +136,18 @@ mod tests {
 
     use super::*;
     use test_case::test_case;
+
+    #[test]
+    fn exif_data_offset_overflowing_iloc() {
+        let hex = "000000556d657461000000000000002369696e6600000000000100000015696e66650200000000010000457869660000000026696c6f630000000088000001000100000001ffffffffffffffff0000000000000001";
+        let buf: Vec<u8> = (0..hex.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+            .collect();
+        let (remain, meta) = MetaBox::parse_box(&buf).unwrap();
+        assert_eq!(remain, b"");
+        assert_eq!(meta.exif_data_offset(), None);
+    }
 
     #[test_case("exif.heic", 2618)]
     fn meta(path: &str, meta_size: usize) {
