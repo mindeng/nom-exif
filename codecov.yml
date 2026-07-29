@@ -1,0 +1,11 @@
+coverage:
+  status:
+    project:
+      default:
+        # Absorb coverage-measurement noise (a few lines' jitter across runs)
+        # so commits without real coverage regressions don't get flagged.
+        # Docs-only/version-bump commits in particular must not fail here.
+        threshold: 0.5%
+    patch:
+      default:
+        threshold: 0.5%
