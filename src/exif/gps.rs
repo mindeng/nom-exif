@@ -311,9 +311,45 @@ impl FromStr for GPSInfo {
     type Err = crate::ConvertError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         iso6709parse::parse::<ISO6709Coord>(s)
-            .map(GPSInfo::from_iso6709_coord)
+            .map(|mut coord| {
+                // `iso6709parse` only decodes the altitude field when a `CRS`
+                // tag follows it, so Apple's default `±lat±lon±alt/` form (no
+                // CRS) loses the altitude. Recover it ourselves. See #66.
+                if coord.altitude.is_none() {
+                    coord.altitude = parse_iso6709_altitude(s);
+                }
+                GPSInfo::from_iso6709_coord(coord)
+            })
             .map_err(|_| crate::ConvertError::InvalidIso6709(s.to_string()))
     }
+}
+
+/// Extract the altitude (third signed numeric field) from an ISO 6709 string
+/// representation such as `+47.7199-117.4931+522.171/`. Each field is a `+`/`-`
+/// sign followed by a run of digits and dots, so a trailing `CRS…` suffix and
+/// the closing `/` are skipped naturally. Returns `None` when there is no third
+/// field (a plain `±lat±lon/` pair), so a two-field string never mistakes the
+/// longitude for an altitude.
+fn parse_iso6709_altitude(s: &str) -> Option<f64> {
+    let bytes = s.as_bytes();
+    let mut fields = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'+' || bytes[i] == b'-' {
+            let start = i;
+            i += 1;
+            while i < bytes.len() && (bytes[i].is_ascii_digit() || bytes[i] == b'.') {
+                i += 1;
+            }
+            fields += 1;
+            if fields == 3 {
+                return s[start..i].parse::<f64>().ok();
+            }
+        } else {
+            i += 1;
+        }
+    }
+    None
 }
 
 impl GPSInfo {
@@ -456,14 +492,16 @@ mod tests {
     }
 
     #[test]
-    fn gps_iso6709_with_invalid_alt() {
+    fn gps_iso6709_altitude_without_crs() {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 
+        // `iso6709parse` itself drops the altitude when no `CRS` tag follows...
         let iso: ISO6709Coord = iso6709parse::parse("+26.5322-078.1969+019.099/").unwrap();
         assert_eq!(iso.lat, 26.5322);
         assert_eq!(iso.lon, -78.1969);
         assert_eq!(iso.altitude, None);
 
+        // ...but GPSInfo::from_str recovers it (see #66).
         let iso: GPSInfo = "+26.5322-078.1969+019.099/".parse().unwrap();
         assert_eq!(iso.latitude_ref, LatRef::North);
         assert_eq!(
@@ -485,7 +523,40 @@ mod tests {
             )
         );
 
-        assert_eq!(iso.altitude, Altitude::Unknown);
+        assert_eq!(
+            iso.altitude,
+            Altitude::AboveSeaLevel(URational::new(19099, 1000))
+        );
+    }
+
+    #[test]
+    fn gps_iso6709_apple_altitude_without_crs_issue_66() {
+        // Regression for #66: Apple's default QuickTime location form has a
+        // signed altitude field but no `CRS` suffix, e.g.
+        // `+47.7199-117.4931+522.171/`. The `iso6709parse` crate only decodes
+        // altitude when a `CRS` tag follows, so it drops the altitude here; we
+        // fall back to parsing the third signed field ourselves.
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
+        let gps: GPSInfo = "+47.7199-117.4931+522.171/".parse().unwrap();
+        assert_eq!(
+            gps.altitude,
+            Altitude::AboveSeaLevel(URational::new(522171, 1000))
+        );
+        assert_eq!(gps.altitude_meters(), Some(522.171));
+
+        // Negative altitude, still no CRS.
+        let gps: GPSInfo = "+47.7199-117.4931-12.5/".parse().unwrap();
+        assert_eq!(gps.altitude_meters(), Some(-12.5));
+
+        // No altitude field at all -> stays Unknown (the trailing longitude
+        // must not be mistaken for an altitude).
+        let gps: GPSInfo = "+47.7199-117.4931/".parse().unwrap();
+        assert_eq!(gps.altitude, Altitude::Unknown);
+
+        // CRS-suffixed altitude still works (handled by iso6709parse directly).
+        let gps: GPSInfo = "+47.7199-117.4931+522.171CRSWGS_84/".parse().unwrap();
+        assert_eq!(gps.altitude_meters(), Some(522.171));
     }
 
     #[test]

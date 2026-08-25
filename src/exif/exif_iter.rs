@@ -272,16 +272,14 @@ impl ExifIter {
             });
         }
 
-        let mut gps_subifd = match IfdIter::try_new(
+        let mut gps_subifd = IfdIter::try_new(
             gps.ifd().as_usize(),
             iter.input.clone(),
             iter.tiff_header,
             offset as usize,
             iter.tz.clone(),
-        ) {
-            Ok(ifd0) => ifd0.tag_code(ExifTag::GPSInfo.code()),
-            Err(e) => return Err(e),
-        };
+        )?
+        .tag_code(ExifTag::GPSInfo.code());
         Ok(gps_subifd.parse_gps_info())
     }
 

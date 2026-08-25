@@ -250,7 +250,8 @@ pub(crate) fn get_as_f64(cursor: &mut Cursor<&[u8]>, size: usize) -> Option<f64>
 
     let n = match size {
         4 => {
-            let buf = [0u8; 4];
+            let mut buf = [0u8; 4];
+            cursor.read_exact(&mut buf).ok()?;
             f32::from_be_bytes(buf) as f64
         }
         5..=8 => {
