@@ -834,4 +834,51 @@ mod tests {
         }
         assert!(TryInto::<SegmentId>::try_into(0u64).is_err());
     }
+
+    fn hex(s: &str) -> Vec<u8> {
+        (0..s.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+            .collect()
+    }
+
+    fn duration_ms(h: &str) -> u64 {
+        use crate::{MediaParser, MediaSource};
+        let bytes = hex(h);
+        let mut p = MediaParser::new();
+        let info = p
+            .parse_track(MediaSource::from_memory(bytes).unwrap())
+            .unwrap();
+        match info.get(TrackInfoTag::DurationMs).unwrap() {
+            EntryValue::U64(v) => *v,
+            other => panic!("unexpected DurationMs value: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn webm_four_octet_float_duration() {
+        // Regression for #65: a 4-octet (f32) Duration must decode to the same
+        // value as the 8-octet (f64) form, and must advance the cursor so that
+        // elements following Duration inside Info still parse. Each fragment
+        // encodes Duration = 12000 ticks with TimestampScale = 1_000_000 ns.
+
+        // A: 8-octet Duration (control).
+        assert_eq!(
+            duration_ms("1a45dfa3884282857765626d0018538067a91549a966932ad7b184000f424044898840c77000000000001654ae6b8cae8ae088b0820280ba8201e0"),
+            12000
+        );
+        // B: 4-octet Duration, same value.
+        assert_eq!(
+            duration_ms("1a45dfa3884282857765626d0018538067a51549a9668f2ad7b184000f4240448984463b80001654ae6b8cae8ae088b0820280ba8201e0"),
+            12000
+        );
+        // C: 4-octet Duration followed by a DateUTC (0x4461) element — the
+        // un-advanced cursor previously desynced the whole Info element, so
+        // the element after Duration was misread. (The fragment from the issue
+        // had an off-by-2 Info/Segment size; this is the size-consistent form.)
+        assert_eq!(
+            duration_ms("1a45dfa3884282857765626d0018538067b01549a9669a2ad7b184000f4240448984463b80004461880a1298e70e1eb8001654ae6b8cae8ae088b0820280ba8201e0"),
+            12000
+        );
+    }
 }
