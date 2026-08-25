@@ -1,5 +1,26 @@
 # Changelog
 
+## nom-exif v3.6.3 (2026-08-25)
+
+### Fixed
+
+- **Read 4-octet float Matroska/WebM `Duration` and stop the cursor
+  desync** — a `Duration` element stored as a 4-octet (`f32`) float was
+  decoded from a zero-initialized buffer, so it always came back as `0`
+  and, because the cursor was never advanced, every element following
+  `Duration` inside `Info` was misread (either losing the duration or
+  failing the whole parse). The 4-octet branch now reads the bytes and
+  advances the cursor, matching the 8-octet form.
+  [#65](https://github.com/mindeng/nom-exif/issues/65)
+
+- **Recover altitude from CRS-less ISO 6709 track GPS** — Apple's default
+  QuickTime location string (`+lat+lon+alt/`, no `CRS` suffix) lost its
+  altitude because `iso6709parse` only decodes the altitude field when a
+  `CRS` tag follows. `GPSInfo::from_str` now parses the trailing signed
+  altitude field itself, so `+47.7199-117.4931+522.171/` decodes to
+  `522.171 m` instead of dropping it.
+  [#66](https://github.com/mindeng/nom-exif/issues/66)
+
 ## nom-exif v3.6.2 (2026-07-29)
 
 ### Fixed
