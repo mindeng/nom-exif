@@ -507,6 +507,11 @@ pub(crate) enum ParsingState {
     /// Carried across `Need` / `ClearAndSkip` retries so the resumed
     /// call doesn't re-check signature against a mid-stream slice.
     PngPastSignature,
+    /// WebP RIFF walker has validated the 12-byte header and skipped some
+    /// chunks. Carries the number of chunk-stream bytes still remaining
+    /// (from the resumed buffer's start) so the walker can stop cleanly at
+    /// the end of the RIFF chunk region — WebP has no terminator chunk.
+    WebpPastHeader(usize),
 }
 
 impl Display for ParsingState {
@@ -516,6 +521,9 @@ impl Display for ParsingState {
             ParsingState::HeifExifSize(n) => Display::fmt(&format!("ParsingState: {n}"), f),
             ParsingState::Cr3ExifSize(n) => Display::fmt(&format!("ParsingState: {n}"), f),
             ParsingState::PngPastSignature => f.write_str("ParsingState: PngPastSignature"),
+            ParsingState::WebpPastHeader(n) => {
+                Display::fmt(&format!("ParsingState: WebpPastHeader({n})"), f)
+            }
         }
     }
 }
@@ -803,7 +811,9 @@ impl MediaParser {
                 // keep the strict-EOF contract.
                 let is_png = matches!(
                     ms.mime,
-                    crate::file::MediaMime::Image(crate::file::MediaMimeImage::Png)
+                    crate::file::MediaMime::Image(
+                        crate::file::MediaMimeImage::Png | crate::file::MediaMimeImage::Webp
+                    )
                 );
                 match self.fill_buf(&mut ms.reader, INIT_BUF_SIZE) {
                     Ok(_) => {}
@@ -972,7 +982,10 @@ impl MediaParser {
                 // fill_buf returns UnexpectedEof. The bytes we need are
                 // already in the parse buffer — proceed. Other formats keep
                 // the strict-EOF contract.
-                let is_png = mime_img == crate::file::MediaMimeImage::Png;
+                let is_png = matches!(
+                    mime_img,
+                    crate::file::MediaMimeImage::Png | crate::file::MediaMimeImage::Webp
+                );
                 match self.fill_buf(&mut ms.reader, INIT_BUF_SIZE) {
                     Ok(_) => {}
                     Err(e)
@@ -1093,7 +1106,9 @@ mod tokio_impl {
                     // buffer; proceed.
                     let is_png = matches!(
                         ms.mime,
-                        crate::file::MediaMime::Image(crate::file::MediaMimeImage::Png)
+                        crate::file::MediaMime::Image(
+                            crate::file::MediaMimeImage::Png | crate::file::MediaMimeImage::Webp
+                        )
                     );
                     match <Self as AsyncBufParser>::fill_buf(self, &mut ms.reader, INIT_BUF_SIZE)
                         .await
@@ -1143,7 +1158,10 @@ mod tokio_impl {
                     // consumed during mime detection, so fill_buf returns
                     // UnexpectedEof; the bytes we need are already in the
                     // parse buffer.
-                    let is_png = mime_img == crate::file::MediaMimeImage::Png;
+                    let is_png = matches!(
+                        mime_img,
+                        crate::file::MediaMimeImage::Png | crate::file::MediaMimeImage::Webp
+                    );
                     match <Self as AsyncBufParser>::fill_buf(self, &mut ms.reader, INIT_BUF_SIZE)
                         .await
                     {
@@ -2209,5 +2227,115 @@ mod tests {
         let img = parser.parse_image_metadata_async(ms).await.unwrap();
         assert!(img.exif.is_none());
         assert!(img.format.is_some());
+    }
+
+    // --- WebP synthetic-buffer helpers (mirror src/webp.rs test builders) ---
+    fn webp_minimal_tiff_le() -> Vec<u8> {
+        // II + 0x002A + IFD0 offset 8 + IFD0 with one tag (Make="A") + next=0.
+        let mut t = Vec::new();
+        t.extend_from_slice(b"II");
+        t.extend_from_slice(&[0x2a, 0x00]);
+        t.extend_from_slice(&[0x08, 0, 0, 0]); // IFD0 at offset 8
+        t.extend_from_slice(&[0x01, 0x00]); // 1 entry
+                                            // Tag 0x010F (Make), type 2 (ASCII), count 2, inline value "A\0".
+        t.extend_from_slice(&[0x0f, 0x01]); // tag 0x010F
+        t.extend_from_slice(&[0x02, 0x00]); // type ASCII
+        t.extend_from_slice(&[0x02, 0x00, 0x00, 0x00]); // count 2
+        t.extend_from_slice(b"A\0\0\0"); // value "A\0" padded to 4 bytes
+        t.extend_from_slice(&[0, 0, 0, 0]); // next IFD = 0
+        t
+    }
+
+    fn webp_with_exif(tiff: &[u8]) -> Vec<u8> {
+        let mut exif_chunk = Vec::new();
+        exif_chunk.extend_from_slice(b"EXIF");
+        exif_chunk.extend_from_slice(&(tiff.len() as u32).to_le_bytes());
+        exif_chunk.extend_from_slice(tiff);
+        if tiff.len() % 2 == 1 {
+            exif_chunk.push(0);
+        }
+        let mut vp8x = Vec::new();
+        vp8x.extend_from_slice(b"VP8X");
+        vp8x.extend_from_slice(&10u32.to_le_bytes());
+        vp8x.extend_from_slice(&[0u8; 10]);
+
+        let mut body = Vec::new();
+        body.extend_from_slice(b"WEBP");
+        body.extend_from_slice(&vp8x);
+        body.extend_from_slice(&exif_chunk);
+
+        let mut out = Vec::new();
+        out.extend_from_slice(b"RIFF");
+        out.extend_from_slice(&(body.len() as u32).to_le_bytes());
+        out.extend_from_slice(&body);
+        out
+    }
+
+    #[test]
+    fn parse_exif_webp_from_memory() {
+        let tiff = webp_minimal_tiff_le();
+        let buf = webp_with_exif(&tiff);
+        let mut parser = MediaParser::new();
+        let ms = MediaSource::from_memory(buf).unwrap();
+        let iter = parser.parse_exif(ms).unwrap();
+        let exif: crate::Exif = iter.into();
+        assert_eq!(
+            exif.get(crate::ExifTag::Make).and_then(|v| v.as_str()),
+            Some("A")
+        );
+    }
+
+    #[test]
+    fn parse_exif_webp_no_exif_returns_not_found() {
+        // RIFF/WEBP with only a VP8X chunk (no EXIF).
+        let mut vp8x = Vec::new();
+        vp8x.extend_from_slice(b"VP8X");
+        vp8x.extend_from_slice(&10u32.to_le_bytes());
+        vp8x.extend_from_slice(&[0u8; 10]);
+        let mut body = Vec::new();
+        body.extend_from_slice(b"WEBP");
+        body.extend_from_slice(&vp8x);
+        let mut buf = Vec::new();
+        buf.extend_from_slice(b"RIFF");
+        buf.extend_from_slice(&(body.len() as u32).to_le_bytes());
+        buf.extend_from_slice(&body);
+
+        let mut parser = MediaParser::new();
+        let ms = MediaSource::from_memory(buf).unwrap();
+        let res = parser.parse_exif(ms);
+        assert!(matches!(res, Err(crate::Error::ExifNotFound)));
+    }
+
+    #[test]
+    fn parse_exif_webp_streaming_small_file() {
+        // Exercises the Png|Webp small-file EOF tolerance on the streaming
+        // path: a sub-INIT_BUF_SIZE WebP fully consumed during MIME prefill.
+        use std::io::Cursor;
+        let tiff = webp_minimal_tiff_le();
+        let buf = webp_with_exif(&tiff);
+        let mut parser = MediaParser::new();
+        let ms = MediaSource::seekable(Cursor::new(buf)).unwrap();
+        let iter = parser.parse_exif(ms).unwrap();
+        let exif: crate::Exif = iter.into();
+        assert_eq!(
+            exif.get(crate::ExifTag::Make).and_then(|v| v.as_str()),
+            Some("A")
+        );
+    }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test]
+    async fn parse_exif_webp_async_from_memory() {
+        use crate::AsyncMediaSource;
+        let tiff = webp_minimal_tiff_le();
+        let buf = webp_with_exif(&tiff);
+        let mut parser = MediaParser::new();
+        let ms = AsyncMediaSource::from_memory(buf).unwrap();
+        let iter = parser.parse_exif_async(ms).await.unwrap();
+        let exif: crate::Exif = iter.into();
+        assert_eq!(
+            exif.get(crate::ExifTag::Make).and_then(|v| v.as_str()),
+            Some("A")
+        );
     }
 }

@@ -33,7 +33,7 @@ track metadata** through a single unified API. Built on
 
 ## Supported File Types
 
-- **Image**: JPEG, PNG, HEIC/HEIF, AVIF, TIFF, Phase One IIQ, Fujifilm RAF, Canon CR3
+- **Image**: JPEG, PNG, WebP, HEIC/HEIF, AVIF, TIFF, Phase One IIQ, Fujifilm RAF, Canon CR3
 - **Video/Audio**: MP4, MOV, 3GP (ISOBMFF); MKV, WEBM, MKA (Matroska)
 
 ## Quick Start

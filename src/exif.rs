@@ -250,6 +250,7 @@ fn extract_exif_range(
         ParsingState::HeifExifSize(_) => None,
         ParsingState::Cr3ExifSize(_) => None,
         ParsingState::PngPastSignature => None,
+        ParsingState::WebpPastHeader(_) => None,
     });
     Ok(exif_data
         .and_then(|x| buf.subslice_in_range(x))
@@ -398,6 +399,7 @@ pub(crate) fn extract_exif_with_mime(
             // parse_exif_iter; this arm is unreachable in v3.3.
             unreachable!("PNG should have been dispatched at parse_exif_iter top");
         }
+        MediaMimeImage::Webp => crate::webp::extract_exif(state, buf)?,
     };
     Ok((exif_data, state))
 }

@@ -204,6 +204,7 @@ pub enum MalformedKind {
     IsoBmffBox,
     EbmlElement,
     PngChunk,
+    WebpChunk,
 }
 
 impl std::fmt::Display for MalformedKind {
@@ -215,6 +216,7 @@ impl std::fmt::Display for MalformedKind {
             Self::IsoBmffBox => "iso-bmff box",
             Self::EbmlElement => "ebml element",
             Self::PngChunk => "png chunk",
+            Self::WebpChunk => "webp chunk",
         };
         f.write_str(s)
     }
@@ -292,6 +294,7 @@ mod tests {
             MalformedKind::IsoBmffBox,
             MalformedKind::EbmlElement,
             MalformedKind::PngChunk,
+            MalformedKind::WebpChunk,
         ] {
             let _ = format!("{k:?}");
         }

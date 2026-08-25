@@ -368,6 +368,7 @@ mod slice;
 mod utils;
 mod values;
 mod video;
+mod webp;
 
 #[cfg(test)]
 mod testkit;
