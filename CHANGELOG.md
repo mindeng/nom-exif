@@ -1,5 +1,20 @@
 # Changelog
 
+## nom-exif v2.8.1
+
+### Fixed
+
+- **ISO 6709 track GPS: fix seconds scaling and recover CRS-less altitude**
+  ([#66](https://github.com/mindeng/nom-exif/issues/66)) — for QuickTime/MP4
+  `©xyz` / `com.apple.quicktime.location.ISO6709` locations:
+  - The fraction of a minute was stored unscaled in the seconds slot, a
+    positional error of up to a full minute's worth of scaling (~350 m).
+    It is now multiplied by 60 before storing hundredths, so
+    `+47.7199…` decomposes to `47° 43' 11.64"` instead of `47° 43' 0.19"`.
+  - Apple's default `+lat+lon+alt/` form has no `CRS` suffix, and
+    `iso6709parse` only decodes altitude when a `CRS` tag follows, so the
+    altitude was dropped. It is now recovered, e.g. `+522.171` → `522.171 m`.
+
 ## nom-exif v2.8.0
 
 ### Added
