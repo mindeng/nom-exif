@@ -1,12 +1,15 @@
 # Changelog
 
-## Unreleased
+## nom-exif v3.7.0 (2026-08-25)
 
 ### Added
 
-- **WebP (RIFF/WEBP) image support** — extracts EXIF/GPS from the
-  `EXIF` chunk via the unified `parse_exif` / `read_exif` (sync +
-  async) APIs.
+- **WebP (RIFF/WEBP) image support** — detects RIFF/WEBP files and
+  extracts EXIF/GPS from the `EXIF` chunk via the unified `parse_exif` /
+  `read_exif` (sync + async) APIs. The chunk walker skips the image
+  bitstream to reach the trailing `EXIF` chunk and is bounded by the
+  RIFF size field. Scope is EXIF-only (no XMP).
+  [#61](https://github.com/mindeng/nom-exif/pull/61)
 
 ## nom-exif v3.6.3 (2026-08-25)
 
