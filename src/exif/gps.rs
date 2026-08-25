@@ -156,9 +156,43 @@ pub struct InvalidISO6709Coord;
 impl FromStr for GPSInfo {
     type Err = InvalidISO6709Coord;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let info: Self = iso6709parse::parse(s).map_err(|_| InvalidISO6709Coord)?;
-        Ok(info)
+        let mut coord: ISO6709Coord = iso6709parse::parse(s).map_err(|_| InvalidISO6709Coord)?;
+        // `iso6709parse` only decodes the altitude field when a `CRS` tag
+        // follows it, so Apple's default `±lat±lon±alt/` form (no CRS) loses
+        // the altitude. Recover it ourselves. See #66.
+        if coord.altitude.is_none() {
+            coord.altitude = parse_iso6709_altitude(s);
+        }
+        Ok(coord.into())
     }
+}
+
+/// Extract the altitude (third signed numeric field) from an ISO 6709 string
+/// representation such as `+47.7199-117.4931+522.171/`. Each field is a `+`/`-`
+/// sign followed by a run of digits and dots, so a trailing `CRS…` suffix and
+/// the closing `/` are skipped naturally. Returns `None` when there is no third
+/// field (a plain `±lat±lon/` pair), so a two-field string never mistakes the
+/// longitude for an altitude.
+fn parse_iso6709_altitude(s: &str) -> Option<f64> {
+    let bytes = s.as_bytes();
+    let mut fields = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'+' || bytes[i] == b'-' {
+            let start = i;
+            i += 1;
+            while i < bytes.len() && (bytes[i].is_ascii_digit() || bytes[i] == b'.') {
+                i += 1;
+            }
+            fields += 1;
+            if fields == 3 {
+                return s[start..i].parse::<f64>().ok();
+            }
+        } else {
+            i += 1;
+        }
+    }
+    None
 }
 
 impl From<ISO6709Coord> for GPSInfo {
@@ -191,7 +225,9 @@ impl From<f64> for LatLng {
         [
             (v.trunc() as u32, 1),
             (mins.trunc() as u32, 1),
-            ((mins.fract() * 100.0).trunc() as u32, 100),
+            // The leftover fraction is a fraction *of a minute*, so it must be
+            // scaled by 60 to reach seconds before storing hundredths. See #66.
+            ((mins.fract() * 60.0 * 100.0).round() as u32, 100),
         ]
         .into()
     }
@@ -322,22 +358,25 @@ mod tests {
     }
 
     #[test]
-    fn gps_iso6709_with_invalid_alt() {
+    fn gps_iso6709_altitude_without_crs() {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 
+        // `iso6709parse` itself drops the altitude when no `CRS` tag follows...
         let iso: ISO6709Coord = iso6709parse::parse("+26.5322-078.1969+019.099/").unwrap();
         assert_eq!(iso.lat, 26.5322);
         assert_eq!(iso.lon, -78.1969);
         assert_eq!(iso.altitude, None);
 
-        let iso: GPSInfo = iso6709parse::parse("+26.5322-078.1969+019.099/").unwrap();
+        // ...but GPSInfo::from_str recovers it, and the minute-fraction is now
+        // scaled into the seconds slot correctly. See #66.
+        let iso: GPSInfo = "+26.5322-078.1969+019.099/".parse().ok().unwrap();
         assert_eq!(iso.latitude_ref, 'N');
         assert_eq!(
             iso.latitude,
             LatLng(
                 Rational::<u32>(26, 1),
                 Rational::<u32>(31, 1),
-                Rational::<u32>(93, 100),
+                Rational::<u32>(5592, 100),
             )
         );
 
@@ -347,16 +386,51 @@ mod tests {
             LatLng(
                 Rational::<u32>(78, 1),
                 Rational::<u32>(11, 1),
-                Rational::<u32>(81, 100),
+                Rational::<u32>(4884, 100),
             )
         );
 
         assert_eq!(iso.altitude_ref, 0);
+        assert_eq!(iso.altitude, Rational::<u32>(19099, 1000));
+    }
+
+    #[test]
+    fn gps_iso6709_apple_altitude_without_crs_issue_66() {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
+        // Apple's default QuickTime location form: signed altitude, no CRS
+        // suffix. 2.8.0 had two defects here — the minute-fraction landed
+        // unscaled in the seconds slot, and the altitude was dropped. See #66.
+        let gps: GPSInfo = "+47.7199-117.4931+522.171/".parse().ok().unwrap();
+        assert_eq!(gps.latitude_ref, 'N');
         assert_eq!(
-            iso.altitude,
-            URational {
-                ..Default::default()
-            }
+            gps.latitude,
+            LatLng(
+                Rational::<u32>(47, 1),
+                Rational::<u32>(43, 1),
+                Rational::<u32>(1164, 100),
+            )
         );
+        assert_eq!(gps.longitude_ref, 'W');
+        assert_eq!(
+            gps.longitude,
+            LatLng(
+                Rational::<u32>(117, 1),
+                Rational::<u32>(29, 1),
+                Rational::<u32>(3516, 100),
+            )
+        );
+        assert_eq!(gps.altitude_ref, 0);
+        assert_eq!(gps.altitude, Rational::<u32>(522171, 1000));
+
+        // Negative altitude, still no CRS.
+        let gps: GPSInfo = "+47.7199-117.4931-12.5/".parse().ok().unwrap();
+        assert_eq!(gps.altitude_ref, 1);
+        assert_eq!(gps.altitude, Rational::<u32>(12500, 1000));
+
+        // No altitude field at all -> the trailing longitude must not be
+        // mistaken for an altitude.
+        let gps: GPSInfo = "+47.7199-117.4931/".parse().ok().unwrap();
+        assert_eq!(gps.altitude, URational::default());
     }
 }

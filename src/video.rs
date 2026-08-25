@@ -138,7 +138,7 @@ impl TrackInfo {
 /// assert_eq!(info.get_gps_info().unwrap().latitude_ref, 'N');
 /// assert_eq!(
 ///     info.get_gps_info().unwrap().latitude,
-///     [(27, 1), (7, 1), (68, 100)].into(),
+///     [(27, 1), (7, 1), (4116, 100)].into(),
 /// );
 /// ```
 #[tracing::instrument(skip(input))]
