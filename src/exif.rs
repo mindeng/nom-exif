@@ -168,19 +168,14 @@ fn parse_cr3_exif_iter<R: Read>(
     Ok(iter)
 }
 
-/// Special parser for PNG files: walks the chunk stream via
-/// `png::extract_chunks`, materializes the resulting [`PngExifSource`]
-/// into an [`ExifIter`]. Phase 4: handles only the `eXIf` chunk path
-/// (legacy `Raw profile type *` decoding lands in phase 5).
+/// Walks PNG chunks and materializes the resulting EXIF source.
 #[tracing::instrument(skip(reader, skip_by_seek))]
 fn parse_png_exif_iter<R: Read>(
     parser: &mut MediaParser,
     reader: &mut R,
     skip_by_seek: crate::parser::SkipBySeekFn<R>,
 ) -> Result<ExifIter, crate::Error> {
-    use crate::png::{PngExifSource, PngParseOut};
-
-    let out: PngParseOut = parser.load_and_parse(reader, skip_by_seek, |buf, state| {
+    let out = parser.load_and_parse(reader, skip_by_seek, |buf, state| {
         crate::png::extract_chunks(buf, state)
     })?;
 
@@ -188,21 +183,7 @@ fn parse_png_exif_iter<R: Read>(
         return Err(crate::Error::ExifNotFound);
     };
 
-    match source {
-        PngExifSource::EXif(range) => {
-            let (full, position) = parser.share_buf();
-            let abs = (range.start + position)..(range.end + position);
-            let view = full.slice(abs);
-            input_into_iter(view, None)
-        }
-        PngExifSource::Legacy(bytes) => {
-            // Owned bytes — wrap in a fresh Bytes (separate allocation
-            // from the parser buffer; acceptable because legacy is
-            // rare and typically small).
-            let view = bytes::Bytes::from(bytes);
-            input_into_iter(view, None)
-        }
-    }
+    png_source_to_iter(parser, source)
 }
 
 /// Like [`parse_png_exif_iter`] but also returns the captured `tEXt`
@@ -214,27 +195,30 @@ pub(crate) fn parse_png_full<R: Read>(
     reader: &mut R,
     skip_by_seek: crate::parser::SkipBySeekFn<R>,
 ) -> Result<(Option<ExifIter>, Vec<(String, String)>), crate::Error> {
-    use crate::png::{PngExifSource, PngParseOut};
-
-    let out: PngParseOut = parser.load_and_parse(reader, skip_by_seek, |buf, state| {
+    let out = parser.load_and_parse(reader, skip_by_seek, |buf, state| {
         crate::png::extract_chunks(buf, state)
     })?;
 
-    let exif_iter = match out.exif {
-        Some(PngExifSource::EXif(range)) => {
-            let (full, position) = parser.share_buf();
-            let abs = (range.start + position)..(range.end + position);
-            let view = full.slice(abs);
-            Some(input_into_iter(view, None)?)
-        }
-        Some(PngExifSource::Legacy(bytes)) => {
-            let view = bytes::Bytes::from(bytes);
-            Some(input_into_iter(view, None)?)
-        }
-        None => None,
-    };
+    let exif_iter = out
+        .exif
+        .map(|source| png_source_to_iter(parser, source))
+        .transpose()?;
 
     Ok((exif_iter, out.text_chunks))
+}
+
+fn png_source_to_iter(
+    parser: &mut impl ShareBuf,
+    source: crate::png::PngExifSource,
+) -> Result<ExifIter, crate::Error> {
+    let view = match source {
+        crate::png::PngExifSource::EXif(range) => {
+            let (full, position) = parser.share_buf();
+            full.slice((range.start + position)..(range.end + position))
+        }
+        crate::png::PngExifSource::Owned(bytes) => bytes,
+    };
+    input_into_iter(view, None)
 }
 
 type ExifRangeResult = Result<Option<(Range<usize>, Option<TiffHeader>)>, ParsingErrorState>;
@@ -249,7 +233,7 @@ fn extract_exif_range(
         ParsingState::TiffHeader(h) => Some(h),
         ParsingState::HeifExifSize(_) => None,
         ParsingState::Cr3ExifSize(_) => None,
-        ParsingState::PngPastSignature => None,
+        ParsingState::Png(_) => None,
         ParsingState::WebpPastHeader(_) => None,
     });
     Ok(exif_data
@@ -428,9 +412,7 @@ where
     P: crate::parser_async::AsyncBufParser + crate::parser::ShareBuf,
     R: AsyncRead + Unpin + Send,
 {
-    use crate::png::{PngExifSource, PngParseOut};
-
-    let out: PngParseOut = parser
+    let out = parser
         .load_and_parse(reader, skip_by_seek, |buf, state| {
             crate::png::extract_chunks(buf, state)
         })
@@ -440,18 +422,7 @@ where
         return Err(crate::Error::ExifNotFound);
     };
 
-    match source {
-        PngExifSource::EXif(range) => {
-            let (full, position) = parser.share_buf();
-            let abs = (range.start + position)..(range.end + position);
-            let view = full.slice(abs);
-            input_into_iter(view, None)
-        }
-        PngExifSource::Legacy(bytes) => {
-            let view = bytes::Bytes::from(bytes);
-            input_into_iter(view, None)
-        }
-    }
+    png_source_to_iter(parser, source)
 }
 
 #[cfg(feature = "tokio")]
@@ -465,27 +436,16 @@ where
     P: crate::parser_async::AsyncBufParser + crate::parser::ShareBuf,
     R: AsyncRead + Unpin + Send,
 {
-    use crate::png::{PngExifSource, PngParseOut};
-
-    let out: PngParseOut = parser
+    let out = parser
         .load_and_parse(reader, skip_by_seek, |buf, state| {
             crate::png::extract_chunks(buf, state)
         })
         .await?;
 
-    let exif_iter = match out.exif {
-        Some(PngExifSource::EXif(range)) => {
-            let (full, position) = parser.share_buf();
-            let abs = (range.start + position)..(range.end + position);
-            let view = full.slice(abs);
-            Some(input_into_iter(view, None)?)
-        }
-        Some(PngExifSource::Legacy(bytes)) => {
-            let view = bytes::Bytes::from(bytes);
-            Some(input_into_iter(view, None)?)
-        }
-        None => None,
-    };
+    let exif_iter = out
+        .exif
+        .map(|source| png_source_to_iter(parser, source))
+        .transpose()?;
 
     Ok((exif_iter, out.text_chunks))
 }
