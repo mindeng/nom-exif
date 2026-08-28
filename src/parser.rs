@@ -503,10 +503,8 @@ pub(crate) enum ParsingState {
     TiffHeader(TiffHeader),
     HeifExifSize(usize),
     Cr3ExifSize(usize),
-    /// PNG chunk walker has already validated the 8-byte signature.
-    /// Carried across `Need` / `ClearAndSkip` retries so the resumed
-    /// call doesn't re-check signature against a mid-stream slice.
-    PngPastSignature,
+    /// PNG chunk walker state carried across streaming skips.
+    Png(crate::png::PngState),
     /// WebP RIFF walker has validated the 12-byte header and skipped some
     /// chunks. Carries the number of chunk-stream bytes still remaining
     /// (from the resumed buffer's start) so the walker can stop cleanly at
@@ -520,7 +518,7 @@ impl Display for ParsingState {
             ParsingState::TiffHeader(h) => Display::fmt(&format!("ParsingState: {h:?})"), f),
             ParsingState::HeifExifSize(n) => Display::fmt(&format!("ParsingState: {n}"), f),
             ParsingState::Cr3ExifSize(n) => Display::fmt(&format!("ParsingState: {n}"), f),
-            ParsingState::PngPastSignature => f.write_str("ParsingState: PngPastSignature"),
+            ParsingState::Png(_) => f.write_str("ParsingState: Png"),
             ParsingState::WebpPastHeader(n) => {
                 Display::fmt(&format!("ParsingState: WebpPastHeader({n})"), f)
             }
@@ -1964,7 +1962,7 @@ mod tests {
     #[test]
     fn parse_image_metadata_png_large_idat_streaming() {
         use std::io::Cursor;
-        let png = build_png_with_large_idat(INIT_BUF_SIZE + 1024);
+        let png = build_png_with_large_idat(INIT_BUF_SIZE + 1024, false);
         let mut parser = MediaParser::new();
         let ms = MediaSource::seekable(Cursor::new(png)).unwrap();
         assert_eq!(ms.kind(), crate::MediaKind::Image);
@@ -1980,7 +1978,7 @@ mod tests {
     #[test]
     fn parse_exif_png_large_idat_streaming() {
         use std::io::Cursor;
-        let png = build_png_with_large_idat(INIT_BUF_SIZE + 1024);
+        let png = build_png_with_large_idat(INIT_BUF_SIZE + 1024, false);
         let mut parser = MediaParser::new();
         let ms = MediaSource::seekable(Cursor::new(png)).unwrap();
         let res = parser.parse_exif(ms);
@@ -1995,7 +1993,7 @@ mod tests {
     /// `seek_relative` shortcut.
     #[test]
     fn parse_image_metadata_png_large_idat_unseekable() {
-        let png = build_png_with_large_idat(INIT_BUF_SIZE + 1024);
+        let png = build_png_with_large_idat(INIT_BUF_SIZE + 1024, false);
         let mut parser = MediaParser::new();
         let ms = MediaSource::unseekable(NoSeek(std::io::Cursor::new(png))).unwrap();
         let res = parser.parse_image_metadata(ms);
@@ -2014,7 +2012,22 @@ mod tests {
         }
     }
 
-    fn build_png_with_large_idat(idat_body: usize) -> Vec<u8> {
+    /// Metadata found before a skipped IDAT must survive the parse retry.
+    #[test]
+    fn parse_image_metadata_png_exif_before_large_idat() {
+        use std::io::Cursor;
+        let png = build_png_with_large_idat(INIT_BUF_SIZE + 1024, true);
+        let mut parser = MediaParser::new();
+        let ms = MediaSource::seekable(Cursor::new(png)).unwrap();
+        let image = parser.parse_image_metadata(ms).unwrap();
+        assert!(image.exif.is_some());
+        let Some(crate::ImageFormatMetadata::Png(text)) = image.format else {
+            panic!("missing PNG text metadata");
+        };
+        assert_eq!(text.get("Title"), Some("before IDAT"));
+    }
+
+    fn build_png_with_large_idat(idat_body: usize, with_metadata: bool) -> Vec<u8> {
         let mut out = Vec::new();
         out.extend_from_slice(b"\x89PNG\r\n\x1a\n");
         // IHDR (1x1, 8-bit grayscale)
@@ -2022,7 +2035,19 @@ mod tests {
         out.extend_from_slice(b"IHDR");
         out.extend_from_slice(&[0, 0, 0, 1, 0, 0, 0, 1, 8, 0, 0, 0, 0]);
         out.extend_from_slice(&[0, 0, 0, 0]); // CRC (chunk walker ignores it)
-                                              // IDAT
+        if with_metadata {
+            let text = b"Title\0before IDAT";
+            out.extend_from_slice(&(text.len() as u32).to_be_bytes());
+            out.extend_from_slice(b"tEXt");
+            out.extend_from_slice(text);
+            out.extend_from_slice(&[0, 0, 0, 0]);
+            let tiff = b"II\x2a\0\x08\0\0\0\0\0\0\0\0\0";
+            out.extend_from_slice(&(tiff.len() as u32).to_be_bytes());
+            out.extend_from_slice(b"eXIf");
+            out.extend_from_slice(tiff);
+            out.extend_from_slice(&[0, 0, 0, 0]);
+        }
+        // IDAT
         out.extend_from_slice(&(idat_body as u32).to_be_bytes());
         out.extend_from_slice(b"IDAT");
         out.resize(out.len() + idat_body, 0);
@@ -2134,7 +2159,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn parse_image_metadata_async_png_large_idat_streaming() {
         use crate::parser_async::AsyncMediaSource;
-        let png = build_png_with_large_idat(INIT_BUF_SIZE + 1024);
+        let png = build_png_with_large_idat(INIT_BUF_SIZE + 1024, false);
         // tokio's async I/O traits aren't on std::io::Cursor, so route
         // through a real file. Pick a unique path to avoid concurrent
         // test collisions.
