@@ -174,7 +174,8 @@ pub use parser_async::AsyncMediaSource;
 pub use exif::gps::{Altitude, LatRef, LonRef, Speed, SpeedUnit};
 pub use exif::png_text::PngTextChunks;
 pub use exif::{
-    Exif, ExifEntry, ExifIter, ExifIterEntry, ExifTag, GPSInfo, IfdIndex, LatLng, TagOrCode,
+    Exif, ExifEntry, ExifEntryRef, ExifIter, ExifIterEntry, ExifTag, GPSInfo, IfdIndex, IfdKind,
+    LatLng, TagOrCode,
 };
 pub use image_metadata::{ExifRepr, ImageFormatMetadata, ImageMetadata};
 pub use values::{EntryValue, ExifDateTime, IRational, Rational, URational};
@@ -195,8 +196,8 @@ pub use error::{ConvertError, EntryError, Error, MalformedKind};
 pub mod prelude {
     pub use crate::{read_exif, read_metadata, read_track};
     pub use crate::{
-        EntryValue, Error, Exif, ExifIter, ExifTag, GPSInfo, IfdIndex, MalformedKind, MediaKind,
-        MediaParser, MediaSource, Metadata, Result, TrackInfo, TrackInfoTag,
+        EntryValue, Error, Exif, ExifIter, ExifTag, GPSInfo, IfdIndex, IfdKind, MalformedKind,
+        MediaKind, MediaParser, MediaSource, Metadata, Result, TrackInfo, TrackInfoTag,
     };
 }
 

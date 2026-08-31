@@ -70,7 +70,7 @@ let meta = nom_exif::read_metadata("file.heic")?;   // returns Metadata::{Exif,T
 | `exif.get_gps_info()? -> Option<GPSInfo>` (Result-wrapped) | `exif.gps_info() -> Option<&GPSInfo>` |
 | `exif.get_by_ifd_tag_code(0, 0x0110)` | `exif.get_by_code(IfdIndex::MAIN, 0x0110)` |
 | `exif.get_by_ifd_tag_code(ifd, ExifTag::Make.code())` | `exif.get_in(IfdIndex::new(ifd), ExifTag::Make)` (`IfdIndex` field is private — use `new()` or the `MAIN`/`THUMBNAIL` constants) |
-| Cannot iterate over `Exif` | `exif.iter()` (filter by IFD: `exif.iter().filter(\|e\| e.ifd == IfdIndex::MAIN)`) |
+| Cannot iterate over `Exif` | `exif.entries()` (filter by IFD: `exif.entries().filter(\|e\| e.ifd() == IfdIndex::MAIN)`) |
 | Cannot retrieve per-entry errors from `Exif` | `exif.errors() -> &[(IfdIndex, TagOrCode, EntryError)]` |
 | `ParsedExifEntry` (the lazy iter's yield type) | Renamed `ExifIterEntry` (paired with `ExifIter`) |
 | `entry.tag()` + `entry.tag_code()` | `entry.tag() -> TagOrCode` |

@@ -117,6 +117,7 @@ fn s5_5_exif_get_by_code_and_get_in() {
 #[test]
 fn s5_5_exif_iter_yields_eager_entries() {
     let exif = read_exif("./testdata/exif.jpg").unwrap();
+    #[allow(deprecated)]
     let n = exif.iter().filter(|e| e.ifd == IfdIndex::MAIN).count();
     assert!(n > 0);
 }

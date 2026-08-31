@@ -1,28 +1,28 @@
-ifd0.ImageWidth                       » 3072
-ifd0.Model                            » vivo X90 Pro+
-ifd0.ImageHeight                      » 4096
-ifd0.ModifyDate                       » 2023-07-09T20:36:33+08:00
-ifd0.YCbCrPositioning                 » 1
-ifd0.ExifOffset                       » 201
-ifd0.MakerNote                        » "0"
-ifd0.RecommendedExposureIndex         » 454
-ifd0.SensitivityType                  » 2
-ifd0.ISOSpeedRatings                  » 454
-ifd0.ExposureProgram                  » 2
-ifd0.FNumber                          » 175/100 (1.7500)
-ifd0.ExposureTime                     » 9997/1000000 (0.0100)
-ifd0.SensingMethod                    » 2
-ifd0.SubSecTimeDigitized              » 616
-ifd0.OffsetTimeOriginal               » +08:00
-ifd0.SubSecTimeOriginal               » 616
-ifd0.OffsetTime                       » +08:00
-ifd0.SubSecTime                       » 616
-ifd0.FocalLength                      » 8670/1000 (8.6700)
-ifd0.Flash                            » 16
-ifd0.LightSource                      » 21
-ifd0.MeteringMode                     » 1
-ifd0.SceneCaptureType                 » 0
-ifd0.UserComment                      » filter: 0; fileterIntensity: 0.0; filterMask: 0; algolist: 0;
+ifd0/tiff.ImageWidth                       » 3072
+ifd0/tiff.Model                            » vivo X90 Pro+
+ifd0/tiff.ImageHeight                      » 4096
+ifd0/tiff.ModifyDate                       » 2023-07-09T20:36:33+08:00
+ifd0/tiff.YCbCrPositioning                 » 1
+ifd0/tiff.ExifOffset                       » 201
+ifd0/exif.MakerNote                        » "0"
+ifd0/exif.RecommendedExposureIndex         » 454
+ifd0/exif.SensitivityType                  » 2
+ifd0/exif.ISOSpeedRatings                  » 454
+ifd0/exif.ExposureProgram                  » 2
+ifd0/exif.FNumber                          » 175/100 (1.7500)
+ifd0/exif.ExposureTime                     » 9997/1000000 (0.0100)
+ifd0/exif.SensingMethod                    » 2
+ifd0/exif.SubSecTimeDigitized              » 616
+ifd0/exif.OffsetTimeOriginal               » +08:00
+ifd0/exif.SubSecTimeOriginal               » 616
+ifd0/exif.OffsetTime                       » +08:00
+ifd0/exif.SubSecTime                       » 616
+ifd0/exif.FocalLength                      » 8670/1000 (8.6700)
+ifd0/exif.Flash                            » 16
+ifd0/exif.LightSource                      » 21
+ifd0/exif.MeteringMode                     » 1
+ifd0/exif.SceneCaptureType                 » 0
+ifd0/exif.UserComment                      » filter: 0; fileterIntensity: 0.0; filterMask: 0; algolist: 0;
 multi-frame: 1;
 brp_mask:0;
 brp_del_th:0.0000,0.0000;
@@ -41,44 +41,46 @@ motionLevel: -1;
 weatherinfo: null; 
 temperature: 30; 
 
-ifd0.InteropOffset                    » 1168
-ifd0.FocalLengthIn35mmFilm            » 23
-ifd0.MaxApertureValue                 » 161/100 (1.6100)
-ifd0.CreateDate                       » 2023-07-09T20:36:33+08:00
-ifd0.ExposureBiasValue                » 0/1 (0.0000)
-ifd0.DigitalZoomRatio                 » 1/1 (1.0000)
-ifd0.ExifImageHeight                  » 4096
-ifd0.WhiteBalanceMode                 » 0
-ifd0.DateTimeOriginal                 » 2023-07-09T20:36:33+08:00
-ifd0.BrightnessValue                  » 70/100 (0.7000)
-ifd0.ExifImageWidth                   » 3072
-ifd0.ExposureMode                     » 0
-ifd0.ApertureValue                    » 161/100 (1.6100)
-ifd0.ComponentsConfiguration          » 0x01020300
-ifd0.ColorSpace                       » 1
-ifd0.SceneType                        » 0x01
-ifd0.ShutterSpeedValue                » 6644/1000 (6.6440)
-ifd0.ExifVersion                      » "0220"
-ifd0.FlashPixVersion                  » "0100"
-ifd0.ResolutionUnit                   » 2
-ifd0.GPSInfo                          » 1198
-ifd0.GPSLatitudeRef                   » N
-ifd0.GPSLatitude                      » IRationalArray[22/1 (22.0000), 31/1 (31.0000), 5208/100 (52.0800)]
-ifd0.GPSLongitudeRef                  » E
-ifd0.GPSLongitude                     » IRationalArray[114/1 (114.0000), 1/1 (1.0000), 1733/100 (17.3300)]
-ifd0.GPSAltitudeRef                   » 0
-ifd0.GPSAltitude                      » 0/1 (0.0000)
-ifd0.GPSTimeStamp                     » URationalArray[12/1 (12.0000), 36/1 (36.0000), 33/1 (33.0000)]
-ifd0.GPSProcessingMethod              » "CELLID"
-ifd0.GPSDateStamp                     » 2023:07:09
-ifd0.XResolution                      » 72/1 (72.0000)
-ifd0.YResolution                      » 72/1 (72.0000)
-ifd0.Make                             » vivo
-ifd1.ThumbnailOffset                  » 1527
-ifd1.ThumbnailLength                  » 16234
-ifd1.Compression                      » 6
-ifd1.ResolutionUnit                   » 2
-ifd1.XResolution                      » 72/1 (72.0000)
-ifd1.YResolution                      » 72/1 (72.0000)
-ifd1.ExifImageHeight                  » 320
-ifd1.ExifImageWidth                   » 240
+ifd0/exif.InteropOffset                    » 1168
+ifd0/interop.InteropIndex                     » R98
+ifd0/interop.InteropVersion                   » "0100"
+ifd0/exif.FocalLengthIn35mmFilm            » 23
+ifd0/exif.MaxApertureValue                 » 161/100 (1.6100)
+ifd0/exif.CreateDate                       » 2023-07-09T20:36:33+08:00
+ifd0/exif.ExposureBiasValue                » 0/1 (0.0000)
+ifd0/exif.DigitalZoomRatio                 » 1/1 (1.0000)
+ifd0/exif.ExifImageHeight                  » 4096
+ifd0/exif.WhiteBalanceMode                 » 0
+ifd0/exif.DateTimeOriginal                 » 2023-07-09T20:36:33+08:00
+ifd0/exif.BrightnessValue                  » 70/100 (0.7000)
+ifd0/exif.ExifImageWidth                   » 3072
+ifd0/exif.ExposureMode                     » 0
+ifd0/exif.ApertureValue                    » 161/100 (1.6100)
+ifd0/exif.ComponentsConfiguration          » 0x01020300
+ifd0/exif.ColorSpace                       » 1
+ifd0/exif.SceneType                        » 0x01
+ifd0/exif.ShutterSpeedValue                » 6644/1000 (6.6440)
+ifd0/exif.ExifVersion                      » "0220"
+ifd0/exif.FlashPixVersion                  » "0100"
+ifd0/tiff.ResolutionUnit                   » 2
+ifd0/tiff.GPSInfo                          » 1198
+ifd0/gps.GPSLatitudeRef                   » N
+ifd0/gps.GPSLatitude                      » IRationalArray[22/1 (22.0000), 31/1 (31.0000), 5208/100 (52.0800)]
+ifd0/gps.GPSLongitudeRef                  » E
+ifd0/gps.GPSLongitude                     » IRationalArray[114/1 (114.0000), 1/1 (1.0000), 1733/100 (17.3300)]
+ifd0/gps.GPSAltitudeRef                   » 0
+ifd0/gps.GPSAltitude                      » 0/1 (0.0000)
+ifd0/gps.GPSTimeStamp                     » URationalArray[12/1 (12.0000), 36/1 (36.0000), 33/1 (33.0000)]
+ifd0/gps.GPSProcessingMethod              » "CELLID"
+ifd0/gps.GPSDateStamp                     » 2023:07:09
+ifd0/tiff.XResolution                      » 72/1 (72.0000)
+ifd0/tiff.YResolution                      » 72/1 (72.0000)
+ifd0/tiff.Make                             » vivo
+ifd1/tiff.ThumbnailOffset                  » 1527
+ifd1/tiff.ThumbnailLength                  » 16234
+ifd1/tiff.Compression                      » 6
+ifd1/tiff.ResolutionUnit                   » 2
+ifd1/tiff.XResolution                      » 72/1 (72.0000)
+ifd1/tiff.YResolution                      » 72/1 (72.0000)
+ifd1/tiff.ExifImageHeight                  » 320
+ifd1/tiff.ExifImageWidth                   » 240

@@ -1,5 +1,64 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **IFD namespaces** — entries now report *which* IFD namespace they came
+  from, via the new `IfdKind` enum (`Tiff` / `Exif` / `Gps` / `Interop`).
+  This is orthogonal to `IfdIndex`, which continues to identify a position
+  in the IFD chain: a GPS sub-IFD hanging off IFD0 is `IfdIndex::MAIN` +
+  `IfdKind::Gps`.
+  - `ExifIterEntry::ifd_kind()` on the lazy path.
+  - `Exif::entries()` yielding the new `ExifEntryRef` on the eager path,
+    plus `Exif::get_by_code_in(ifd, kind, code)`.
+  - `TagOrCode::from_code_in(kind, code)` and `ExifTag::namespace()` for
+    namespace-aware tag resolution.
+  - New `ExifTag` variants that were previously unnameable because their
+    code was already taken: `ProcessingSoftware`, `InteropIndex`,
+    `InteropVersion`.
+  [#68](https://github.com/mindeng/nom-exif/issues/68)
+
+- **Interoperability sub-IFD is now parsed** — `InteropOffset` (`0xa005`)
+  is followed like `ExifOffset` and `GPSInfo`, so `InteropIndex` /
+  `InteropVersion` entries are exposed instead of silently skipped.
+  Files carrying an Interop IFD yield two extra entries.
+
+### Fixed
+
+- **Entries were silently dropped when two IFDs shared a tag code** —
+  sub-IFDs inherit their parent's `IfdIndex`, and the duplicate filter
+  keyed on `(ifd_index, code)`, so a GPS tag whose code also appeared in
+  IFD0 was discarded as a duplicate. A file with `0x000b` in both IFD0
+  (`ProcessingSoftware`) and the GPS IFD (`GPSDOP`) lost the GPS value
+  entirely. The filter and `Exif`'s internal storage are now keyed on
+  `(ifd_index, ifd_kind, code)`.
+  [#68](https://github.com/mindeng/nom-exif/issues/68)
+
+- **Tags were labelled with another namespace's name** — codes were
+  resolved against a single flat table, so IFD0's `0x000b`
+  (`ProcessingSoftware`) was reported as `GPSDOP`. Resolution now happens
+  within the entry's namespace.
+  [#68](https://github.com/mindeng/nom-exif/issues/68)
+
+### Deprecated
+
+- `Exif::iter()` / `ExifEntry` — `ExifEntry` exposes `pub` fields, so it
+  cannot gain an `ifd_kind` accessor without a breaking change. Use
+  `Exif::entries()` / `ExifEntryRef` instead. `iter()` keeps working and
+  now resolves tag names per namespace, but still cannot tell a GPS entry
+  from an IFD0 entry that shares its code.
+
+### Notes
+
+- `ExifTag::from_code` and `From<u16> for TagOrCode` are unchanged and
+  still resolve contested codes the way they always have (GPS wins).
+- `size_of::<ExifTag>()` grows from 2 to 4 bytes: namespaces are encoded
+  in the high 16 bits of the discriminant so that `code()` and the
+  pre-existing `ExifTag::X as u16` idiom keep returning the real tag code.
+  Note that clippy's `cast_enum_truncation` now fires on `as u16` for the
+  three namespaced variants — prefer `.code()`.
+
 ## nom-exif v3.7.0 (2026-08-25)
 
 ### Added
