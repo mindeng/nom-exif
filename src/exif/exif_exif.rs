@@ -4,7 +4,9 @@ use nom::{
     branch::alt, bytes::streaming::tag, combinator, number::Endianness, IResult, Needed, Parser,
 };
 
-use crate::{EntryValue, ExifEntry, ExifIter, ExifTag, GPSInfo, IfdIndex, TagOrCode};
+use crate::{
+    EntryValue, ExifEntry, ExifEntryRef, ExifIter, ExifTag, GPSInfo, IfdIndex, IfdKind, TagOrCode,
+};
 
 use super::ifd::ParsedImageFileDirectory;
 
@@ -91,25 +93,66 @@ impl Exif {
     ///   }
     ///   ```
     pub fn get_in(&self, ifd: IfdIndex, tag: ExifTag) -> Option<&EntryValue> {
-        self.get_by_code(ifd, tag.code())
+        match tag.namespace() {
+            // Contested code: look only where this tag is actually defined,
+            // otherwise an absent tag would pick up its namesake's value.
+            Some(kind) => self.get_by_code_in(ifd, kind, tag.code()),
+            None => self.get_by_code(ifd, tag.code()),
+        }
     }
 
     /// Get entry value for the specified raw `code` in the specified `ifd`.
     /// Used for tags not in the recognized [`ExifTag`] enum.
+    ///
+    /// A bare code cannot say *which* IFD namespace it belongs to. This scans
+    /// `Tiff`, `Exif`, `Gps`, `Interop` in that order and returns the first
+    /// hit; use [`Self::get_by_code_in`] when the namespace is known.
     pub fn get_by_code(&self, ifd: IfdIndex, code: u16) -> Option<&EntryValue> {
-        self.ifds.get(ifd.as_usize()).and_then(|d| d.get(code))
+        self.ifds.get(ifd.as_usize()).and_then(|d| d.get_any(code))
+    }
+
+    /// Get entry value for a raw `code` within a specific IFD namespace.
+    ///
+    /// Unlike [`Self::get_by_code`] this is unambiguous — `(MAIN, Gps,
+    /// 0x000b)` is `GPSDOP` and cannot return IFD0's `ProcessingSoftware`.
+    pub fn get_by_code_in(&self, ifd: IfdIndex, kind: IfdKind, code: u16) -> Option<&EntryValue> {
+        self.ifds
+            .get(ifd.as_usize())
+            .and_then(|d| d.get(kind, code))
+    }
+
+    /// Iterate every parsed entry in every IFD, carrying the IFD *namespace*
+    /// each entry came from.
+    ///
+    /// Order is: IFD0 entries first (in `HashMap` order — not stable), then
+    /// IFD1, etc. Filter with
+    /// `.entries().filter(|e| e.ifd_kind() == IfdKind::Gps)`.
+    ///
+    /// Prefer this over [`Self::iter`], which cannot distinguish a GPS tag
+    /// from an IFD0 tag that shares its code.
+    pub fn entries(&self) -> impl Iterator<Item = ExifEntryRef<'_>> {
+        self.ifds.iter().enumerate().flat_map(|(idx, dir)| {
+            let ifd = IfdIndex::new(idx);
+            dir.iter().map(move |(kind, code, value)| {
+                ExifEntryRef::new(ifd, kind, TagOrCode::from_code_in(kind, code), value)
+            })
+        })
     }
 
     /// Iterate every parsed entry in every IFD.
     ///
     /// Order is: IFD0 entries first (in `HashMap` order — not stable), then
     /// IFD1, etc. Filter by IFD with `.iter().filter(|e| e.ifd == IfdIndex::MAIN)`.
+    #[deprecated(
+        since = "3.8.0",
+        note = "use `entries()`: `ExifEntry` has no room for the IFD namespace, so tags that share a code across IFDs (e.g. 0x000b = ProcessingSoftware in IFD0, GPSDOP in the GPS IFD) are indistinguishable here"
+    )]
     pub fn iter(&self) -> impl Iterator<Item = ExifEntry<'_>> {
         self.ifds.iter().enumerate().flat_map(|(idx, dir)| {
             let ifd = IfdIndex::new(idx);
-            dir.iter().map(move |(code, value)| ExifEntry {
+            dir.iter().map(move |(kind, code, value)| ExifEntry {
                 ifd,
-                tag: TagOrCode::from(code),
+                tag: TagOrCode::from_code_in(kind, code),
                 value,
             })
         })
@@ -157,11 +200,11 @@ impl Exif {
         self.has_embedded_track()
     }
 
-    fn put_value(&mut self, ifd: usize, code: u16, v: EntryValue) {
+    fn put_value(&mut self, ifd: usize, kind: IfdKind, code: u16, v: EntryValue) {
         while self.ifds.len() < ifd + 1 {
             self.ifds.push(ParsedImageFileDirectory::new());
         }
-        self.ifds[ifd].put(code, v);
+        self.ifds[ifd].put(kind, code, v);
     }
 }
 
@@ -173,10 +216,11 @@ impl From<ExifIter> for Exif {
 
         for entry in iter {
             let ifd = entry.ifd();
+            let kind = entry.ifd_kind();
             let tag = entry.tag();
             let code = tag.code();
             match entry.into_result() {
-                Ok(v) => exif.put_value(ifd.as_usize(), code, v),
+                Ok(v) => exif.put_value(ifd.as_usize(), kind, code, v),
                 Err(e) => exif.errors.push((ifd, tag, e)),
             }
         }
@@ -354,6 +398,8 @@ mod tests {
 
         let result = iter_to_str(iter);
 
+        // Uncomment to regenerate the golden file:
+        // use std::io::Write;
         // open_sample_w(&format!("{path}.txt"))
         //     .unwrap()
         //     .write_all(result.as_bytes())
@@ -367,8 +413,9 @@ mod tests {
         let ss = it
             .map(|x| {
                 format!(
-                    "{}.{:<32} » {}",
+                    "{}/{:<7}.{:<32} » {}",
                     x.ifd(),
+                    x.ifd_kind(),
                     match x.tag() {
                         crate::TagOrCode::Tag(t) => t.to_string(),
                         crate::TagOrCode::Unknown(c) => format!("Unknown(0x{c:04x})"),
@@ -466,31 +513,55 @@ mod tests {
         let iter = parser.parse_exif(ms).unwrap();
         let exif: Exif = iter.into();
 
+        #[allow(deprecated)]
         let main_count = exif.iter().filter(|e| e.ifd == IfdIndex::MAIN).count();
         assert!(
             main_count > 1,
             "expected >1 entries in main IFD, got {main_count}"
         );
 
-        // Ensure each entry is well-formed.
+        // Ensure each entry is well-formed. `ExifEntry` carries no namespace,
+        // so a code-only lookup can only be asserted to *find* something —
+        // two namespaces under one IfdIndex may share a code (0x0001 is
+        // GPSLatitudeRef and InteropIndex in this very file).
+        #[allow(deprecated)]
         for entry in exif.iter() {
-            // value is a real reference to an EntryValue
             let _: &crate::EntryValue = entry.value;
-            // Tag round-trips
-            let code = entry.tag.code();
-            assert_eq!(
-                exif.get_by_code(entry.ifd, code).unwrap(),
-                entry.value,
-                "iter entry value should match get_by_code lookup"
+            assert!(
+                exif.get_by_code(entry.ifd, entry.tag.code()).is_some(),
+                "every iterated code should resolve to some entry"
             );
         }
 
         // Specifically: Model entry is present and matches get().
+        #[allow(deprecated)]
         let model_via_iter = exif
             .iter()
             .find(|e| e.tag.tag() == Some(ExifTag::Model))
             .map(|e| e.value);
         assert_eq!(model_via_iter, exif.get(ExifTag::Model));
+    }
+
+    #[test]
+    fn entries_round_trip_through_get_by_code_in() {
+        use crate::{MediaParser, MediaSource};
+        let mut parser = MediaParser::new();
+        let ms = MediaSource::open("testdata/exif.jpg").unwrap();
+        let iter = parser.parse_exif(ms).unwrap();
+        let exif: Exif = iter.into();
+
+        // Unlike the code-only lookup, (ifd, kind, code) is a total key: every
+        // entry must map back to itself.
+        for e in exif.entries() {
+            assert_eq!(
+                exif.get_by_code_in(e.ifd(), e.ifd_kind(), e.tag().code()),
+                Some(e.value()),
+                "entry {:?} in {}/{} should round-trip",
+                e.tag(),
+                e.ifd(),
+                e.ifd_kind()
+            );
+        }
     }
 
     #[test]

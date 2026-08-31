@@ -47,6 +47,48 @@ impl std::fmt::Display for IfdIndex {
     }
 }
 
+/// Which IFD *namespace* an entry belongs to.
+///
+/// Orthogonal to [`IfdIndex`]: the index identifies a position in the IFD
+/// chain (IFD0, IFD1, …), while the kind identifies the tag namespace. A GPS
+/// sub-IFD hanging off IFD0 is `IfdIndex::MAIN` + `IfdKind::Gps`.
+///
+/// This distinction matters because each namespace assigns its own meaning to
+/// the same 16-bit code — `0x000b` is `ProcessingSoftware` in [`Self::Tiff`]
+/// but `GPSDOP` in [`Self::Gps`]. Use [`crate::TagOrCode::from_code_in`] to
+/// resolve a code within a known namespace.
+///
+/// Marked `#[non_exhaustive]`: more namespaces (MakerNote, SubIFD, …) may be
+/// added, so `match` must carry a `_ =>` arm.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[non_exhaustive]
+pub enum IfdKind {
+    /// The TIFF/Exif image directories themselves (IFD0, IFD1, …).
+    Tiff,
+
+    /// The Exif private sub-IFD, reached via `ExifOffset` (`0x8769`).
+    Exif,
+
+    /// The GPS sub-IFD, reached via `GPSInfo` (`0x8825`).
+    Gps,
+
+    /// The Interoperability sub-IFD, reached via `InteropOffset` (`0xa005`).
+    Interop,
+}
+
+impl std::fmt::Display for IfdKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            IfdKind::Tiff => "tiff",
+            IfdKind::Exif => "exif",
+            IfdKind::Gps => "gps",
+            IfdKind::Interop => "interop",
+        };
+        f.write_str(s)
+    }
+}
+
 /// Eager view into a single Exif entry. Yielded by [`crate::Exif::iter`] and
 /// designed to be cheap to copy: the `value` is a borrow into the parent
 /// [`crate::Exif`].
@@ -63,6 +105,58 @@ pub struct ExifEntry<'a> {
     pub ifd: IfdIndex,
     pub tag: TagOrCode,
     pub value: &'a crate::EntryValue,
+}
+
+/// Eager view into a single Exif entry, carrying the IFD namespace it came
+/// from. Yielded by [`crate::Exif::entries`].
+///
+/// Supersedes [`ExifEntry`], which exposes `pub` fields and therefore cannot
+/// grow the `ifd_kind` accessor without a breaking change. Fields here are
+/// private specifically so that future namespace/context information can be
+/// added without another type.
+#[derive(Clone, Copy, Debug)]
+pub struct ExifEntryRef<'a> {
+    ifd: IfdIndex,
+    kind: IfdKind,
+    tag: TagOrCode,
+    value: &'a crate::EntryValue,
+}
+
+impl<'a> ExifEntryRef<'a> {
+    pub(crate) fn new(
+        ifd: IfdIndex,
+        kind: IfdKind,
+        tag: TagOrCode,
+        value: &'a crate::EntryValue,
+    ) -> Self {
+        Self {
+            ifd,
+            kind,
+            tag,
+            value,
+        }
+    }
+
+    /// Position in the IFD chain (`IfdIndex::MAIN` for the primary image).
+    pub fn ifd(&self) -> IfdIndex {
+        self.ifd
+    }
+
+    /// IFD *namespace* this entry was found in. Together with [`Self::ifd`]
+    /// and [`Self::tag`] this identifies the entry unambiguously.
+    pub fn ifd_kind(&self) -> IfdKind {
+        self.kind
+    }
+
+    /// Recognized tag, or raw `u16` code if not in [`ExifTag`].
+    pub fn tag(&self) -> TagOrCode {
+        self.tag
+    }
+
+    /// The parsed value, borrowed from the parent [`crate::Exif`].
+    pub fn value(&self) -> &'a crate::EntryValue {
+        self.value
+    }
 }
 
 /// Represents an additional TIFF data block to be processed after the primary block.
@@ -157,8 +251,11 @@ pub struct ExifIter {
     additional_blocks: Vec<TiffDataBlock>,
     /// Current block index: 0 = primary block, 1+ = additional blocks
     current_block_index: usize,
-    /// Tags encountered so far for duplicate filtering (ifd_index, tag_code)
-    encountered_tags: HashSet<(usize, u16)>,
+    /// Tags encountered so far for duplicate filtering
+    /// (ifd_index, ifd_kind, tag_code). The namespace is part of the key
+    /// because sub-IFDs share their parent's index, so keying on the index
+    /// alone made a GPS tag look like a duplicate of an IFD0 tag.
+    encountered_tags: HashSet<(usize, IfdKind, u16)>,
     has_embedded_track: bool,
 }
 
@@ -351,6 +448,7 @@ impl ExifIter {
 #[derive(Clone)]
 pub struct ExifIterEntry {
     ifd: IfdIndex,
+    kind: IfdKind,
     tag: TagOrCode,
     res: Result<EntryValue, crate::error::EntryError>,
 }
@@ -359,6 +457,13 @@ impl ExifIterEntry {
     /// IFD this entry was found in (`IfdIndex::MAIN` for the primary image).
     pub fn ifd(&self) -> IfdIndex {
         self.ifd
+    }
+
+    /// IFD *namespace* this entry was found in. Pair with [`Self::ifd`] to
+    /// identify an entry unambiguously: the same code means different things
+    /// in different namespaces.
+    pub fn ifd_kind(&self) -> IfdKind {
+        self.kind
     }
 
     /// Recognized tag, or raw `u16` code if not in [`ExifTag`].
@@ -387,9 +492,10 @@ impl ExifIterEntry {
         self.res
     }
 
-    pub(crate) fn make_ok(ifd: usize, tag: TagOrCode, v: EntryValue) -> Self {
+    pub(crate) fn make_ok(ifd: usize, kind: IfdKind, tag: TagOrCode, v: EntryValue) -> Self {
         Self {
             ifd: IfdIndex::new(ifd),
+            kind,
             tag,
             res: Ok(v),
         }
@@ -404,6 +510,7 @@ impl std::fmt::Debug for ExifIterEntry {
         };
         f.debug_struct("ExifIterEntry")
             .field("ifd", &self.ifd)
+            .field("kind", &self.kind)
             .field("tag", &self.tag)
             .field("value", &value)
             .finish()
@@ -460,10 +567,10 @@ impl ExifIter {
 
     /// Check if a tag should be included based on duplicate filtering.
     /// Returns true if the tag should be included, false if it's a duplicate.
-    fn should_include_tag(&mut self, ifd_index: usize, tag_code: u16) -> bool {
-        let tag_key = (ifd_index, tag_code);
+    fn should_include_tag(&mut self, ifd_index: usize, kind: IfdKind, tag_code: u16) -> bool {
+        let tag_key = (ifd_index, kind, tag_code);
         if self.encountered_tags.contains(&tag_key) {
-            tracing::debug!(ifd_index, tag_code, "Skipping duplicate tag");
+            tracing::debug!(ifd_index, %kind, tag_code, "Skipping duplicate tag");
             false
         } else {
             self.encountered_tags.insert(tag_key);
@@ -500,6 +607,9 @@ impl Iterator for ExifIter {
 
             let mut ifd = self.ifds.pop()?;
             let cur_ifd_idx = ifd.ifd_idx;
+            // A pointer entry belongs to the directory that *holds* it, not to
+            // the one it points at -- capture before `ifd` is moved below.
+            let parent_kind = ifd.kind;
             match ifd.next() {
                 Some((tag_code, entry)) => {
                     tracing::debug!(ifd = ifd.ifd_idx, ?tag_code, "next tag entry");
@@ -534,12 +644,13 @@ impl Iterator for ExifIter {
                             if is_subifd {
                                 // Check for duplicates before returning sub-ifd entry
                                 let tc = tag_code.unwrap();
-                                if !self.should_include_tag(ifd_idx, tc.code()) {
+                                if !self.should_include_tag(ifd_idx, parent_kind, tc.code()) {
                                     continue;
                                 }
                                 // Return sub-ifd as an entry
                                 return Some(ExifIterEntry::make_ok(
                                     ifd_idx,
+                                    parent_kind,
                                     tc,
                                     EntryValue::U32(offset as u32),
                                 ));
@@ -548,11 +659,11 @@ impl Iterator for ExifIter {
                         IfdEntry::Entry(v) => {
                             let tc = tag_code.unwrap();
                             // Check for duplicates before returning entry
-                            if !self.should_include_tag(ifd.ifd_idx, tc.code()) {
+                            if !self.should_include_tag(ifd.ifd_idx, ifd.kind, tc.code()) {
                                 self.ifds.push(ifd);
                                 continue;
                             }
-                            let res = Some(ExifIterEntry::make_ok(ifd.ifd_idx, tc, v));
+                            let res = Some(ExifIterEntry::make_ok(ifd.ifd_idx, ifd.kind, tc, v));
                             self.ifds.push(ifd);
                             return res;
                         }
@@ -573,6 +684,10 @@ impl Iterator for ExifIter {
 pub(crate) struct IfdIter {
     ifd_idx: usize,
     tag_code: Option<TagOrCode>,
+    /// Namespace of the entries this IFD yields, derived from `tag_code`
+    /// (the tag that pointed here). A directory reached by following the
+    /// IFD chain rather than a pointer is `Tiff`.
+    kind: IfdKind,
 
     // starts from TIFF header
     input: Bytes,
@@ -594,6 +709,7 @@ impl Debug for IfdIter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("IfdIter")
             .field("ifd_idx", &self.ifd_idx)
+            .field("kind", &self.kind)
             .field("tag", &self.tag_code)
             .field("data len", &self.input.len())
             .field("tz", &self.tz)
@@ -620,12 +736,23 @@ impl IfdIter {
 
     pub fn tag_code_maybe(mut self, code: Option<u16>) -> Self {
         self.tag_code = code.map(|x| x.into());
+        self.kind = Self::kind_for(code);
         self
     }
 
-    pub fn tag_code(mut self, code: u16) -> Self {
-        self.tag_code = Some(code.into());
-        self
+    pub fn tag_code(self, code: u16) -> Self {
+        self.tag_code_maybe(Some(code))
+    }
+
+    /// Which namespace a sub-IFD pointer leads into. `None` (an IFD reached
+    /// through the chain, not a pointer) stays in the TIFF namespace.
+    fn kind_for(code: Option<u16>) -> IfdKind {
+        match code {
+            Some(c) if c == ExifTag::ExifOffset.code() => IfdKind::Exif,
+            Some(c) if c == ExifTag::GPSInfo.code() => IfdKind::Gps,
+            Some(c) if c == ExifTag::InteropOffset.code() => IfdKind::Interop,
+            _ => IfdKind::Tiff,
+        }
     }
 
     fn is_gps_subifd(&self) -> bool {
@@ -666,6 +793,7 @@ impl IfdIter {
         Ok(Self {
             ifd_idx,
             tag_code: None,
+            kind: IfdKind::Tiff,
             input,
             offset,
             header,
@@ -1013,7 +1141,13 @@ impl IfdEntry {
     }
 }
 
-pub(crate) const SUBIFD_TAGS: &[u16] = &[ExifTag::ExifOffset.code(), ExifTag::GPSInfo.code()];
+/// Tags whose value is an offset to a nested IFD rather than data. Each one
+/// opens a distinct tag namespace — see [`IfdKind`].
+pub(crate) const SUBIFD_TAGS: &[u16] = &[
+    ExifTag::ExifOffset.code(),
+    ExifTag::GPSInfo.code(),
+    ExifTag::InteropOffset.code(),
+];
 
 impl Iterator for IfdIter {
     type Item = (Option<TagOrCode>, IfdEntry);
@@ -1068,7 +1202,7 @@ impl Iterator for IfdIter {
 
         let (tag, res) = self.parse_tag_entry(entry_data)?;
 
-        Some((Some(tag.into()), res)) // Safe-slice
+        Some((Some(TagOrCode::from_code_in(self.kind, tag)), res)) // Safe-slice
     }
 }
 
@@ -1356,5 +1490,48 @@ mod tests {
             tags.contains(&crate::ExifTag::GPSVersionID.code()),
             "GPSVersionID (tag 0) should be visible to iterators; got {tags:?}"
         );
+    }
+
+    /// Map tag code -> IfdKind for every entry a file yields.
+    fn kinds_by_code(path: &str) -> std::collections::HashMap<u16, crate::IfdKind> {
+        use crate::{ExifIter, MediaParser, MediaSource};
+        let mut parser = MediaParser::new();
+        let ms = MediaSource::open(path).unwrap();
+        let iter: ExifIter = parser.parse_exif(ms).unwrap();
+        iter.map(|e| (e.tag().code(), e.ifd_kind())).collect()
+    }
+
+    #[test]
+    fn entries_report_the_ifd_namespace_they_came_from() {
+        use crate::{ExifTag, IfdKind};
+        let kinds = kinds_by_code("./testdata/exif.jpg");
+
+        assert_eq!(kinds[&ExifTag::Make.code()], IfdKind::Tiff);
+        assert_eq!(kinds[&ExifTag::DateTimeOriginal.code()], IfdKind::Exif);
+        assert_eq!(kinds[&ExifTag::GPSLatitude.code()], IfdKind::Gps);
+    }
+
+    #[test]
+    fn subifd_pointer_entries_belong_to_the_parent_namespace() {
+        use crate::{ExifTag, IfdKind};
+        let kinds = kinds_by_code("./testdata/exif.jpg");
+
+        // The pointer lives in IFD0, only what it points *at* is Exif/GPS.
+        assert_eq!(kinds[&ExifTag::ExifOffset.code()], IfdKind::Tiff);
+        assert_eq!(kinds[&ExifTag::GPSInfo.code()], IfdKind::Tiff);
+    }
+
+    #[test]
+    fn thumbnail_ifd_entries_are_tiff_namespace() {
+        use crate::{ExifIter, IfdIndex, IfdKind, MediaParser, MediaSource};
+        let mut parser = MediaParser::new();
+        let ms = MediaSource::open("./testdata/exif.jpg").unwrap();
+        let iter: ExifIter = parser.parse_exif(ms).unwrap();
+        let thumb: Vec<_> = iter.filter(|e| e.ifd() == IfdIndex::THUMBNAIL).collect();
+
+        assert!(!thumb.is_empty(), "exif.jpg should have a thumbnail IFD");
+        for e in thumb {
+            assert_eq!(e.ifd_kind(), IfdKind::Tiff, "entry {:?}", e.tag());
+        }
     }
 }
