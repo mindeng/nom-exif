@@ -38,6 +38,32 @@ impl TagOrCode {
     }
 }
 
+impl TagOrCode {
+    /// Resolve a raw code within a known IFD namespace.
+    ///
+    /// Prefer this over `From<u16>` whenever the namespace is known: the same
+    /// code means different things in different IFDs, so the namespace-free
+    /// lookup has to guess.
+    ///
+    /// ```rust
+    /// use nom_exif::{ExifTag, IfdKind, TagOrCode};
+    ///
+    /// assert_eq!(TagOrCode::from_code_in(IfdKind::Gps, 0x000b),
+    ///            TagOrCode::Tag(ExifTag::GPSDOP));
+    /// assert_eq!(TagOrCode::from_code_in(IfdKind::Tiff, 0x000b),
+    ///            TagOrCode::Tag(ExifTag::ProcessingSoftware));
+    /// ```
+    pub fn from_code_in(kind: crate::IfdKind, code: u16) -> Self {
+        match ExifTag::from_code_in(kind, code) {
+            Some(tag) => TagOrCode::Tag(tag),
+            None => TagOrCode::Unknown(code),
+        }
+    }
+}
+
+/// Namespace-free lookup. Ambiguous for codes that several IFDs define — it
+/// resolves those the way it always has (GPS wins), which is why
+/// [`TagOrCode::from_code_in`] exists.
 impl From<u16> for TagOrCode {
     fn from(v: u16) -> Self {
         match ExifTag::from_code(v) {
@@ -197,6 +223,17 @@ pub enum ExifTag {
     GPSDateStamp = 0x0000_001d,
     GPSDifferential = 0x0000_001e,
 
+    // Tags whose 16-bit code is already taken by another IFD namespace. The
+    // discriminant carries the namespace in its high 16 bits so that every
+    // variant stays unique (Rust forbids duplicate discriminants) while
+    // `code()`'s `self as u16` truncation still yields the real tag code.
+    /// `0x000b` in the TIFF namespace (`GPSDOP` uses the same code in GPS).
+    ProcessingSoftware = 0x0001_000b,
+    /// `0x0001` in the Interop namespace (`GPSLatitudeRef` in GPS).
+    InteropIndex = 0x0002_0001,
+    /// `0x0002` in the Interop namespace (`GPSLatitude` in GPS).
+    InteropVersion = 0x0002_0002,
+
     YCbCrPositioning = 0x0000_0213,
     RecommendedExposureIndex = 0x0000_8832,
     SubSecTimeDigitized = 0x0000_9292,
@@ -331,6 +368,9 @@ impl ExifTag {
             ExifTag::GPSAreaInformation => "GPSAreaInformation",
             ExifTag::GPSDateStamp => "GPSDateStamp",
             ExifTag::GPSDifferential => "GPSDifferential",
+            ExifTag::ProcessingSoftware => "ProcessingSoftware",
+            ExifTag::InteropIndex => "InteropIndex",
+            ExifTag::InteropVersion => "InteropVersion",
             ExifTag::YCbCrPositioning => "YCbCrPositioning",
             ExifTag::RecommendedExposureIndex => "RecommendedExposureIndex",
             ExifTag::SubSecTimeDigitized => "SubSecTimeDigitized",
@@ -346,6 +386,87 @@ impl ExifTag {
             ExifTag::SamplesPerPixel => "SamplesPerPixel",
             ExifTag::RowsPerStrip => "RowsPerStrip",
             ExifTag::PlanarConfiguration => "PlanarConfiguration",
+        }
+    }
+
+    /// Highest code owned outright by the GPS IFD (`GPSDifferential`). Every
+    /// code at or below this belongs to the GPS namespace; other IFDs assign
+    /// unrelated meanings to the same range.
+    const GPS_CODE_MAX: u16 = 0x001e;
+
+    /// Resolve a raw code within a known IFD namespace.
+    ///
+    /// Unlike [`Self::from_code`] this cannot mislabel: a code that the given
+    /// namespace does not define returns `None` rather than falling through to
+    /// some other namespace's meaning.
+    pub fn from_code_in(kind: crate::IfdKind, code: u16) -> Option<Self> {
+        use crate::IfdKind;
+
+        match kind {
+            // The GPS IFD owns 0x0000..=0x001e and defines nothing else.
+            IfdKind::Gps => match code {
+                0..=Self::GPS_CODE_MAX => Self::from_code(code),
+                _ => None,
+            },
+
+            // The Interop IFD defines just these two.
+            IfdKind::Interop => match code {
+                0x0001 => Some(Self::InteropIndex),
+                0x0002 => Some(Self::InteropVersion),
+                _ => None,
+            },
+
+            // In TIFF/Exif directories the low range is *not* GPS, so the flat
+            // table's answers there are wrong. Only codes we explicitly know
+            // in this namespace resolve.
+            IfdKind::Tiff | IfdKind::Exif => match code {
+                0x000b => Some(Self::ProcessingSoftware),
+                0..=Self::GPS_CODE_MAX => None,
+                _ => Self::from_code(code),
+            },
+        }
+    }
+
+    /// The namespace that defines this tag, but only when its code is
+    /// *ambiguous* — i.e. some other IFD assigns a different tag to the same
+    /// code. Returns `None` for codes with a single meaning, which can safely
+    /// be looked up in any namespace.
+    ///
+    /// ```rust
+    /// use nom_exif::{ExifTag, IfdKind};
+    ///
+    /// assert_eq!(ExifTag::GPSDOP.namespace(), Some(IfdKind::Gps));
+    /// assert_eq!(ExifTag::ProcessingSoftware.namespace(), Some(IfdKind::Tiff));
+    /// assert_eq!(ExifTag::Make.namespace(), None); // 0x010f means Make everywhere
+    /// ```
+    pub fn namespace(self) -> Option<crate::IfdKind> {
+        use crate::IfdKind;
+        const KINDS: [IfdKind; 4] = [IfdKind::Tiff, IfdKind::Exif, IfdKind::Gps, IfdKind::Interop];
+
+        let code = self.code();
+        let mut distinct: [Option<Self>; KINDS.len()] = [None; KINDS.len()];
+        let mut n = 0;
+        let mut owner = None;
+
+        for kind in KINDS {
+            let Some(tag) = Self::from_code_in(kind, code) else {
+                continue;
+            };
+            if tag == self && owner.is_none() {
+                owner = Some(kind);
+            }
+            if !distinct[..n].contains(&Some(tag)) {
+                distinct[n] = Some(tag);
+                n += 1;
+            }
+        }
+
+        // A single meaning across all namespaces means the code is not
+        // contested, so pinning it to one namespace would only cause misses.
+        if n > 1 {
+            owner
+        } else {
+            None
         }
     }
 
@@ -608,6 +729,9 @@ impl std::str::FromStr for ExifTag {
             ExifTag::GPSAreaInformation,
             ExifTag::GPSDateStamp,
             ExifTag::GPSDifferential,
+            ExifTag::ProcessingSoftware,
+            ExifTag::InteropIndex,
+            ExifTag::InteropVersion,
             ExifTag::YCbCrPositioning,
             ExifTag::RecommendedExposureIndex,
             ExifTag::SubSecTimeDigitized,
@@ -637,6 +761,7 @@ impl std::str::FromStr for ExifTag {
 mod tests {
     use super::*;
     use crate::ConvertError;
+    use crate::IfdKind;
     use std::str::FromStr;
 
     #[test]
@@ -677,5 +802,75 @@ mod tests {
             }
             other => panic!("expected UnknownTagName, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn colliding_variants_share_a_code_but_are_distinct_tags() {
+        assert_eq!(ExifTag::GPSDOP.code(), 0x000b);
+        assert_eq!(ExifTag::ProcessingSoftware.code(), 0x000b);
+        assert_ne!(ExifTag::GPSDOP, ExifTag::ProcessingSoftware);
+
+        assert_eq!(ExifTag::GPSLatitudeRef.code(), 0x0001);
+        assert_eq!(ExifTag::InteropIndex.code(), 0x0001);
+        assert_ne!(ExifTag::GPSLatitudeRef, ExifTag::InteropIndex);
+    }
+
+    #[test]
+    fn from_code_in_resolves_by_ifd_namespace() {
+        use IfdKind::*;
+        assert_eq!(
+            TagOrCode::from_code_in(Gps, 0x000b),
+            TagOrCode::Tag(ExifTag::GPSDOP)
+        );
+        assert_eq!(
+            TagOrCode::from_code_in(Tiff, 0x000b),
+            TagOrCode::Tag(ExifTag::ProcessingSoftware)
+        );
+        assert_eq!(
+            TagOrCode::from_code_in(Gps, 0x0001),
+            TagOrCode::Tag(ExifTag::GPSLatitudeRef)
+        );
+        assert_eq!(
+            TagOrCode::from_code_in(Interop, 0x0001),
+            TagOrCode::Tag(ExifTag::InteropIndex)
+        );
+    }
+
+    #[test]
+    fn from_code_in_falls_back_to_shared_tags() {
+        // Make (0x010f) lives in the TIFF namespace; asking for it from any
+        // namespace still resolves, because most codes do not collide.
+        assert_eq!(
+            TagOrCode::from_code_in(IfdKind::Exif, 0x010f),
+            TagOrCode::Tag(ExifTag::Make)
+        );
+    }
+
+    #[test]
+    fn from_code_in_yields_unknown_for_unrecognized_code() {
+        assert_eq!(
+            TagOrCode::from_code_in(IfdKind::Tiff, 0xffff),
+            TagOrCode::Unknown(0xffff)
+        );
+    }
+
+    #[test]
+    fn flat_from_code_keeps_its_pre_namespace_answer() {
+        // Back-compat: the ambiguous lookups must not change meaning.
+        assert_eq!(ExifTag::from_code(0x000b), Some(ExifTag::GPSDOP));
+        assert_eq!(ExifTag::from_code(0x0001), Some(ExifTag::GPSLatitudeRef));
+    }
+
+    #[test]
+    // The truncation is the point: namespaces live in the discriminant's high
+    // 16 bits precisely so that `as u16` keeps yielding the real tag code.
+    #[allow(clippy::cast_enum_truncation)]
+    fn as_cast_still_truncates_to_the_tag_code() {
+        // Namespaces live in the high 16 bits of the discriminant, so the
+        // pre-existing `ExifTag::X as u16` idiom keeps working.
+        assert_eq!(ExifTag::Make as u16, 0x010f);
+        assert_eq!(ExifTag::GPSDOP as u16, 0x000b);
+        assert_eq!(ExifTag::ProcessingSoftware as u16, 0x000b);
+        assert_eq!(ExifTag::InteropIndex as u16, 0x0001);
     }
 }
