@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## nom-exif v3.8.0 (2026-09-07)
 
 ### Added
 
@@ -40,6 +40,17 @@
   (`ProcessingSoftware`) was reported as `GPSDOP`. Resolution now happens
   within the entry's namespace.
   [#68](https://github.com/mindeng/nom-exif/issues/68)
+
+- **PNG metadata before a large chunk was discarded on streaming
+  sources** — metadata found before a chunk larger than the parser buffer
+  was lost when parsing resumed after `ClearAndSkip`, so an `eXIf` chunk
+  preceding a large `IDAT` returned `ExifNotFound` for streaming sources
+  even though the same bytes parsed fine from memory. The PNG cursor,
+  EXIF source, `tEXt` entries and source priority are now carried across
+  retries; zero-copy `eXIf` ranges are preserved while the buffer grows
+  and materialized only before destructive skips, with retained copies
+  bounded at 64 MiB. Thanks @nkgupta-dev.
+  [#67](https://github.com/mindeng/nom-exif/pull/67)
 
 ### Deprecated
 
